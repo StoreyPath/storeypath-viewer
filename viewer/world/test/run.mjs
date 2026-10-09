@@ -912,15 +912,26 @@ test("the walker bumps into desks, not into access points", async () => {
     const floor = world.package.floorsOf(world.building)[0];
     const items = world.package.itemsOn(floor.id);
     world.setMode("walk");
-    // stand at `from`, look along (dx, dz), walk for a while; how far it went that way
-    const walk = async (from, dx, dz) => {
+    // stand at `from`, look along (dx, dz), walk until `far` metres that way or stopped;
+    // how far it went. By frames, not by the clock: each frame moves the walker at most
+    // a tenth of a second's walk, so where frames are slow (drawn in software) a second
+    // of the clock walks less far.
+    const walk = async (from, dx, dz, far) => {
       world.camera.position.set(from.x, world.camera.position.y, from.z);
       world.camera.rotation.set(0, Math.atan2(-dx, -dz), 0, "YXZ");
+      const gone = () => (world.player.x - from.x) * dx + (world.player.z - from.z) * dz;
       window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" }));
-      await new Promise((r) => setTimeout(r, 2500));
+      const until = performance.now() + 60000;
+      let best = 0, still = 0;
+      for (let n = 0; gone() < far && performance.now() < until; n++) {
+        await window.frames(1);
+        const d = gone();
+        still = d > best + 0.001 ? 0 : still + 1;
+        best = Math.max(best, d);
+        if (n > 10 && still >= 8) break; // stopped: something in the way
+      }
       window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
-      const p = world.player;
-      return (p.x - from.x) * dx + (p.z - from.z) * dz;
+      return gone();
     };
     const facing = (item) => { // where its front faces, and along its width, in x and z
       const h = (item.properties.heading * Math.PI) / 180;
@@ -929,11 +940,11 @@ test("the walker bumps into desks, not into access points", async () => {
     const desk = items.find((i) => i.properties.type === "DESK-DIRECTOR");
     const c = world.toLocal(desk.properties.display_point), { front } = facing(desk);
     const behind = desk.properties.depth_m / 2 + 1.0; // a metre behind it (its front is towards a window), walking at it
-    const toDesk = await walk({ x: c.x - front[0] * behind, z: c.z - front[1] * behind }, front[0], front[1]);
+    const toDesk = await walk({ x: c.x - front[0] * behind, z: c.z - front[1] * behind }, front[0], front[1], 3);
     const ap = items.find((i) => i.properties.type === "ACCESS-POINT");
     const copier = items.find((i) => i.properties.type === "COPIER"); // in the same corridor, along it
     const a = world.toLocal(ap.properties.display_point), { across } = facing(copier);
-    const underAp = await walk({ x: a.x - across[0] * 1.5, z: a.z - across[1] * 1.5 }, across[0], across[1]);
+    const underAp = await walk({ x: a.x - across[0] * 1.5, z: a.z - across[1] * 1.5 }, across[0], across[1], 2.2);
     world.setMode("dollhouse");
     return { toDesk, room: 1.0 - 0.22, underAp };
   });
@@ -1041,9 +1052,16 @@ test("a way is drawn over each floor it walks on, through the lift between them,
     world.setFloor(null);
     // the camera along the way: the floor it is not on faded meanwhile, clear again after
     const opacity = () => named("route:leg:").map((m) => m.material.opacity);
-    const flying = world.flyRoute({ seconds: 3 });
-    await window.frames(6);
-    const during = opacity();
+    // (looked at every frame while it flies: where frames are slow, a few of them may take
+    // longer than the whole flight)
+    let landed = false, during = null;
+    const flying = world.flyRoute({ seconds: 3 }).then(() => (landed = true));
+    while (!landed) {
+      await window.frames(1);
+      const o = opacity();
+      if (!during && Math.min(...o) < 0.5) during = o;
+    }
+    during ??= opacity();
     await flying;
     const after = opacity();
     // again, from where the first ended: how far along the way the camera goes, frame by
