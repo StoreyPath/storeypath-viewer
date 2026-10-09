@@ -55,6 +55,7 @@ const PANEL = { half: 0.3, step: 2.4, narrow: 3.4, clear: 0.15 }; // m: ceiling 
 const UNLIT = new Set(["shaft", "elevator", "open_to_below"]); // no ceiling panels
 const EDGE_TURN = Math.cos((20 * Math.PI) / 180); // a wall's corner turns more than this: a line up it (edges)
 const DOUBLE_DOOR = 1.3; // m: a door wider than this, drawn without its swings, has two leaves
+const MEETING = 0.003; // m: the leaves of a double door stop this short of each other's, shut: a seam
 const OUTDOOR = new Set(["terrace", "balcony"]); // open to the sky, behind parapets
 const PARAPET = 1.1; // m, when the package gives no parapet height
 const ITEM_COLOR = "#8a8a8a"; // an item whose type the package does not describe (or not as #rrggbb)
@@ -645,7 +646,7 @@ export function buildPieces(plan, options = {}) {
  * DOUBLE_DOOR, two meeting in the middle. Each: its ``hinge``, the way it lies open
  * (``dir``, a unit vector), how wide it is past the frame's casing ``c`` (``w``), and the
  * way it lies shut (``shut``: along the span, from the end its hinge is at towards the
- * other; two leaves meet in the middle). A leaf shorter than 30 cm is none. */
+ * other; two leaves meet in the middle, a seam between them). A leaf shorter than 30 cm is none. */
 function doorLeaves(way, plan, at, len, c, ux, un) {
   let open = way.leaves || [];
   if (!open.length) {
@@ -659,12 +660,12 @@ function doorLeaves(way, plan, at, len, c, ux, un) {
       return [h, [h[0] + side[0] * k * w, h[1] + side[1] * k * w]];
     });
   }
-  const leaves = [];
+  const leaves = [], seam = open.length > 1 ? MEETING : 0;
   for (const [h, q] of open) {
     const reach = Math.hypot(q[0] - h[0], q[1] - h[1]);
     if (reach < 0.3) continue;
     const along = (h[0] - way.a[0]) * ux + (h[1] - way.a[1]) * un, k = along <= len / 2 ? 1 : -1;
-    leaves.push({ hinge: h, dir: [(q[0] - h[0]) / reach, (q[1] - h[1]) / reach], w: Math.min(reach, len) - c, shut: [ux * k, un * k] });
+    leaves.push({ hinge: h, dir: [(q[0] - h[0]) / reach, (q[1] - h[1]) / reach], w: Math.min(reach, len) - c - seam, shut: [ux * k, un * k] });
   }
   return leaves;
 }
