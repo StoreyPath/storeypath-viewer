@@ -357,7 +357,8 @@ $("building").onchange = (e) => world.setBuilding(e.target.value);
 $("file").onchange = (e) => e.target.files[0] && open(e.target.files[0]);
 
 window.addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.repeat) return;
+  // (a key the world took — E at a door it opened or shut, a step — is not the page's)
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.repeat || e.defaultPrevented) return;
   if (!world.package) return;
   const walking = world.mode === "walk";
   if (e.code === "KeyF" && !walking) world.setMode("walk");

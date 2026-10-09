@@ -61,6 +61,7 @@ install `three` and `jszip` alongside it.
 | `style` | `"real"` | the look: `"real"` or `"model"` ([below](#looks-and-quality)) |
 | `quality` | `"auto"` | `"auto"`, `"high"` or `"low"` ([below](#looks-and-quality)) |
 | `explode` | `0` | m between floors in the dollhouse view |
+| `doors` | `"auto"` | walking, a shut door opens when walked into (`"auto"`), or stays shut until opened (`"manual"`) ([doors](#doors)) |
 | `slab`, `doorHead`, `windowSill`, `windowHead`, `cutHeight` | `0.22`, `2.1`, `0.9`, `2.2`, `1.25` | m |
 
 | Method | |
@@ -74,13 +75,14 @@ install `three` and `jszip` alongside it.
 | `select(id, { go })` | highlight a space, zone or item and fly (or, walking, go) to it |
 | `setXray(on)`, `setCutaway(on)`, `setLabels(on)`, `setShowHidden(on)`, `setExplode(m)` | |
 | `setItems(on)` | furniture and equipment: `true`, `false`, or `null` (shown when one floor is) |
-| `plan(floorId)` | a floor's walls, rooms, items and obstacles in local meters, for drawing a minimap |
+| `plan(floorId)` | a floor's walls, rooms, items, obstacles and doors (each `{ id, open, moving, span, leaves }`: where its leaves are now) in local meters, for drawing a minimap |
 | `showRoute(route, { fly, color, casing, arrow, start, end })` | draw a way (`route()`, below): an edged ribbon over each floor it walks on, through the lift or stairs between them, its start and end marked, in the page's colours (CSS colours; by default the plan viewer's); with `fly`, the camera goes along it |
 | `flyRoute({ seconds })` | take the camera along the way shown, the floors it is not on faded meanwhile (a promise); `clearRoute()` takes it away; `route` is the way shown |
 | `reload(source, { floors })` | read the package again and build only `floors` again (default: all of the building shown), where they stand: the view, mode, floor shown, selection, walker and a way shown are kept |
 | `pause()`, `resume()` | stop drawing while the page hides the world (kept as it is), and draw again at once |
 | `setStyle("real" \| "model")`, `setQuality("auto" \| "high" \| "low")` | the look and the quality ([below](#looks-and-quality)): nothing is built again |
 | `ready()` | a promise, resolved once the look is drawn as it will stay: its finishes painted, its passes loaded |
+| `setDoorOpen(id, open, { instant })`, `doorOpen(id)`, `toggleDoor(id)`, `setDoors("auto" \| "manual")` | open or shut a door by its opening's ID ([doors](#doors)) |
 | `destroy()` | |
 
 **Editing on top of it** (what Studio's Review does in 3D and walking; the world
@@ -102,7 +104,8 @@ Properties: `package`, `building`, `floor`, `mode`, `selected`, `room` (the spac
 the walker is in), `walkFloor`, `atStairs`, `walking` (mouse taken), `player`
 (`{ x, z, dx, dz, floor }`, for a minimap), `prebuilt` (the floors shown from the
 package's pre-built 3D), `items` (whether items are drawn now), `look` (`{ style,
-quality, drawn, why }`: below).
+quality, drawn, why }`: below), `doors` (`"auto"` or `"manual"`), `aimedDoor` (walking,
+the door within reach at the crosshair: `{ id, open }`, or null).
 
 Items (format 0.6: desks, photocopiers, access points, sofas, TVs, …) are drawn
 in their type's colour as shapes of their kind (a desk with its chair on five
@@ -126,17 +129,21 @@ finish, the triangles sorted, not built again when a room's finish changes). A
 package exported by Studio with Node.js at hand carries each floor already built
 (format 0.5, `world/<floor-id>.glb`, made by the same build.js:
 [world/bake.mjs](world/bake.mjs)); the world shows those as they are, unless they
-are of another export or the world was given other sizes, and builds the rest.
-Either way it looks the same.
+are of another export or another version of the builder (`BUILDER`: 5 since doors
+swing), or the world was given other sizes, and builds the rest. Either way it looks
+the same, and its doors open and shut the same.
 
 Events: `load`, `buildingchange`, `floorchange`, `modechange`, `select`
 (`{ id, feature }`), `roomchange` (`{ id, type, name, number, stairs }`),
 `walklock` (`{ locked }`), `pick` (a click on the dollhouse view, or walking with
 the mouse taken at the crosshair: what `pointAt` says is there, with `button`,
-`altKey`, `shiftKey`; cancelable — unless a listener calls `preventDefault()`, what
-was clicked is selected), `itemdragstart`, `itemdrag`, `itemdragend` (with
-`cancelled`), `reload` (`{ floors }`) and `lookchange` (`look`, when the look or
-quality changed, or auto chose Low).
+`altKey`, `shiftKey`, and `door`, walking, the door within reach there; cancelable —
+unless a listener calls `preventDefault()`, what was clicked is selected, or walking
+at a door, the door opened or shut), `itemdragstart`, `itemdrag`, `itemdragend` (with
+`cancelled`), `reload` (`{ floors }`), `lookchange` (`look`, when the look or
+quality changed, or auto chose Low), `doorchange` (`{ id, open, floor }`: a door asked
+to open or shut, by the walker or the page) and `dooraim` (`{ id, open }`, walking: the
+door within reach at the crosshair changed, or what it would do; `id` null for none).
 
 ### Looks and quality
 
@@ -195,10 +202,49 @@ Rooms' labels show where there is room for them on the screen (a room at least
 rooms orbits as smoothly as a floor of ten.
 
 Walking: mouse to look, <kbd>W A S D</kbd> or the arrow keys to move,
-<kbd>Shift</kbd> to run. Walls and windows stop you; doorways don't. Floor changes
-are up to the page (the example uses <kbd>E</kbd>/<kbd>Q</kbd> where `atStairs` is
-true). Walls come from the floors' `walls`, door and window openings from the
-openings' `span` (format 0.1); a package without them shows rooms but no walls.
+<kbd>Shift</kbd> to run, <kbd>E</kbd> or a click to open or shut the door at the
+crosshair ([below](#doors)). Walls and windows stop you, and shut doors; doorways and
+open doors don't. Floor changes are up to the page (the example uses
+<kbd>E</kbd>/<kbd>Q</kbd> where `atStairs` is true, when <kbd>E</kbd> was not a door's).
+Walls come from the floors' `walls`, door and window openings from the openings'
+`span` (format 0.1); a package without them shows rooms but no walls.
+
+### Doors
+
+A door's leaves start as the plan draws them, open (from the openings' `swings`, format
+0.3.1: which side each hinges on and which way it opens; two for a double door; a door
+drawn without them gets one leaf opening into the room it serves, or two when wider
+than 1.3 m). An open leaf is never in the walker's way, even drawn across a passage.
+
+Walking, aim the crosshair at a door — its leaf or its doorway — within 2 m, and press
+<kbd>E</kbd> or click (with the mouse taken): it swings shut about its hinges in half a
+second, eased, or open again. A hint under the crosshair says so (`.sp3d-door-hint`,
+styled here; a page may restyle or hide it), the world's element has the class
+`sp3d-door-aim` meanwhile, and `dooraim` says which door, for a page drawing its own
+crosshair. A shut door is in the walker's way; walking into it (within half a metre,
+going and looking towards it) opens it by itself, unless the world was made with
+`doors: "manual"` (or `setDoors("manual")`), when it stays shut until opened. In the
+dollhouse view nothing changes: a click chooses as before.
+
+<kbd>E</kbd> is taken only at a door (the world listens first, on the window: the
+event's `defaultPrevented` tells a page's own <kbd>E</kbd> it was a door's), never
+while typing in a field.
+
+```js
+world.addEventListener("doorchange", (e) => console.log(e.detail)); // { id, open, floor }
+world.setDoorOpen("K7Q2XM-RUH-HQ-F02-0311", false);                 // shut, swinging
+world.setDoorOpen("K7Q2XM-RUH-HQ-F02-0311", true, { instant: true }); // open at once
+world.doorOpen("K7Q2XM-RUH-HQ-F02-0311");   // true; null for no such door
+world.toggleDoor("K7Q2XM-RUH-HQ-F02-0311"); // its new state
+```
+
+Whether a door is open is the view's, never written into a package: kept when a floor
+is built again (`reload`, a room retyped), as drawn again when another package opens.
+A leaf swings by its own few vertices of its floor's merged doors, turned in place
+(src/world/doors.js): nothing is built again or drawn apart, a pre-built floor's doors
+swing in its own geometry (builder 5: their runs listed in its extras, spec/FORMAT.md
+"Pre-built 3D"), nothing is done a frame while no door moves, and the shadows are drawn
+again only while one swings.
 
 [examples/world](examples/world) is a complete page: floor picker, dollhouse
 controls, room details, the walking HUD and minimap.

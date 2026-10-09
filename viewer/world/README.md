@@ -50,6 +50,22 @@ viewer's); the dollhouse view of the whole building leaves out the floors above 
 `flyRoute({ seconds })` takes the camera along it, the floors it is not on faded
 meanwhile; `clearRoute()` takes it away; `route` is the way shown.
 
+Walking, doors open and shut: <kbd>E</kbd> or a click at a door within 2 m of the
+crosshair swings it, a shut door stops the walker until walked into (with
+`doors: "manual"`, until opened), and a page does the same by the door's ID (the
+opening's), the world saying so with `doorchange` (see ../README.md, "Doors"). Doors
+start open, as the plan draws them; whether one is open is the view's, never the package's.
+
+```ts
+import type { DoorMode, WorldDoor } from "@storeypath/viewer-world";
+
+const world = new StoreyPathWorld(element, { doors: "auto" satisfies DoorMode });
+world.addEventListener("doorchange", (e) => console.log(e.detail.id, e.detail.open)); // { id, open, floor }
+const doors: WorldDoor[] = world.plan(floorId)?.doors ?? []; // each { id, open, moving, span, leaves }
+world.setDoorOpen(doors[0].id, false);  // shut, swinging about its hinges; { instant: true } at once
+world.toggleDoor(doors[0].id);          // open again: true
+```
+
 ## Pre-built 3D
 
 ```sh
@@ -62,7 +78,8 @@ folder holds (format 0.5, "Pre-built 3D" in `spec/FORMAT.md`). Studio runs it wh
 it exports, when it finds Node.js (20.6 or newer); it needs nothing installed, as
 it takes three.js and JSZip from `../vendor`. The world shows a floor pre-built
 when the package has it, reading it with three.js's glTF loader (in the module),
-instead of building it.
+instead of building it: when it was built by this builder (`BUILDER`, 5: its doors'
+leaves listed to swing in its own geometry), else it builds the floor itself.
 
 ## Build and test
 
