@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go/go.mod
+      - run: go test ./...
+        working-directory: go
+  viewers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: The list of finishes and its copies agree
+        run: node spec/finishes.mjs --check
+      - name: Modules parse
+        run: for f in viewer/src/*.js viewer/src/world/*.js viewer/examples/*/app.js; do node --check "$f"; done
+      - name: 2D plan (viewer/svg)
+        run: npm ci && npm test
+        working-directory: viewer/svg
+      - name: 3D world (viewer/world)
+        run: npm ci && npm test
+        working-directory: viewer/world

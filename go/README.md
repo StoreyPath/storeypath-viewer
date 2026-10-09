@@ -6,7 +6,7 @@ the furniture and equipment on its floors, and (format 0.8) the way from one pla
 in a building to another. Standard library only; Go 1.25.
 
 ```go
-import storeypath "github.com/storeypath/storeypath/go"
+import storeypath "github.com/storeypath/storeypath-viewer/go"
 
 pkg, err := storeypath.Open("campus.storeypath")
 if err != nil { … }                       // not a package at all

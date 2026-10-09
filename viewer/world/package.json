@@ -38,7 +38,7 @@
   "author": "Khalefa <storeypath@alahmad.org>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/StoreyPath/storeypath.git",
+    "url": "git+https://github.com/StoreyPath/storeypath-viewer.git",
     "directory": "viewer/world"
   }
 }

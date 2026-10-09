@@ -1,7 +1,7 @@
 # StoreyPath Viewer
 
 Read-only web viewer engines for StoreyPath packages, to embed in any web app. It
-does no editing of its own; packages are made with [StoreyPath Studio](../studio),
+does no editing of its own; packages are made with [StoreyPath Studio](https://github.com/StoreyPath/storeypath-studio),
 whose Review edits on top of the 3D world through its [editing API](#the-3d-world).
 
 - **`StoreyPathWorld`**, the 3D world: walls, doorways, windows, skirting,
