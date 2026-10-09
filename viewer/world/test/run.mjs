@@ -705,14 +705,112 @@ const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,
     const obstacles = world.package.floorsOf(world.building).map((f) => world.plan(f.id).obstacles);
     return { pieces, pixels, labels, obstacles, calls: r.info.render.calls, prebuilt: world.prebuilt };
   };
+  // ---- doors: where to stand by one, walking by frames, and a swing seen to its end ----
+  const insideRing = (ring, x, z) => {
+    let hit = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, zi] = ring[i], [xj, zj] = ring[j];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) hit = !hit;
+    }
+    return hit;
+  };
+  const crosses = ([ax, az], [bx, bz], [cx, cz], [dx, dz]) => {
+    const d = (bx - ax) * (dz - cz) - (bz - az) * (dx - cx);
+    if (Math.abs(d) < 1e-12) return false;
+    const t = ((cx - ax) * (dz - cz) - (cz - az) * (dx - cx)) / d, u = ((cx - ax) * (bz - az) - (cz - az) * (bx - ax)) / d;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  };
+  window.crosses = crosses;
+  window.insideRing = insideRing;
+  /** A door of a floor's plan (the world's plan(floor).doors) with room each side of it: from
+   * far metres before its span's middle to as far behind, in rooms, nothing of the
+   * floor's in the way but the door; pick: which of those (by default the first). Its
+   * middle, the way across it towards the side its first leaf opens to (n), and its ID. */
+  window.doorWithRoom = (world, floor, far = 1.5, pick = (d) => true) => {
+    const plan = world.plan(floor);
+    const inRoom = (x, z) => plan.spaces.some((s) => s.rings.some((r) => insideRing(r, x, z)));
+    for (const d of plan.doors) {
+      const [[x1, z1], [x2, z2]] = d.span, m = [(x1 + x2) / 2, (z1 + z2) / 2], l = Math.hypot(x2 - x1, z2 - z1);
+      let n = [-(z2 - z1) / l, (x2 - x1) / l];
+      const [[hx, hz], [tx, tz]] = d.leaves[0];
+      if (((hx + tx) / 2 - m[0]) * n[0] + ((hz + tz) / 2 - m[1]) * n[1] < 0) n = [-n[0], -n[1]];
+      const a = [m[0] - n[0] * far, m[1] - n[1] * far], b = [m[0] + n[0] * far, m[1] + n[1] * far];
+      if (!inRoom(...a) || !inRoom(...b) || plan.obstacles.some(([p, q, r, s]) => crosses(a, b, [p, q], [r, s])) || !pick(d)) continue;
+      return { id: d.id, m, n, span: d.span, leaves: d.leaves };
+    }
+    return null;
+  };
+  /** Walking on floor: stand at (x, z), looking at (tx, tz). */
+  window.standAt = async (world, floor, [x, z], [tx, tz]) => {
+    const heading = Math.atan2(-(tx - x), -(tz - z));
+    if (world.mode !== "walk" || world.walkFloor !== floor) {
+      world.setMode("dollhouse");
+      world.setMode("walk", { at: { x, z }, floor, heading });
+    } else {
+      world.camera.position.set(x, world.camera.position.y, z);
+      world.camera.rotation.set(0, heading, 0, "YXZ");
+    }
+    await window.frames(2);
+  };
+  /** Walk ahead until far metres on, or stopped (a few frames without going on); how far
+   * it went. By frames, not by the clock: drawn in software, frames are slow, and each
+   * moves the walker a tenth of a second's walk at most. */
+  window.walkAhead = async (world, far) => {
+    const from = world.player, gone = () => (world.player.x - from.x) * from.dx + (world.player.z - from.z) * from.dz;
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW" }));
+    const until = performance.now() + 60000;
+    let best = 0, still = 0;
+    for (let n = 0; gone() < far && performance.now() < until; n++) {
+      await window.frames(1);
+      const d = gone();
+      still = d > best + 0.001 ? 0 : still + 1;
+      best = Math.max(best, d);
+      if (n > 10 && still >= 8) break;
+    }
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
+    return gone();
+  };
+  /** Frames until a door of a floor is still; how many it was seen swinging. */
+  window.settled = async (world, floor, id) => {
+    let moving = 0;
+    for (let i = 0; i < 400; i++) {
+      if (!world.plan(floor).doors.find((d) => d.id === id).moving) break;
+      moving++;
+      await window.frames(1);
+    }
+    return moving;
+  };
+  /** How far a door's leaves are from lying shut: the most any free edge or hinge is off its span. */
+  window.offSpan = (door) => {
+    const [[x1, z1], [x2, z2]] = door.span, ex = x2 - x1, ez = z2 - z1, l = Math.hypot(ex, ez);
+    return Math.max(...door.leaves.flat().map(([x, z]) => Math.abs((x - x1) * ez - (z - z1) * ex) / l));
+  };
   window.ready = true;
 </script>`;
+
+/** campus-hq with double doors on its ground floor: a door drawn with two leaves (its swing
+ * split in two, one from each jamb), and its wide door (1.8 m) drawn without its swing (the
+ * builder gives it two leaves). Their IDs in DOUBLE. */
+const DOUBLE = {};
+const doubleDoors = repack(join(packages, "campus-hq.storeypath"), (files) => {
+  const name = files.get("manifest.json").files.openings ?? "openings.geojson";
+  const metres = ([a, b]) => Math.hypot((b[0] - a[0]) * 111320 * Math.cos((a[1] * Math.PI) / 180), (b[1] - a[1]) * 110540);
+  const doors = files.get(name).features.filter((f) => f.properties.type === "door" && f.properties.floor_id.endsWith("-F00")
+    && f.properties.swings?.length === 1 && f.properties.span);
+  const wide = doors.find((f) => metres(f.properties.span) > 1.3);
+  const drawn = doors.find((f) => f !== wide && f.properties.connects.length === 2 && metres(f.properties.span) > 0.85);
+  delete wide.properties.swings;
+  const [a, b] = drawn.properties.span, [[h, tip]] = drawn.properties.swings, half = [(tip[0] - h[0]) / 2, (tip[1] - h[1]) / 2];
+  drawn.properties.swings = [[a, [a[0] + half[0], a[1] + half[1]]], [b, [b[0] + half[0], b[1] + half[1]]]];
+  Object.assign(DOUBLE, { wide: wide.id, drawn: drawn.id });
+});
 
 const file = (name) => readFileSync(join(packages, name));
 const server = await serve(root, { "/page.html": PAGE, "/simple-office.storeypath": file("simple-office.storeypath"),
   "/campus.storeypath": file("campus.storeypath"), "/simple-office-world.storeypath": file("simple-office-world.storeypath"),
   "/campus-world.storeypath": file("campus-world.storeypath"), "/campus-hq.storeypath": file("campus-hq.storeypath"),
-  "/campus-hq-2.storeypath": file("campus-hq-2.storeypath"), "/jszip.min.js": readFileSync(join(root, "../vendor/jszip.min.js")) });
+  "/campus-hq-2.storeypath": file("campus-hq-2.storeypath"), "/campus-hq-doors.storeypath": doubleDoors,
+  "/jszip.min.js": readFileSync(join(root, "../vendor/jszip.min.js")) });
 const page = await launch({ webgl: true });
 await page.open(`${server.url}/page.html`, 900, 600);
 await page.run(async () => {
@@ -1306,7 +1404,8 @@ test("pick says what a click is on; cancelled, nothing is chosen", async () => {
   });
   await page.click(at.x, at.y);
   const chosen = await page.run(() => window.world.selected);
-  truly(cancelled.picks.length === 1 && cancelled.picks[0].space === at.id && cancelled.picks[0].local && cancelled.selected === null,
+  truly(cancelled.picks.length === 1 && cancelled.picks[0].space === at.id && cancelled.picks[0].local && cancelled.picks[0].door === null
+    && cancelled.selected === null,
     `cancelled: ${JSON.stringify(cancelled)}`);
   truly(chosen === at.id, `then chosen: ${chosen}, want ${at.id}`);
 });
@@ -1751,6 +1850,309 @@ test("painting: a wall aimed at says so, and which room is on its side; a floor,
   const p = picked.picks[0];
   truly(picked.picks.length === 1 && p.space === r.id && p.wall === false && p.altKey === true && picked.selected === null,
     `the click: ${JSON.stringify(picked)}`);
+});
+
+// ---- doors: walking through, opened and shut -----------------------------------------------
+
+/** The walker in the page's world on campus-hq's ground floor (``pkg``: or another package),
+ * items not drawn (nothing in the way but walls and doors), doors as drawn ("auto"). */
+const doorFloor = (pkg = "/campus-hq.storeypath") => page.run(async (pkg) => {
+  const world = (window.world ??= new window.sp.StoreyPathWorld("#w"));
+  world.setMode("dollhouse");
+  world.setItems(false);
+  world.setDoors("auto");
+  await world.open(pkg); // (its doors as drawn)
+  const floor = world.package.floorsOf(world.building)[0].id;
+  window.doorEvents = [];
+  if (!world.doorsHeard) world.addEventListener("doorchange", (e) => window.doorEvents.push(e.detail));
+  world.doorsHeard = true;
+  return floor;
+}, pkg);
+
+test("an open leaf is not in the walker's way: it walks right through where one stands (across a passage, it shut it off)", async () => {
+  const floor = await doorFloor();
+  const r = await page.run(async (floor) => {
+    const world = window.world;
+    const plan = world.plan(floor);
+    // a leaf with room each side of it along a wall: the walk crosses it at its middle
+    for (const d of plan.doors) {
+      const [[hx, hz], [tx, tz]] = d.leaves[0], l = Math.hypot(tx - hx, tz - hz);
+      const m = [(hx + tx) / 2, (hz + tz) / 2], n = [-(tz - hz) / l, (tx - hx) / l];
+      const a = [m[0] - n[0] * 0.9, m[1] - n[1] * 0.9], b = [m[0] + n[0] * 0.9, m[1] + n[1] * 0.9];
+      const inRoom = (x, z) => plan.spaces.some((s) => s.rings.some((ring) => window.insideRing(ring, x, z)));
+      const walls = plan.walls.some((ring) => ring.some((p, i) => i > 0 && window.crosses(a, b, ring[i - 1], p)));
+      if (!inRoom(...a) || !inRoom(...b) || walls) continue;
+      await window.standAt(world, floor, a, b);
+      const gone = await window.walkAhead(world, 1.8);
+      return { id: d.id, gone, across: window.crosses(a, b, [hx, hz], [tx, tz]), events: window.doorEvents.length };
+    }
+    return null;
+  }, floor);
+  truly(r && r.across, `a leaf with room each side: ${JSON.stringify(r)}`);
+  truly(r.gone > 1.75 && r.events === 0, `walked ${r.gone.toFixed(2)} m of 1.8 through ${r.id}'s leaf`);
+});
+
+test("E or a click at a door within reach shuts it, swinging, and opens it again; out of reach, or in the dollhouse view, nothing", async () => {
+  const floor = await doorFloor();
+  const r = await page.run(async (floor) => {
+    const world = window.world;
+    const door = window.doorWithRoom(world, floor);
+    const { m, n } = door;
+    // 1.2 m before it, on the side its leaf does not open to, looking at its middle
+    await window.standAt(world, floor, [m[0] - n[0] * 1.2, m[1] - n[1] * 1.2], m);
+    window.aims = [];
+    world.addEventListener("dooraim", (e) => window.aims.push(e.detail));
+    await window.frames(2);
+    window.state = { door, aimed: world.aimedDoor, hint: document.querySelector("#w .sp3d-door-hint")?.textContent,
+      marked: document.querySelector("#w").classList.contains("sp3d-door-aim") };
+    return window.state;
+  }, floor);
+  truly(r.aimed?.id === r.door.id && r.aimed.open && r.hint === "Close door (E)" && r.marked, `aimed: ${JSON.stringify(r)}`);
+  await page.key("e", "KeyE", 69);
+  const shut = await page.run(async (floor) => {
+    const world = window.world, id = window.state.door.id;
+    const asked = world.doorOpen(id), moving = await window.settled(world, floor, id);
+    const d = world.plan(floor).doors.find((x) => x.id === id);
+    await window.frames(2);
+    return { asked, moving, off: window.offSpan(d), open: d.open, events: window.doorEvents.slice(), hint: document.querySelector("#w .sp3d-door-hint").textContent,
+      aims: window.aims.slice() };
+  }, floor);
+  truly(shut.asked === false && shut.open === false && shut.off < 0.07, `shut: ${JSON.stringify(shut)}`);
+  truly(shut.moving >= 3, `seen swinging over ${shut.moving} frames`); // half a second, a tenth a frame at most
+  truly(JSON.stringify(shut.events) === JSON.stringify([{ id: r.door.id, open: false, floor }]), JSON.stringify(shut.events));
+  truly(shut.hint === "Open door (E)" && shut.aims.at(-1)?.open === false, `the hint: ${shut.hint} ${JSON.stringify(shut.aims)}`);
+  // a click, with the mouse taken (walking): opened again, the pick saying which door
+  await page.run(() => {
+    window.picks = [];
+    window.world.addEventListener("pick", (e) => window.picks.push(e.detail));
+    window.world.renderer.domElement.addEventListener("click", () => window.world.startWalking(), { once: true });
+  });
+  await page.click(450, 300); // takes the mouse
+  const locked = await page.run(async () => {
+    for (let i = 0; i < 50 && !window.world.walking; i++) await window.frames(1);
+    return window.world.walking;
+  });
+  truly(locked, "the mouse taken");
+  await page.click(450, 300);
+  const clicked = await page.run(async (floor) => {
+    const world = window.world, id = window.state.door.id;
+    const asked = world.doorOpen(id), moving = await window.settled(world, floor, id);
+    const d = world.plan(floor).doors.find((x) => x.id === id);
+    world.stopWalking();
+    return { asked, moving, leaves: d.leaves, drawn: window.state.door.leaves, picks: window.picks.map((p) => p.door), selected: world.selected,
+      events: window.doorEvents.length };
+  }, floor);
+  const near = (a, b) => a.flat(2).every((v, i) => Math.abs(v - b.flat(2)[i]) < 1e-4);
+  truly(clicked.asked === true && clicked.moving >= 3 && near(clicked.leaves, clicked.drawn) && clicked.events === 2,
+    `opened again, as drawn: ${JSON.stringify(clicked)}`);
+  truly(JSON.stringify(clicked.picks) === JSON.stringify([r.door.id]) && clicked.selected === null, `the pick: ${JSON.stringify(clicked)}`);
+  // out of reach (its middle 2.5 m off), or in the dollhouse view: E does nothing to it
+  const far = await page.run(async (floor) => {
+    const world = window.world, { m, n } = window.state.door;
+    await window.standAt(world, floor, [m[0] - n[0] * 2.5, m[1] - n[1] * 2.5], m);
+    return { aimed: world.aimedDoor };
+  }, floor);
+  await page.key("e", "KeyE", 69);
+  const ofIt = () => window.doorEvents.filter((e) => e.id === window.state.door.id).length;
+  const dollhouse = await page.run(async (ofIt) => {
+    const world = window.world;
+    await window.frames(2);
+    const walking = eval(ofIt)();
+    world.setMode("dollhouse");
+    await window.frames(1);
+    return { walking, aimed: world.aimedDoor, hint: document.querySelector("#w .sp3d-door-hint").style.display,
+      marked: document.querySelector("#w").classList.contains("sp3d-door-aim") };
+  }, ofIt.toString());
+  await page.key("e", "KeyE", 69);
+  const after = await page.run(async () => {
+    await window.frames(2);
+    return { events: window.doorEvents.length, open: window.world.doorOpen(window.state.door.id) };
+  });
+  truly(far.aimed?.id !== r.door.id && dollhouse.walking === 2, `out of reach: ${JSON.stringify(far)} ${JSON.stringify(dollhouse)}`);
+  truly(dollhouse.aimed === null && dollhouse.hint === "none" && !dollhouse.marked && after.open === true,
+    `dollhouse: ${JSON.stringify(dollhouse)} ${JSON.stringify(after)}`);
+});
+
+test("a shut door is in the walker's way; walked into, it opens by itself (auto); manual, it stays shut", async () => {
+  const floor = await doorFloor();
+  const walk = (mode) => page.run(async (floor, mode) => {
+    const world = window.world;
+    world.setDoors(mode);
+    const door = window.doorWithRoom(world, floor);
+    world.setDoorOpen(door.id, false, { instant: true });
+    window.doorEvents.length = 0;
+    const { m, n } = door;
+    await window.standAt(world, floor, [m[0] - n[0] * 1.5, m[1] - n[1] * 1.5], m);
+    const gone = await window.walkAhead(world, 3);
+    await window.settled(world, floor, door.id);
+    return { gone, open: world.doorOpen(door.id), events: window.doorEvents.slice(), mode: world.doors };
+  }, floor, mode);
+  const auto = await walk("auto");
+  truly(auto.mode === "auto" && auto.gone > 2.9 && auto.open === true && auto.events.length === 1 && auto.events[0].open === true,
+    `auto: ${JSON.stringify(auto)}`);
+  const manual = await walk("manual");
+  // stopped at the door: its span less the walker's reach (22 cm), and a little
+  truly(manual.mode === "manual" && manual.gone > 1.1 && manual.gone < 1.5 - 0.2 && manual.open === false && manual.events.length === 0,
+    `manual: ${JSON.stringify(manual)}`);
+  await page.run(() => window.world.setDoors("auto"));
+});
+
+test("doors: setDoorOpen, doorOpen, toggleDoor and doorchange; kept when the floor is built again, as drawn in another package", async () => {
+  const floor = await doorFloor();
+  const r = await page.run(async (floor) => {
+    const world = window.world;
+    const ids = world.plan(floor).doors.map((d) => d.id), id = ids[2];
+    const first = world.doorOpen(id);
+    const toggled = world.toggleDoor(id);
+    const again = world.setDoorOpen(id, false); // no change: no event
+    const events = window.doorEvents.slice();
+    const unknown = [world.doorOpen("NOPE"), world.toggleDoor("NOPE"), world.setDoorOpen("NOPE", false), world.doorOpen(null)];
+    await window.settled(world, floor, id);
+    world.setDoors("sideways"); // not a mode: as it was
+    const mode = world.doors;
+    // built again (a reload): still shut, at once
+    await world.reload("/campus-hq.storeypath");
+    const reloaded = world.plan(floor).doors.find((d) => d.id === id);
+    const others = world.plan(floor).doors.filter((d) => d.id !== id).every((d) => d.open);
+    // the model look's lines made with it shut: shut too
+    world.setStyle("model");
+    world.setFloor(floor);
+    await window.frames(2);
+    const mesh = world.scene.getObjectByName(floor).getObjectByName("door");
+    const lines = mesh.children.find((l) => l.isLineSegments).geometry.getAttribute("position");
+    const d = reloaded, [[x1, z1], [x2, z2]] = d.span, ex = x2 - x1, ez = z2 - z1, l = Math.hypot(ex, ez);
+    let shutLines = 0;
+    for (let i = 0; i < lines.count; i++) {
+      const x = lines.getX(i), z = lines.getZ(i);
+      const s = ((x - x1) * ex + (z - z1) * ez) / (l * l), off = Math.abs((x - x1) * ez - (z - z1) * ex) / l;
+      if (s > -0.05 && s < 1.05 && off < 0.08) shutLines++; // (a box's lines: its corners; drawn open, those near the hinge 6 cm off it)
+    }
+    world.setStyle("real");
+    world.setFloor(null);
+    // another package opened: its doors as drawn
+    await world.open("/campus-hq.storeypath");
+    const fresh = world.doorOpen(id);
+    return { first, toggled, again, events, unknown, mode, reloaded: { open: reloaded.open, moving: reloaded.moving, off: window.offSpan(reloaded) },
+      others, shutLines, fresh, floor };
+  }, floor);
+  truly(r.first === true && r.toggled === false && r.again === true && r.events.length === 1 && r.events[0].open === false
+    && r.events[0].floor === r.floor, JSON.stringify(r));
+  truly(JSON.stringify(r.unknown) === "[null,null,false,null]" && r.mode === "auto", `unknown doors: ${JSON.stringify(r.unknown)}`);
+  truly(r.reloaded.open === false && !r.reloaded.moving && r.reloaded.off < 0.07 && r.others, `reloaded: ${JSON.stringify(r.reloaded)}`);
+  truly(r.shutLines >= 20, `the model's lines of the leaf lie shut: ${r.shutLines} of 24`);
+  truly(r.fresh === true, "another package: as drawn");
+});
+
+test("double doors: two leaves each, drawn so or made for a wide door drawn without its swing; shut, they meet in the middle and close it", async () => {
+  const floor = await doorFloor("/campus-hq-doors.storeypath");
+  const r = await page.run(async (floor, ids) => {
+    const world = window.world;
+    world.setDoors("manual");
+    const out = {};
+    for (const [kind, id] of Object.entries(ids)) {
+      const before = world.plan(floor).doors.find((d) => d.id === id);
+      world.setDoorOpen(id, false);
+      const moving = await window.settled(world, floor, id);
+      const d = world.plan(floor).doors.find((x) => x.id === id);
+      const [[x1, z1], [x2, z2]] = d.span, mid = [(x1 + x2) / 2, (z1 + z2) / 2];
+      out[kind] = { leaves: before.leaves.length, moving, off: window.offSpan(d), meet: d.leaves.map(([, tip]) => Math.hypot(tip[0] - mid[0], tip[1] - mid[1])) };
+    }
+    // walking into the drawn one, shut: in the way
+    const door = window.doorWithRoom(world, floor, 1.5, (d) => d.id === ids.drawn);
+    if (door) {
+      await window.standAt(world, floor, [door.m[0] - door.n[0] * 1.5, door.m[1] - door.n[1] * 1.5], door.m);
+      out.gone = await window.walkAhead(world, 3);
+    }
+    world.setDoors("auto");
+    world.setMode("dollhouse");
+    return out;
+  }, floor, DOUBLE);
+  for (const kind of ["drawn", "wide"]) {
+    const d = r[kind];
+    truly(d.leaves === 2 && d.moving >= 3 && d.off < 0.07 && d.meet.every((m) => m < 0.06), `${kind}: ${JSON.stringify(d)}`);
+  }
+  truly(r.gone > 1.1 && r.gone < 1.3, `walked ${r.gone} m at the shut double door`);
+});
+
+test("a pre-built floor's doors swing in its own geometry, shut where the floor built here shuts them; one pre-built by builder 4 is built here", async () => {
+  const r = await page.run(async () => {
+    const world = (window.world ??= new window.sp.StoreyPathWorld("#w"));
+    world.setMode("dollhouse");
+    const shutOn = async (pkg) => {
+      await world.open(pkg);
+      const floor = world.package.floorsOf(world.building)[0].id;
+      const ids = world.plan(floor).doors.map((d) => d.id);
+      const mesh = world.scene.getObjectByName(floor).getObjectByName("door"), pos = mesh.geometry.getAttribute("position");
+      const before = Array.from(pos.array), version = pos.version;
+      world.setDoorOpen(ids[0], false);
+      await window.settled(world, floor, ids[0]);
+      const after = Array.from(mesh.geometry.getAttribute("position").array);
+      const moved = after.filter((v, i) => Math.abs(v - before[i]) > 0.1).length;
+      const d = world.plan(floor).doors.find((x) => x.id === ids[0]);
+      return { prebuilt: world.prebuilt.includes(floor), ids, leaves: d.leaves, off: window.offSpan(d), moved, written: mesh.geometry.getAttribute("position").version > version,
+        same: mesh.geometry.getAttribute("position") === pos };
+    };
+    const baked = await shutOn("/simple-office-world.storeypath");
+    const live = await shutOn("/simple-office.storeypath");
+    // the same files, said to be of builder 4: built here, their doors as well
+    const zip = await window.JSZip.loadAsync(await (await fetch("/simple-office-world.storeypath")).arrayBuffer());
+    for (const name of Object.keys(zip.files).filter((n) => n.endsWith(".glb"))) {
+      const glb = new Uint8Array(await zip.file(name).async("arraybuffer"));
+      const length = new DataView(glb.buffer).getUint32(12, true);
+      const json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + length)));
+      json.scenes[0].extras.storeypath.builder = 4;
+      delete json.scenes[0].extras.storeypath.doors;
+      const text = new TextEncoder().encode(JSON.stringify(json).padEnd(Math.ceil(JSON.stringify(json).length / 4) * 4));
+      const out = new Uint8Array(20 + text.length + glb.length - 20 - length);
+      out.set(glb.subarray(0, 20));
+      out.set(text, 20);
+      out.set(glb.subarray(20 + length), 20 + text.length);
+      new DataView(out.buffer).setUint32(8, out.length, true);
+      new DataView(out.buffer).setUint32(12, text.length, true);
+      zip.file(name, out);
+    }
+    const four = await shutOn(await zip.generateAsync({ type: "arraybuffer" }));
+    return { baked, live, four };
+  });
+  truly(r.baked.prebuilt && !r.live.prebuilt && !r.four.prebuilt, `pre-built: ${r.baked.prebuilt} ${r.live.prebuilt} ${r.four.prebuilt}`);
+  truly(JSON.stringify(r.baked.ids) === JSON.stringify(r.live.ids) && r.baked.ids.length > 10, "the same doors");
+  for (const k of ["baked", "live", "four"]) {
+    truly(r[k].off < 0.07 && r[k].moved >= 4 && r[k].written && r[k].same, `${k}: shut in place ${JSON.stringify(r[k])}`);
+  }
+  truly(r.baked.leaves.flat(2).every((v, i) => Math.abs(v - r.live.leaves.flat(2)[i]) < 1e-3), "shut elsewhere than built here");
+});
+
+test("no door swinging, nothing to do a frame: the leaves not written again, the shadows not drawn again; while one swings, they are", async () => {
+  const floor = await doorFloor();
+  const r = await page.run(async (floor) => {
+    const world = window.world;
+    const door = window.doorWithRoom(world, floor);
+    await window.standAt(world, floor, [door.m[0] - door.n[0] * 1.5, door.m[1] - door.n[1] * 1.5], door.m);
+    // the shadows drawn: the shadow map's renders that draw (it skips those not asked for)
+    const sm = world.renderer.shadowMap, render = sm.render;
+    let shadows = 0;
+    sm.render = function (...args) {
+      if (sm.needsUpdate) shadows++;
+      return render.apply(this, args);
+    };
+    const pos = () => world.scene.getObjectByName(floor).getObjectByName("door").geometry.getAttribute("position").version;
+    await window.frames(4); // (settled after standing there)
+    const still = { shadows, version: pos() };
+    await window.frames(8);
+    const idle = { shadows: shadows - still.shadows, written: pos() - still.version };
+    world.setDoorOpen(door.id, false);
+    const swung = await window.settled(world, floor, door.id);
+    const moving = { shadows: shadows - still.shadows - idle.shadows, written: pos() - still.version };
+    const done = { shadows, version: pos() };
+    await window.frames(8);
+    const after = { shadows: shadows - done.shadows, written: pos() - done.version };
+    sm.render = render;
+    world.setDoorOpen(door.id, true, { instant: true });
+    world.setMode("dollhouse");
+    return { idle, swung, moving, after };
+  }, floor);
+  truly(r.idle.shadows === 0 && r.idle.written === 0 && r.after.shadows === 0 && r.after.written === 0, `still: ${JSON.stringify(r)}`);
+  truly(r.moving.shadows >= r.swung && r.moving.written >= r.swung && r.swung >= 3, `swinging: ${JSON.stringify(r)}`);
 });
 
 test("destroy empties the container", async () => {

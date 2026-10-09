@@ -244,6 +244,26 @@ export interface WorldOptions {
 	style?: WorldStyle;
 	/** The quality ("auto"). */
 	quality?: WorldQuality;
+	/** Walking: a shut door opens when walked into ("auto"), or stays shut until opened ("manual"). */
+	doors?: DoorMode;
+}
+
+/** Doors when walking: "auto", a shut door opens when the walker walks into it; "manual", it stays
+ * shut until opened (a click or E at it, or `setDoorOpen`). */
+export type DoorMode = 'auto' | 'manual';
+
+/** A door as a floor's plan has it (local metres, x east, z south). */
+export interface WorldDoor {
+	/** Its opening's ID. */
+	id: string;
+	/** As asked: it may be swinging still. Doors start open, as the plan draws them. */
+	open: boolean;
+	/** Swinging now. */
+	moving: boolean;
+	/** Jamb to jamb, along the middle of its wall: shut, the walker bumps into it there. */
+	span: [[number, number], [number, number]];
+	/** Each leaf where it is now: [hinge, free edge]. */
+	leaves: [[number, number], [number, number]][];
 }
 
 export type WorldMode = 'dollhouse' | 'walk';
@@ -276,8 +296,14 @@ export interface WorldEvents {
 	roomchange: { id: string | null; type: string | null; name: string | null; number: string | null; stairs: boolean };
 	walklock: { locked: boolean };
 	/** A click on the dollhouse view, or walking with the mouse taken (at the crosshair): what is
-	 * there. Cancelable: unless a listener calls preventDefault, what was clicked is selected. */
-	pick: WorldPoint & { button: number; altKey: boolean; shiftKey: boolean };
+	 * there, and walking, the door within reach there (`door`). Cancelable: unless a listener calls
+	 * preventDefault, what was clicked is selected (walking, at a door: the door opened or shut). */
+	pick: WorldPoint & { door: string | null; button: number; altKey: boolean; shiftKey: boolean };
+	/** A door asked to open or shut (by the walker, walking into it, or the page): it swings. */
+	doorchange: { id: string; open: boolean; floor: string };
+	/** Walking: the door within reach at the crosshair changed, or what it would do (`open`: as it
+	 * is now); `id` null when none. */
+	dooraim: { id: string | null; open: boolean | null };
 	/** An item carried across its floor (setDraggable): where it is dragged, on its floor's level. */
 	itemdragstart: ItemDrag;
 	itemdrag: ItemDrag;
@@ -341,8 +367,10 @@ export interface WorldPlan {
 	spaces: { id: string; type: string; name: string | null; rings: [number, number][][] }[];
 	/** The floor's furniture and equipment: each footprint's corners, and its type's colour. */
 	items: { id: string; type: string; mount: 'floor' | 'wall' | 'ceiling'; color: string; ring: [number, number][] }[];
-	/** What the walker bumps into: walls, windows, open door leaves, [x1, z1, x2, z2] each. */
+	/** What the walker bumps into besides the items and the shut doors: walls and windows, [x1, z1, x2, z2] each. */
 	obstacles: [number, number, number, number][];
+	/** The floor's doors with leaves, as they are now. */
+	doors: WorldDoor[];
 	bounds: unknown;
 }
 
@@ -431,6 +459,19 @@ export declare class StoreyPathWorld extends EventTarget {
 	setItems(on: boolean | null): void;
 	/** Whether furniture and equipment are drawn now. */
 	readonly items: boolean;
+	/** Shut a door (`open` false) or open it, by its ID: it swings about its hinge, unless `instant`.
+	 * Shut, it is in the walker's way. Whether the world has that door (one with a leaf, in the
+	 * building shown). A view's state: never in the package. */
+	setDoorOpen(id: string, open: boolean, options?: { instant?: boolean }): boolean;
+	/** Whether a door is open (as asked), or null for no such door. */
+	doorOpen(id: string): boolean | null;
+	/** Open a door if shut, shut it if open: its new state, or null for no such door. */
+	toggleDoor(id: string): boolean | null;
+	/** Doors when walking: "auto" (the default) or "manual". */
+	setDoors(mode: DoorMode): void;
+	readonly doors: DoorMode;
+	/** Walking: the door within reach at the crosshair (a click or E opens or shuts it), or null. */
+	readonly aimedDoor: { id: string; open: boolean } | null;
 	/** Highlight a space, zone or item (null: none); `go` (default true) takes the view to it. */
 	select(id: string | null, options?: { go?: boolean }): void;
 	/** Up (+1) or down (−1) a floor from where the walker stands. */

@@ -1,7 +1,8 @@
 // Type-checked by `npm run check`: the declarations describe the module as a
 // strict TypeScript application uses it.
 import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, loadPackage, normalizeItemId, route, webglSupport, type Feature,
-	type Finish, type GivenItem, type Route, type WorldEvents, type WorldLook, type WorldPoint, type WorldQuality } from '@storeypath/viewer-world';
+	type DoorMode, type Finish, type GivenItem, type Route, type WorldDoor, type WorldEvents, type WorldLook, type WorldPoint,
+	type WorldQuality } from '@storeypath/viewer-world';
 import { webglSupport as check } from '@storeypath/viewer-world/support';
 
 export async function show(element: HTMLElement, data: ArrayBuffer): Promise<string | null> {
@@ -37,6 +38,8 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 	const officeWalls: string = FINISHES.defaults.wall['office'] ?? FINISHES.exterior;
 	world.addEventListener('pick', (e) => {
 		const p: WorldPoint = e.detail;
+		const door: string | null = e.detail.door; // walking, a door within reach: it opens or shuts
+		if (door) return;
 		if (p.wall && p.room) world.updateSpace(p.room, { wall_finish: officeWalls });
 		else if (p.space && navy) world.updateSpace(p.space, { floor_finish: navy.code });
 		const shown: string = floorFinish(office?.properties ?? null);
@@ -58,6 +61,18 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 	console.log(back, world.worldPoint([0, 0])?.x, world.target.x, world.paused, world.draggable);
 	world.updateSpace(office?.id ?? '', { name: 'Board room', type: 'meeting_room' });
 	world.setMode('walk', { at: world.target, heading: 0 });
+	// doors: opened and shut by the walker (a click or E at one, or walking into it) or here
+	const mode: DoorMode = world.doors === 'auto' ? 'manual' : 'auto';
+	world.setDoors(mode);
+	world.addEventListener('doorchange', (e) => console.log(e.detail.id, e.detail.open ? 'opened' : 'shut', e.detail.floor));
+	world.addEventListener('dooraim', (e) => console.log(e.detail.id ?? 'no door', e.detail.open));
+	const doors: WorldDoor[] = floor ? world.plan(floor)?.doors ?? [] : [];
+	const first = doors[0];
+	if (first) {
+		const had: boolean = world.setDoorOpen(first.id, false, { instant: true });
+		const open: boolean | null = world.toggleDoor(first.id);
+		console.log(had, open, world.doorOpen(first.id), first.leaves[0]?.[1], world.aimedDoor?.open);
+	}
 	world.stopWalking();
 	world.setMode('dollhouse', { back: true });
 	world.pause();

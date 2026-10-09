@@ -29,6 +29,12 @@
 // again; finishOf says what a room's floor and walls are in. The world itself changes
 // nothing.
 //
+// Doors open and shut when walking (doors.js): a click or E at one within reach of the
+// crosshair swings it, a shut one is in the walker's way and opens when walked into (unless
+// the page asks for "manual" doors); setDoorOpen and doorchange let a page do and follow the
+// same. They start as the plan draws them, open; how they are is the view's, not the
+// package's. An open leaf is never in the way.
+//
 // A way through the building (format 0.8: route() in ../navigation.js) is drawn with
 // showRoute: a ribbon just over each floor it walks on, through the lift or stairs
 // between them, its start and end marked; flyRoute takes the camera along it.
@@ -51,6 +57,7 @@ import {
   BUILDER, GEOMETRY, buildItems, buildPieces, ceilingPanels, cutPieces, flat, groupByFinish, inside, itemBox, itemExtent,
   itemPoint, occluders, originOf, planFloor, planItem, setItems, toLocal as localOf,
 } from "./build.js";
+import { DOOR, FloorDoors } from "./doors.js";
 import { Painter } from "./finishes.js";
 import { toLonLat } from "./frame.js";
 import { qualityFor, rendererName } from "./gpu.js";
@@ -67,6 +74,14 @@ const DEFAULTS = {
   style: "real", // the look: "real" or "model" (style.js)
   quality: "auto", // "auto", "high" or "low"
   fog: null, // its colour (default: the look's)
+  doors: "auto", // walking: a shut door opens when walked into ("auto"), or stays shut until opened ("manual")
+};
+const DOOR_MODES = new Set(["auto", "manual"]);
+// the hint at the crosshair when a door is within reach
+const HINT_STYLE = {
+  position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, 16px)", pointerEvents: "none", zIndex: "1",
+  padding: "3px 9px", borderRadius: "7px", background: "rgba(16, 18, 23, 0.72)", color: "#fff", whiteSpace: "nowrap",
+  font: '600 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif', display: "none",
 };
 const LABEL_STYLE = {
   display: "flex", flexDirection: "column", alignItems: "center", padding: "2px 7px", borderRadius: "7px",
@@ -148,6 +163,13 @@ export class StoreyPathWorld extends EventTarget {
   #route = null; // the way shown: { route, legs, links, marks, materials }
   #tour = null; // the camera going along it
   #toDress = new Map(); // floor → the kinds ("floor", "wall") whose finishes changed, dressed before the next frame
+  #shut = new Set(); // the doors asked to be shut, by ID: kept when their floor is built again (a view's, not the package's)
+  #swinging = new Set(); // the floors' doors (FloorDoors) with a door swinging
+  #aimed = null; // walking: the door within reach at the crosshair, { floor, door }
+  #aimFrom = null; // the camera it was aimed from (its matrix): null, aimed again (a door moved)
+  #aimSaid = ""; // what was said of the door aimed at: its ID and whether open
+  #hint; // the hint at the crosshair
+  #look = new THREE.Vector3(); // (the way the camera looks: kept, not made each frame)
 
   constructor(container, options = {}) {
     super();
@@ -203,6 +225,14 @@ export class StoreyPathWorld extends EventTarget {
     orbit.maxPolarAngle = Math.PI * 0.49;
     orbit.screenSpacePanning = true;
     this.#orbit = orbit;
+
+    this.#o.doors = DOOR_MODES.has(this.#o.doors) ? this.#o.doors : "auto";
+    this.#hint = document.createElement("div");
+    this.#hint.className = "sp3d-door-hint"; // styled here; pages may restyle (or hide) the class
+    Object.assign(this.#hint.style, HINT_STYLE);
+    this.#hint.setAttribute("aria-hidden", "true");
+    element.appendChild(this.#hint);
+    window.addEventListener("keydown", this.#onKey, true); // (first: a page's own E sees it was a door's)
 
     this.#walker = new Walker(camera, renderer.domElement);
     this.#walker.addEventListener("lock", () => this.#emit("walklock", { locked: true }));
@@ -361,8 +391,11 @@ export class StoreyPathWorld extends EventTarget {
     };
     if (!f.edged) {
       f.edged = true;
-      const { pieces } = buildPieces(f.plan, { ...this.#o, only: "edges" });
+      const { pieces, doors } = buildPieces(f.plan, { ...this.#o, only: "edges" });
       add(f.pieces, [...pieces, ...cutPieces(pieces, f.elevation, this.#o)]);
+      // (the door's: each leaf's lines turned as it is)
+      const lines = f.pieces.find((m) => m.name === "door")?.children.find((l) => l.isLineSegments);
+      if (lines) f.doors.lines(lines.geometry, doors);
     }
     f.itemsEdged ??= new Set();
     if (form && f.itemMeshes[form] && !f.itemsEdged.has(form)) {
@@ -392,6 +425,7 @@ export class StoreyPathWorld extends EventTarget {
     const pkg = await loadPackage(source);
     this.#pkg = pkg;
     this.#baked = new Map();
+    this.#shut.clear(); // its doors as the plan draws them
     await this.setBuilding(pkg.buildings[0]?.id);
     if (this.#pkg === pkg) this.#emit("load", { package: pkg }); // not when another was opened meanwhile
     return pkg;
@@ -426,6 +460,8 @@ export class StoreyPathWorld extends EventTarget {
     if (this.#watch) this.#watch.since = null; // (auto) its frames timed once it has been shown a while
     this.#route = null; // drawn on the floors taken away
     this.#floors.clear();
+    this.#swinging.clear(); // (their doors: those of the floors built again are as asked at once)
+    this.#aimFrom = null;
     this.#floor = null;
     this.#selected = null;
     this.#lit = null;
@@ -495,6 +531,8 @@ export class StoreyPathWorld extends EventTarget {
     }
     this.#buildingGroup.remove(old.group);
     this.#dispose(old.group);
+    this.#swinging.delete(old.doors); // (its doors: as asked at once, built again)
+    this.#aimFrom = null;
     this.#floors.set(id, built);
     this.#buildingGroup.add(built.group);
     this.#applyVisibility();
@@ -550,6 +588,7 @@ export class StoreyPathWorld extends EventTarget {
       this.#walker.unlock();
       this.#orbit.enabled = true;
       this.#room = null;
+      this.#aim(); // (none, now)
       if (back && this.#orbitView) {
         const { position, target } = this.#orbitView;
         this.#flight = { from: this.#camera.position.clone(), to: position, fromT: this.#orbit.target.clone(), toT: target, t: 0 };
@@ -940,6 +979,139 @@ export class StoreyPathWorld extends EventTarget {
     return this.#o.items ?? this.#shownFloors() <= 1;
   }
 
+  // ---- doors -------------------------------------------------------------------------
+
+  /** Shut a door (``open`` false) or open it, by its ID (the opening's): it swings, about
+   * its hinge, unless ``instant``. Shut, it is in the walker's way. Whether the world has
+   * that door (one with a leaf, in the building shown). */
+  setDoorOpen(id, open, { instant = false } = {}) {
+    const found = this.#findDoor(id);
+    if (!found) return false;
+    this.#setDoor(found.floor, found.door, Boolean(open), instant);
+    return true;
+  }
+
+  /** Whether a door is open (as asked: it may be swinging still), or null for an ID the
+   * world has no door of. */
+  doorOpen(id) {
+    return this.#findDoor(id)?.door.open ?? null;
+  }
+
+  /** Open a door if it is shut, shut it if open: its new state, or null for no such door. */
+  toggleDoor(id) {
+    const found = this.#findDoor(id);
+    if (!found) return null;
+    this.#setDoor(found.floor, found.door, !found.door.open);
+    return found.door.open;
+  }
+
+  /** Doors, when walking: "auto" (the default), a shut door opens when the walker walks
+   * into it; "manual", it stays shut until opened (a click or E at it, or setDoorOpen). */
+  setDoors(mode) {
+    if (DOOR_MODES.has(mode)) this.#o.doors = mode;
+  }
+
+  /** "auto" or "manual" (setDoors). */
+  get doors() { return this.#o.doors; }
+
+  /** Walking: the door within reach at the crosshair (a click or E would open or shut it),
+   * { id, open }; else null. */
+  get aimedDoor() {
+    const a = this.#aimed;
+    return a ? { id: a.door.id, open: a.door.open } : null;
+  }
+
+  /** A door of the building shown, by its ID: { floor, door }, or null. */
+  #findDoor(id) {
+    if (!id) return null;
+    for (const floor of this.#floors.values()) {
+      const door = floor.doors.byId.get(id);
+      if (door) return { floor, door };
+    }
+    return null;
+  }
+
+  /** A door asked to be open or shut (swinging, unless ``instant``); doorchange, when that
+   * is a change. */
+  #setDoor(f, door, open, instant = false) {
+    const changed = f.doors.set(door, open, instant);
+    if (f.doors.moving.size) this.#swinging.add(f.doors);
+    if (door.id) {
+      if (open) this.#shut.delete(door.id);
+      else this.#shut.add(door.id);
+    }
+    this.#shadowsDirty = true;
+    this.#aimFrom = null; // (aimed at again: its hint says what it does now)
+    if (changed) this.#emit("doorchange", { id: door.id, open, floor: f.id });
+    return changed;
+  }
+
+  /** E, walking: the door at the crosshair, within reach, opened or shut (its key taken:
+   * the page sees it was, defaultPrevented); not a key typed into a field of the page. */
+  #onKey = (e) => {
+    if (e.code !== "KeyE" || e.repeat || e.ctrlKey || e.metaKey || e.altKey || this.#mode !== "walk" || this.#paused) return;
+    if (e.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+    const aimed = this.#aimNow();
+    if (!aimed) return;
+    e.preventDefault();
+    this.#setDoor(aimed.floor, aimed.door, !aimed.door.open);
+  };
+
+  /** Walking: the door within reach at the crosshair, worked out now ({ floor, door }), or null. */
+  #aimNow() {
+    this.#aimFrom = null;
+    this.#aim();
+    return this.#aimed;
+  }
+
+  /** Walking, each frame: what the door at the crosshair is, again when the view moved or a
+   * door did; its hint shown, and dooraim when it changed. */
+  #aim() {
+    const f = this.#mode === "walk" ? this.#floors.get(this.#walkFloor) : null;
+    let aimed = null;
+    if (f) {
+      const cam = this.#camera;
+      cam.updateMatrixWorld();
+      const view = cam.matrixWorld.elements, was = this.#aimFrom;
+      if (was && was.floor === f && view.every((v, i) => v === was.view[i])) return; // as it was
+      this.#aimFrom = { floor: f, view: view.slice() };
+      const hit = f.doors.aim(cam.position, cam.getWorldDirection(this.#look), f.elevation, DOOR.reach, f.obstacles);
+      aimed = hit ? { floor: f, door: hit.door } : null;
+    } else this.#aimFrom = null;
+    this.#aimed = aimed;
+    const said = aimed ? `${aimed.door.id}:${aimed.door.open}` : "";
+    if (said === this.#aimSaid) return;
+    this.#aimSaid = said;
+    const hint = this.#hint;
+    hint.textContent = aimed ? `${aimed.door.open ? "Close" : "Open"} door (E)` : "";
+    hint.style.display = aimed ? "block" : "none";
+    this.#element.classList.toggle("sp3d-door-aim", Boolean(aimed));
+    this.#emit("dooraim", aimed ? { id: aimed.door.id, open: aimed.door.open } : { id: null, open: null });
+  }
+
+  /** Walking, each frame: a shut door walked into opened (doors "auto"), and the door at
+   * the crosshair. */
+  #walkDoors() {
+    const f = this.#floors.get(this.#walkFloor), intent = this.#walker.intent;
+    if (f && intent && this.#o.doors === "auto") {
+      const p = this.#camera.position, look = this.#camera.getWorldDirection(this.#look);
+      const door = f.doors.bumped(p.x, p.z, intent, { x: look.x, z: look.z });
+      if (door) this.#setDoor(f, door, true);
+    }
+    this.#aim();
+  }
+
+  /** The doors swinging moved on (each frame a tenth of a second at most, so that a swing
+   * is seen however slowly frames come), their shadows drawn again. */
+  #swing(dt) {
+    for (const doors of this.#swinging) {
+      doors.step(Math.min(dt, 0.1));
+      if (!doors.moving.size) this.#swinging.delete(doors);
+    }
+    this.#shadowsDirty = true;
+    this.#aimFrom = null;
+  }
+
   /** Select a space, a zone or an item (highlight it); in the walk view, go there. */
   select(id, { go = true } = {}) {
     const found = id ? this.#findSpace(id) ?? this.#findItem(id) : null;
@@ -1002,6 +1174,7 @@ export class StoreyPathWorld extends EventTarget {
       items: f.items.map((i) => ({ id: i.id, type: i.type, mount: i.mount, color: i.color,
         ring: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => itemPoint(i, (a * i.width) / 2, (b * i.depth) / 2)) })),
       obstacles: f.obstacles.segments,
+      doors: f.doors.plan(),
       bounds: f.bounds,
     };
   }
@@ -1196,6 +1369,7 @@ export class StoreyPathWorld extends EventTarget {
     this.#destroyed = true;
     this.#endTour();
     this.#renderer.setAnimationLoop(null);
+    window.removeEventListener("keydown", this.#onKey, true);
     this.#walker.dispose();
     this.#orbit.dispose();
     if (this.#buildingGroup) this.#dispose(this.#buildingGroup);
@@ -1281,7 +1455,7 @@ export class StoreyPathWorld extends EventTarget {
     }
   }
 
-  /** A pre-built floor's pieces, room IDs and obstacles, as buildPieces gives them;
+  /** A pre-built floor's pieces, room IDs, obstacles and doors, as buildPieces gives them;
    * its items' pieces by form, as buildItems gives them, and the IDs they index. */
   #bakedPieces(gltf) {
     const pieces = [], obstacles = [], items = { detailed: [], light: [] };
@@ -1300,7 +1474,7 @@ export class StoreyPathWorld extends EventTarget {
       if (m.material) m.material.dispose(); // the file's own: the world's are used
     });
     const x = gltf.scene.userData.storeypath;
-    return { pieces, rooms: x.rooms, obstacles, items: { ids: x.items ?? [], ...items } };
+    return { pieces, rooms: x.rooms, obstacles, doors: x.doors ?? [], items: { ids: x.items ?? [], ...items } };
   }
 
   /** The material a piece is drawn with: its finishes' (one a group of its triangles), or
@@ -1317,7 +1491,7 @@ export class StoreyPathWorld extends EventTarget {
     const o = this.#o;
     const plan = planFloor(this.#pkg, floor, this.#origin, o);
     const baked = this.#baked.get(floor.id);
-    const { pieces, rooms, obstacles, items } = baked ? this.#bakedPieces(baked) : buildPieces(plan, o);
+    const { pieces, rooms, obstacles, items, doors } = baked ? this.#bakedPieces(baked) : buildPieces(plan, o);
     if (baked) this.#baked.delete(floor.id); // its geometry is the floor's now: read again when built again
     const e = plan.elevation;
     pieces.push(...cutPieces(pieces, e, o));
@@ -1348,7 +1522,11 @@ export class StoreyPathWorld extends EventTarget {
       built.spaces.push({ id: u.id, space: u.space, type: u.type, name: u.name, number: u.number, tucked: u.tucked,
         rings: u.rings, label, centre: u.centre, size: u.size });
     }
-    built.obstacles = new Obstacles(obstacles);
+    // its doors (open as the plan draws them; those asked to be shut, shut), in the walker's way while shut
+    const meshOf = (name) => built.pieces.find((m) => m.name === name);
+    built.doors = new FloorDoors(doors, { door: meshOf("door"), handle: meshOf("handle") });
+    for (const d of built.doors.doors) if (d.id && this.#shut.has(d.id)) built.doors.set(d, false, true);
+    built.obstacles = new Obstacles(obstacles, built.doors.gates);
 
     if (Number.isFinite(plan.bounds[0])) {
       built.bounds3.set(new THREE.Vector3(plan.bounds[0], e - o.slab, plan.bounds[1]),
@@ -1427,10 +1605,10 @@ export class StoreyPathWorld extends EventTarget {
     return f.itemMeshes[form];
   }
 
-  /** What the walker bumps into on a floor: its walls, and its items when they are shown. */
+  /** What the walker bumps into on a floor: its walls, its shut doors, and its items when they are shown. */
   #obstaclesOf(f, items) {
     if (!items || !f.items.length) return f.obstacles;
-    f.itemObstacles ??= new Obstacles([...f.obstacles.segments, ...f.plan.itemObstacles]);
+    f.itemObstacles ??= new Obstacles([...f.obstacles.segments, ...f.plan.itemObstacles], f.obstacles.gates);
     return f.itemObstacles;
   }
 
@@ -1737,6 +1915,7 @@ export class StoreyPathWorld extends EventTarget {
     this.#dressChanged();
     this.#timer.update();
     const dt = this.#timer.getDelta();
+    if (this.#swinging.size) this.#swing(dt);
     if (this.#tour) { // along the way: from behind and above where it has got to, looking ahead
       const tour = this.#tour;
       tour.t = Math.min(tour.seconds, tour.t + dt);
@@ -1767,6 +1946,7 @@ export class StoreyPathWorld extends EventTarget {
     }
     if (this.#mode === "walk") {
       this.#walker.update(dt);
+      this.#walkDoors();
       const f = this.#floors.get(this.#walkFloor);
       if (f) {
         const here = this.#spaceAt(f, this.#camera.position.x, this.#camera.position.z);
@@ -1885,8 +2065,9 @@ export class StoreyPathWorld extends EventTarget {
   /** A click (a press that does not move) on the dollhouse view, or walking with the mouse
    * taken (at the crosshair): ``pick``, which a page may cancel (preventDefault: it does
    * something else with the click, as placing an item there), else what was clicked is
-   * selected. A press on an item that moves, where items may be carried (setDraggable):
-   * the item dragged. */
+   * selected; walking, a door within reach at the crosshair is opened or shut instead (the
+   * pick says which: ``door``). A press on an item that moves, where items may be carried
+   * (setDraggable): the item dragged. */
   #pointerPicking() {
     const canvas = this.#renderer.domElement;
     let down = null, drag = null, hover = 0;
@@ -1938,12 +2119,14 @@ export class StoreyPathWorld extends EventTarget {
       if (e.button !== 0) return;
       if (!walking && (this.#mode !== "dollhouse" || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4)) return;
       const p = this.pointAt(e.clientX, e.clientY); // walking: at the crosshair
+      const door = walking ? this.#aimNow() : null; // walking: a door within reach there
       const pick = new CustomEvent("pick", { cancelable: true, detail: {
         ...(p ?? { floor: null, x: null, z: null, local: null, space: null, item: null }),
-        button: e.button, altKey: e.altKey, shiftKey: e.shiftKey } });
+        door: door?.door.id ?? null, button: e.button, altKey: e.altKey, shiftKey: e.shiftKey } });
       this.dispatchEvent(pick);
       if (pick.defaultPrevented) return;
-      this.select(walking ? p?.item ?? p?.space ?? null : this.#clicked(e.clientX, e.clientY), { go: false });
+      if (door) this.#setDoor(door.floor, door.door, !door.door.open); // opened or shut, not chosen
+      else this.select(walking ? p?.item ?? p?.space ?? null : this.#clicked(e.clientX, e.clientY), { go: false });
     });
   }
 

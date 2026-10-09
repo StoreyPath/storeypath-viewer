@@ -1,5 +1,5 @@
 // Walking through a floor in the first person: mouse to look, WASD to move,
-// walls and windows to bump into.
+// walls, windows and shut doors to bump into.
 
 import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
@@ -7,12 +7,17 @@ import { PointerLockControls } from "three/addons/controls/PointerLockControls.j
 const CELL = 2; // m, collision grid
 const KEYS = { KeyW: "f", ArrowUp: "f", KeyS: "b", ArrowDown: "b", KeyA: "l", ArrowLeft: "l", KeyD: "r", ArrowRight: "r" };
 
-/** Wall edges of one floor, bucketed for quick collision checks. */
+/** Wall edges of one floor, bucketed for quick collision checks; and its doors' gates,
+ * each in the way while its door is shut. */
 export class Obstacles {
-  constructor(segments) {
-    this.segments = segments; // [[x1, z1, x2, z2], …]
+  /** ``segments``: [[x1, z1, x2, z2], …]; ``gates``: [{ segment, door }, …], each in the
+   * way while ``door.blocks``. */
+  constructor(segments, gates = []) {
+    this.segments = segments;
+    this.gates = gates;
     this.grid = new Map();
-    segments.forEach((s, i) => {
+    // (a gate's index is past the segments')
+    [...segments, ...gates.map((g) => g.segment)].forEach((s, i) => {
       const [x1, z1, x2, z2] = s;
       for (let gx = Math.floor(Math.min(x1, x2) / CELL); gx <= Math.floor(Math.max(x1, x2) / CELL); gx++) {
         for (let gz = Math.floor(Math.min(z1, z2) / CELL); gz <= Math.floor(Math.max(z1, z2) / CELL); gz++) {
@@ -39,7 +44,9 @@ export class Obstacles {
     for (let pass = 0; pass < 3; pass++) {
       let pushed = false;
       for (const k of this.near(nx, nz)) {
-        const [x1, z1, x2, z2] = this.segments[k];
+        const gate = k < this.segments.length ? null : this.gates[k - this.segments.length];
+        if (gate && !gate.door.blocks) continue;
+        const [x1, z1, x2, z2] = gate ? gate.segment : this.segments[k];
         const ex = x2 - x1, ez = z2 - z1;
         const len2 = ex * ex + ez * ez || 1e-9;
         const t = Math.max(0, Math.min(1, ((nx - x1) * ex + (nz - z1) * ez) / len2));
@@ -73,6 +80,7 @@ export class Walker extends EventTarget {
     this.keys = new Set();
     this.fast = false;
     this.enabled = false;
+    this.intent = null; // the way the keys move it this frame, { x, z } (a unit), or null
     // (the controls say so before they count themselves locked: here it counts already)
     this._locked = false;
     this.controls.addEventListener("lock", () => {
@@ -118,6 +126,7 @@ export class Walker extends EventTarget {
   }
 
   update(dt) {
+    this.intent = null;
     if (!this.enabled) return;
     const forward = new THREE.Vector3();
     this.camera.getWorldDirection(forward);
@@ -130,7 +139,9 @@ export class Walker extends EventTarget {
     if (this.keys.has("r")) move.add(right);
     if (this.keys.has("l")) move.sub(right);
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar((this.fast ? this.run : this.speed) * Math.min(dt, 0.1));
+      move.normalize();
+      this.intent = { x: move.x, z: move.z };
+      move.multiplyScalar((this.fast ? this.run : this.speed) * Math.min(dt, 0.1));
       const p = this.camera.position;
       const [x, z] = this.obstacles.move(p.x, p.z, move.x, move.z, this.radius);
       p.set(x, this.floorY + this.eye, z);
