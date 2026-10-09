@@ -1066,14 +1066,17 @@ test("a way is drawn over each floor it walks on, through the lift between them,
     const after = opacity();
     // again, from where the first ended: how far along the way the camera goes, frame by
     // frame (where it ends depends on the frames, as the first's: it may end where that
-    // one did)
+    // one did). A long flight, ended here once it has been seen to move: drawn in
+    // software, one frame can take longer than a short flight, which then ends in it.
     const before = world.camera.position.clone();
     let moved = 0, flown = false;
-    const again = world.flyRoute({ seconds: 2 }).then(() => (flown = true)); // (longer than a frame drawn in software)
-    while (!flown) {
+    const again = world.flyRoute({ seconds: 60 }).then(() => (flown = true));
+    const until = performance.now() + 60000;
+    while (!flown && moved <= 1 && performance.now() < until) {
       await window.frames(1);
       moved = Math.max(moved, world.camera.position.distanceTo(before));
     }
+    world.clearRoute(); // ends the flight too
     await again;
     const target = { x: world.camera.position.x, y: world.camera.position.y };
     world.clearRoute();
@@ -1336,11 +1339,18 @@ test("reload builds again the floors asked for, where they are: the view, the fl
     const kept = group(floors[0]), redone = group(floors[1]);
     const office = world.package.unitsOn(floor).find((u) => u.properties.number === "005");
     world.select(office.id, { go: false });
-    const camera = world.camera.position.toArray();
+    // the view still first (the floor's opening may still be moving it, where frames are slow)
+    let camera = null;
+    for (let i = 0; i < 100; i++) {
+      const now = world.camera.position.toArray();
+      if (camera && now.every((v, k) => Math.abs(v - camera[k]) < 1e-4)) break;
+      camera = now;
+      await window.frames(2);
+    }
     const said = new Promise((res) => world.addEventListener("reload", (e) => res(e.detail.floors), { once: true }));
     await world.reload("/campus-hq-2.storeypath", { floors: [floors[1]] });
     return { kept: group(floors[0]) === kept, redone: group(floors[1]) !== redone, said: await said, floor: world.floor,
-      selected: world.selected === office.id, camera: world.camera.position.toArray().every((v, i) => Math.abs(v - camera[i]) < 1e-9),
+      selected: world.selected === office.id, camera: world.camera.position.toArray().every((v, i) => Math.abs(v - camera[i]) < 1e-3), // (a view fitted again moves metres)
       want: floors[1] };
   }, floor);
   truly(r.kept && r.redone && JSON.stringify(r.said) === JSON.stringify([r.want]) && r.floor === floor && r.selected && r.camera,
