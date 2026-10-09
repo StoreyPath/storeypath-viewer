@@ -57,13 +57,17 @@ function material({ material: key, type }) {
   return materials.get(name);
 }
 
+/** Metres and radians to a hundredth of a millimetre (of a milliradian): the doors' numbers, short. */
+const fine = (v) => Math.round(v * 1e5) / 1e5;
+
 /** A floor as binary glTF: one mesh a piece, named as build.js names it, with
  * what it is in its extras (its items a box each, apart from the rest: drawn in detail,
  * a world builds them from their templates in milliseconds, far quicker than it would
  * read them); the walker's obstacles as lines; and in the scene's extras, what the world
- * needs to use it (FORMAT.md, "Pre-built 3D"). */
+ * needs to use it (FORMAT.md, "Pre-built 3D"), with its doors: each leaf's runs of the
+ * door's and handles' vertices, its hinge and how it lies open and shut, to swing it. */
 async function bakeFloor(pkg, floor, origin) {
-  const { plan, pieces, rooms, obstacles } = buildFloor(pkg, floor, origin, GEOMETRY);
+  const { plan, pieces, rooms, obstacles, doors } = buildFloor(pkg, floor, origin, GEOMETRY);
   pieces.push(...buildItems(plan, "light", GEOMETRY));
   const scene = new THREE.Scene();
   scene.name = floor.id;
@@ -72,10 +76,14 @@ async function bakeFloor(pkg, floor, origin) {
     export_sequence: pkg.manifest.export?.sequence ?? null, builder: BUILDER,
     origin, options: { ...GEOMETRY }, elevation: plan.elevation, wall_height: plan.wallHeight, rooms,
     items: plan.items.map((i) => i.id),
+    doors: doors.map((d) => ({ id: d.id, span: d.span.map(fine), top: fine(d.top),
+      leaves: d.leaves.map((l) => ({ hinge: l.hinge.map(fine), open: fine(l.open), shut: fine(l.shut), length: fine(l.length),
+        door: l.door, handle: l.handle })) })),
   };
   for (const p of pieces) {
     // a vertex shared by its triangles, not repeated for each: a smaller file, and
-    // less for the graphics card to transform
+    // less for the graphics card to transform (boxes, the doors' among them, are already:
+    // as written, their vertices in the order the doors' runs count them)
     const mesh = new THREE.Mesh(p.geometry.index ? p.geometry : mergeVertices(p.geometry, 1e-6), material(p));
     mesh.name = p.name;
     mesh.userData = { material: p.material, ...(p.view && { view: p.view }), ...(p.type && { type: p.type }),

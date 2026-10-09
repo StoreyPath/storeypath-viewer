@@ -680,10 +680,10 @@ The node names it; its `extras` say what it is: `material`, `view`, and `type` a
 | `sills` | `wallPlain` | | the wall under windows: its ends (its faces are `wall`'s) |
 | `sillBoard` | `sillBoard` | | a board on each window's sill |
 | `glass`, `frame` | `glass`, `frame` | `full` | windows: the glass, and its frame and mullions |
-| `door`, `doorFrame` | `door`, `doorFrame` | `full` | door leaves, open as the plan draws them, and their frames |
-| `trim`, `handle` | `trim`, `handle` | `full` | architraves round doors, on both faces of their wall; lever handles each side of each leaf |
+| `door`, `doorFrame` | `door`, `doorFrame` | `full` | door leaves, open as the plan draws them (each a run of vertices of its own: `doors` below), and their frames |
+| `trim`, `handle` | `trim`, `handle` | `full` | architraves round doors, on both faces of their wall; lever handles each side of each leaf (each leaf's a run of vertices of their own) |
 | `items:light`, `items:light:high` | `item` | `full` for `high` | the floor's items, a box each (`"form": "light"`), for a view of many floors: those wholly below `options.cutHeight`, and the others (on a wall, under the ceiling) |
-| `obstacles` | | | lines (mode `LINES`) at the floor, not drawn: what someone walking bumps into (walls, windows, open leaves) |
+| `obstacles` | | | lines (mode `LINES`) at the floor, not drawn: what someone walking bumps into (walls and windows; an open door's leaf is not in the way, a door shut is, across its `span`: `doors` below) |
 
 `view` says when a piece shows: `full` unless the walls are cut low, as on a plan;
 `cut` only then; `walk` when walking on that floor; `xray` in the see-through view;
@@ -705,7 +705,8 @@ finishes (metres east and north) and the walls' and parapets' faces (v = 1 − t
 height above the floor, in metres). What is built of boxes (`heads`, `headTop`, `sills`,
 `glass`, `frame`, `door`, `doorFrame`, `trim`, `handle`, `skirting`, `sillBoard`,
 `lights`) shares its corners between its faces and has no normals: flat-shaded, as
-glTF draws a mesh without them.
+glTF draws a mesh without them. Its vertices are in the order they were built: box by
+box, so a door's leaf (and its handles) is a run of them.
 
 The floor finishes and volumes have a vertex attribute `_ROOM` (unsigned integer),
 an index into `rooms` below: the space or zone each vertex belongs to, so that a
@@ -726,12 +727,13 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
 |---|---|
 | `project_id`, `building_id`, `floor_id` | what it is |
 | `export_sequence` | the export it was built for: a file whose sequence is not the manifest's is stale; build that floor instead |
-| `builder` | the version of StoreyPath's builder that made it: 4 since the room each wall's face faces (`_ROOM` on `wall` and `parapet`, and the faces of the wall over and under openings in `wall`); 3 since skirting, architraves, handles, window boards, ceiling panels and the finer furniture; 2 since items (format 0.6); a viewer builds a floor itself from a file of another version (a file without it is of 1, and has no items) |
+| `builder` | the version of StoreyPath's builder that made it: 5 since doors that swing (`doors`; an open leaf no longer in `obstacles`); 4 since the room each wall's face faces (`_ROOM` on `wall` and `parapet`, and the faces of the wall over and under openings in `wall`); 3 since skirting, architraves, handles, window boards, ceiling panels and the finer furniture; 2 since items (format 0.6); a viewer builds a floor itself from a file of another version (a file without it is of 1, and has no items) |
 | `origin` | `lon`, `lat`, `kx`, `ky`: the frame above |
 | `options` | the sizes it was built with, in metres: `slab` (thickness), `doorHead`, `windowSill`, `windowHead`, `wallThickness` (where the floor gives none), `cutHeight` |
 | `elevation`, `wall_height` | the floor's elevation, and how high its walls rise above it |
 | `rooms` | the IDs `_ROOM` indexes |
 | `items` | the IDs `_ITEM` indexes (format 0.6) |
+| `doors` | (builder 5) the doors with leaves, to swing them shut and open: each `id` (its opening's), `span` (`[x1, z1, x2, z2]`: jamb to jamb, along the middle of its wall; shut, the door is in the way there), `top` (how high it is, metres above the floor) and `leaves`; each leaf its `hinge` (`[x, z]`), the angles it lies at `open` (as the `door` mesh has it) and `shut` (radians counter-clockwise from east seen from above: the way (cos a, −sin a) in x and z), its `length` (metres from its hinge to its free edge), and its runs of vertices, `[first, count]`, of the `door` mesh (`door`) and of the `handle` mesh (`handle`). A leaf turned is its runs' vertices turned about the upright line through its hinge, the shorter way from `open` to `shut`. A door starts open, as drawn |
 
 ## Changes from 0.2
 

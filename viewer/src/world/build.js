@@ -28,9 +28,10 @@ import { toLonLat, wrapLongitude } from "./frame.js";
 
 /** This builder's version: a floor pre-built by another (before 2, without its
  * items; before 3, without skirting, architraves, handles, window boards, ceiling
- * panels and the finer furniture; before 4, without the room each wall's face faces)
- * is built again. */
-export const BUILDER = 4;
+ * panels and the finer furniture; before 4, without the room each wall's face faces;
+ * before 5, without its doors' leaves listed to swing, and its open leaves in the
+ * walker's way) is built again. */
+export const BUILDER = 5;
 
 /** What shapes the geometry; a world built with others builds its floors itself. */
 export const GEOMETRY = {
@@ -290,7 +291,7 @@ export function planFloor(pkg, floor, origin, options = {}) {
       .map((x) => {
         const [a, b] = x.properties.span.map(local);
         const leaves = (x.properties.swings || []).map((leaf) => leaf.map(local));
-        return { a, b, type: x.properties.type, connects: x.properties.connects || [], leaves,
+        return { id: x.id, a, b, type: x.properties.type, connects: x.properties.connects || [], leaves,
           sill: x.properties.sill_m ?? null, height: x.properties.height_m ?? null };
       });
   } else {
@@ -322,7 +323,7 @@ export function planFloor(pkg, floor, origin, options = {}) {
 function roomWalls(pkg, floorId, rooms, thickness, origin) {
   const openings = pkg.openings
     .filter((o) => o.properties.floor_id === floorId && o.geometry?.type === "Point")
-    .map((o) => ({ p: toLocal(origin, o.geometry.coordinates), type: o.properties.type,
+    .map((o) => ({ id: o.id, p: toLocal(origin, o.geometry.coordinates), type: o.properties.type,
       w: Math.min(Math.max(o.properties.width_m || 0.9, 0.7), 2.4) }));
   const seen = new Set();
   const pieces = [], gaps = [];
@@ -340,13 +341,13 @@ function roomWalls(pkg, floorId, rooms, thickness, origin) {
         for (const o of openings) {
           const t = (o.p[0] - a[0]) * ux + (o.p[1] - a[1]) * un;
           const off = Math.abs((o.p[1] - a[1]) * ux - (o.p[0] - a[0]) * un);
-          if (off < 0.45 && t > 0 && t < len) cuts.push([Math.max(0, t - o.w / 2), Math.min(len, t + o.w / 2), o.type]);
+          if (off < 0.45 && t > 0 && t < len) cuts.push([Math.max(0, t - o.w / 2), Math.min(len, t + o.w / 2), o.type, o.id]);
         }
         cuts.sort((x, y) => x[0] - y[0]);
         let done = 0;
-        for (const [c0, c1, type] of cuts) {
+        for (const [c0, c1, type, id] of cuts) {
           if (c0 > done + 0.05) pieces.push([at(done), at(c0)]);
-          if (c1 > Math.max(c0, done)) gaps.push({ a: at(Math.max(c0, done)), b: at(c1), type });
+          if (c1 > Math.max(c0, done)) gaps.push({ id, a: at(Math.max(c0, done)), b: at(c1), type });
           done = Math.max(done, c1);
         }
         if (len > done + 0.05) pieces.push([at(done), at(len)]);
@@ -365,8 +366,12 @@ function roomWalls(pkg, floorId, rooms, thickness, origin) {
 
 /** A floor's geometry, from its plan: ``pieces``, each { name, material, view,
  * type, hidden, geometry } (PIECES; a piece of hidden or ignored rooms is one of
- * its own, ``hidden``); ``rooms``, the IDs the ``_room`` attribute indexes; and
- * ``obstacles``, what the walker bumps into: [[x1, z1, x2, z2], …]. With ``edges``,
+ * its own, ``hidden``); ``rooms``, the IDs the ``_room`` attribute indexes;
+ * ``obstacles``, what the walker bumps into: [[x1, z1, x2, z2], …] (walls and windows: an
+ * open door's leaf is not in the way); and ``doors``, the leaves that swing (doorLeaves:
+ * each door's ID, its span, how high it is, and each leaf's hinge, how it lies open and
+ * shut, and its runs of the ``door`` and ``handle`` pieces' vertices and of the door's
+ * lines; local metres, x east and z south). With ``edges``,
  * the pieces of EDGED carry the lines along their edges as well (``edges``: x, y, z
  * at each end of each); with ``only: "edges"``, they carry nothing else and nothing
  * else is built (no triangulation: quick), for a floor shown already. */
@@ -495,7 +500,13 @@ export function buildPieces(plan, options = {}) {
 
   // door heads, frames, architraves, leaves and handles; window sills, boards, heads,
   // frames and glass
-  const obstacles = [];
+  const obstacles = [], doors = [];
+  // how far the door's and handles' vertices, and the door's lines, have got: a leaf's runs
+  const runs = () => {
+    const door = sets.get("door"), handle = sets.get("handle");
+    return { door: (door?.boxes?.position.length ?? 0) / 3, handle: (handle?.boxes?.position.length ?? 0) / 3,
+      edges: (door?.edges?.length ?? 0) / 3 };
+  };
   for (const ring of plan.wallRings) {
     for (let i = 0; i + 1 < ring.length; i++) {
       obstacles.push([ring[i][0], -ring[i][1], ring[i + 1][0], -ring[i + 1][1]]);
@@ -578,29 +589,24 @@ export function buildPieces(plan, options = {}) {
           box("trim", at(0.015, off), at(len - 0.015, off), top - 0.015, high, p, faces);
         }
       }
-      // the leaves, open as the plan draws them; without the swings, open into the
-      // room it serves, one leaf or two; a lever handle each side, by its free edge
-      let open = way.leaves || [];
-      if (!open.length) {
-        const mid = at(len / 2), side = [-un, ux];
-        const into = plan.units.filter((s) => way.connects?.includes(s.id))
-          .some((s) => s.rings.some((r) => inside(r[0], mid[0] + side[0] * 0.5, mid[1] + side[1] * 0.5)));
-        const k = into ? 1 : -1;
-        const hinges = len > DOUBLE_DOOR ? [[0, len / 2], [len, len / 2]] : [[0, len]];
-        open = hinges.map(([t, w]) => {
-          const h = at(t);
-          return [h, [h[0] + side[0] * k * w, h[1] + side[1] * k * w]];
-        });
-      }
-      for (const [h, q] of open) {
-        const reach = Math.hypot(q[0] - h[0], q[1] - h[1]);
-        if (reach < 0.3) continue;
-        const w = Math.min(reach, len) - c, dx = (q[0] - h[0]) / reach, dn = (q[1] - h[1]) / reach;
+      // the leaves, open as the plan draws them, a lever handle each side by the free edge.
+      // An open leaf is not in the walker's way: one drawn across a passage or a narrow
+      // room would shut it off. Each leaf is a run of the door's and the handles' vertices
+      // (and lines) of its own, listed in ``doors``, for the world to swing it shut about
+      // its hinge, where it is, and open again
+      const ends = [at(0), at(len)];
+      const door = { id: way.id ?? null, span: [ends[0][0], -ends[0][1], ends[1][0], -ends[1][1]], top, leaves: [] };
+      for (const { hinge: h, dir: [dx, dn], w, shut } of doorLeaves(way, plan, at, len, c, ux, un)) {
         const from = [h[0] + dx * c, h[1] + dn * c], to = [h[0] + dx * (c + w), h[1] + dn * (c + w)];
+        const was = runs();
         box("door", from, to, 0.01, top - c, LEAF);
-        obstacles.push([from[0], -from[1], to[0], -to[1]]); // an open leaf stands in the way
         if (solid) leverHandles(from, [dx, dn], w, box);
+        const now = runs();
+        door.leaves.push({ hinge: [h[0], -h[1]], open: Math.atan2(dn, dx), shut: Math.atan2(shut[1], shut[0]), length: c + w,
+          door: [was.door, now.door - was.door], handle: [was.handle, now.handle - was.handle],
+          edges: [was.edges, now.edges - was.edges] });
       }
+      if (door.leaves.length) doors.push(door);
     } else if (range) { // a doorway: a way through with no door
       over(range.hi);
     }
@@ -630,7 +636,37 @@ export function buildPieces(plan, options = {}) {
     if (geometries.length > 1) geometries.forEach((g) => g.dispose());
     pieces.push({ ...p, geometry: upright(geometry), ...lines });
   }
-  return { pieces, rooms, obstacles };
+  // (the door and handle pieces are their boxes alone, indexed as written: the leaves' runs hold)
+  return { pieces, rooms, obstacles, doors };
+}
+
+/** A door's leaves: open as the plan draws them (``way.leaves``: [hinge, free edge] each,
+ * plan metres); without them, open into the room it serves, one leaf or, wider than
+ * DOUBLE_DOOR, two meeting in the middle. Each: its ``hinge``, the way it lies open
+ * (``dir``, a unit vector), how wide it is past the frame's casing ``c`` (``w``), and the
+ * way it lies shut (``shut``: along the span, from the end its hinge is at towards the
+ * other; two leaves meet in the middle). A leaf shorter than 30 cm is none. */
+function doorLeaves(way, plan, at, len, c, ux, un) {
+  let open = way.leaves || [];
+  if (!open.length) {
+    const mid = at(len / 2), side = [-un, ux];
+    const into = plan.units.filter((s) => way.connects?.includes(s.id))
+      .some((s) => s.rings.some((r) => inside(r[0], mid[0] + side[0] * 0.5, mid[1] + side[1] * 0.5)));
+    const k = into ? 1 : -1;
+    const hinges = len > DOUBLE_DOOR ? [[0, len / 2], [len, len / 2]] : [[0, len]];
+    open = hinges.map(([t, w]) => {
+      const h = at(t);
+      return [h, [h[0] + side[0] * k * w, h[1] + side[1] * k * w]];
+    });
+  }
+  const leaves = [];
+  for (const [h, q] of open) {
+    const reach = Math.hypot(q[0] - h[0], q[1] - h[1]);
+    if (reach < 0.3) continue;
+    const along = (h[0] - way.a[0]) * ux + (h[1] - way.a[1]) * un, k = along <= len / 2 ? 1 : -1;
+    leaves.push({ hinge: h, dir: [(q[0] - h[0]) / reach, (q[1] - h[1]) / reach], w: Math.min(reach, len) - c, shut: [ux * k, un * k] });
+  }
+  return leaves;
 }
 
 /** How high an opening is open, above the floor: ``lo`` to ``hi`` (a window from its sill

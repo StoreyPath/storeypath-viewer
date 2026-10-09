@@ -84,7 +84,7 @@ test("a package of a newer minor version, or of no version, is refused; older on
 /** A binary glTF's JSON. */
 const gltfJSON = (glb) => JSON.parse(glb.toString("utf8", 20, 20 + glb.readUInt32LE(12)));
 
-test("the baker writes each floor as binary glTF: its pieces, rooms and obstacles", () => {
+test("the baker writes each floor as binary glTF: its pieces, rooms, obstacles and doors", async () => {
   const out = mkdtempSync(join(tmpdir(), "sp-bake-"));
   try {
     execFileSync(process.execPath, [join(root, "bake.mjs"), join(packages, "simple-office.storeypath"), out]);
@@ -101,7 +101,7 @@ test("the baker writes each floor as binary glTF: its pieces, rooms and obstacle
       "glass", "frame", "heads", "sills", "floor:shaft:hidden", "obstacles", "skirting", "trim", "handle", "sillBoard",
       "lights"]) truly(node(name), `no ${name}`);
     truly(!node("wallLow") && !node("wallCut"), "the walls cut low are made from the full ones, not stored");
-    truly(x.builder === BUILDER && BUILDER === 4, `builder ${x.builder}`);
+    truly(x.builder === BUILDER && BUILDER === 5, `builder ${x.builder}`);
     truly(node("lights").extras.view === "walk" && node("trim").extras.view === "full" && !node("skirting").extras.view,
       "panels show walking, architraves not in the cutaway, skirting always");
     // boxes (frames, doors, skirting, …) share their corners and have no normals: flat-shaded, as items are
@@ -114,6 +114,19 @@ test("the baker writes each floor as binary glTF: its pieces, rooms and obstacle
     truly(json.meshes[office.mesh].primitives[0].attributes._ROOM !== undefined, "floors say whose room each vertex is");
     truly(node("floor:shaft:hidden").extras.hidden === true && node("wall").extras.view === "full", "hidden, view");
     truly(json.meshes[node("obstacles").mesh].primitives[0].mode === 1, "obstacles are lines");
+    // the doors: each leaf's runs of the door's and handles' vertices, as the file has them (builder 5)
+    const vertices = (name) => json.accessors[json.meshes[node(name).mesh].primitives[0].attributes.POSITION].count;
+    const leaves = x.doors.flatMap((d) => d.leaves);
+    truly(x.doors.length >= 10 && x.doors.every((d) => d.id && d.span.length === 4 && d.top > 2 && d.leaves.length >= 1), "doors");
+    truly(leaves.reduce((n, l) => n + l.door[1], 0) === vertices("door") && leaves.reduce((n, l) => n + l.handle[1], 0) === vertices("handle")
+      && leaves.every((l) => l.hinge.length === 2 && l.length > 0.5 && Number.isFinite(l.open) && Number.isFinite(l.shut)),
+    `leaves: ${JSON.stringify(leaves[0])}, ${vertices("door")} vertices`);
+    // what the walker bumps into: the walls' edges and the windows, no leaf
+    const pkg = await loadPackage(readFileSync(join(packages, "simple-office.storeypath")));
+    const plan = planFloor(pkg, pkg.floors[0], x.origin);
+    const walls = plan.wallRings.reduce((n, r) => n + r.length - 1, 0), windows = plan.ways.filter((w) => w.type === "window").length;
+    truly(json.accessors[json.meshes[node("obstacles").mesh].primitives[0].attributes.POSITION].count === 2 * (walls + windows),
+      "obstacles: open leaves among them");
     // the same package, the same files
     execFileSync(process.execPath, [join(root, "bake.mjs"), join(packages, "simple-office.storeypath"), join(out, "again")]);
     truly(readFileSync(join(out, "again", files[0])).equals(glb), "baked twice, not the same");
@@ -131,7 +144,7 @@ for (const name of ["campus", "campus-hq"]) test(`the baker writes a floor's ite
     const held = { campus: 9, "campus-hq": 10 }[name]; // campus-hq: and a kiosk
     // an item's ID: an asset's tag (format 0.8), the project's number before (campus: 0.6)
     const itemId = name === "campus" ? (id) => /^[A-Z0-9]+-I\d{6}$/.test(id) : isItemId;
-    truly(x.builder === 4 && x.items.length === held && x.items.every(itemId), JSON.stringify(x.items));
+    truly(x.builder === 5 && x.items.length === held && x.items.every(itemId), JSON.stringify(x.items));
     const node = (name) => json.nodes.find((n) => n.name === name);
     // drawn in detail, they are built from their templates (in milliseconds), not read
     truly(!node("items") && !node("items:high"), "the detailed items are not in the file");
@@ -343,6 +356,91 @@ test("a floor's details: skirting along its walls, architraves and lever handles
     truly(u && !["shaft", "elevator"].includes(u.type) && u.rings.some((r) => inside(r[0], q.x, -q.z)), `a panel at ${q.x},${q.z} in ${q.unit}`);
   }
   truly(ceilingPanels(plan) === panels, "worked out once a plan");
+});
+
+/** An angle in (−π, π]. */
+const wrapAngle = (a) => a - 2 * Math.PI * Math.ceil((a - Math.PI) / (2 * Math.PI));
+/** A leaf's free edge, lying at angle ``a`` (radians counter-clockwise from east: (cos a, −sin a) in x and z). */
+const edgeAt = (leaf, a) => [leaf.hinge[0] + Math.cos(a) * leaf.length, leaf.hinge[1] - Math.sin(a) * leaf.length];
+/** Where a point [x, z] is along a door's span (0 to 1 between its jambs) and how far off it. */
+const onSpan = ([x1, z1, x2, z2], [x, z]) => {
+  const ex = x2 - x1, ez = z2 - z1, l2 = ex * ex + ez * ez;
+  const s = ((x - x1) * ex + (z - z1) * ez) / l2;
+  return { s, off: Math.abs((x - x1) * ez - (z - z1) * ex) / Math.sqrt(l2) };
+};
+
+test("doors: each leaf a run of the door's and handles' vertices of its own, its hinge, how it lies open and shut; an open leaf is not in the walker's way", async () => {
+  const { plan } = await hqGround();
+  const { pieces, obstacles, doors } = buildPieces(plan);
+  const door = pieces.find((p) => p.name === "door").geometry, handle = pieces.find((p) => p.name === "handle").geometry;
+  const swung = plan.ways.filter((w) => w.type === "door" && w.leaves.length);
+  truly(doors.length === swung.length && doors.length > 20 && doors.every((d, i) => d.id === swung[i].id),
+    `${doors.length} doors of ${swung.length}`);
+  // the runs: in order, one after another, the whole of each piece (8 corners a leaf, 6 boxes of handles)
+  let v = 0, h = 0;
+  for (const d of doors) {
+    truly(d.top === 2.1 && d.leaves.length === 1, `${d.id}: ${JSON.stringify(d)}`);
+    for (const l of d.leaves) {
+      truly(l.door[0] === v && l.door[1] === 8 && l.handle[0] === h && l.handle[1] === 48, `${d.id}: runs ${l.door} ${l.handle}`);
+      v += l.door[1];
+      h += l.handle[1];
+      // its corners along the line it lies on, open, from its hinge out to its length
+      const pos = door.getAttribute("position"), c = Math.cos(l.open), s = Math.sin(l.open);
+      for (let i = l.door[0]; i < l.door[0] + l.door[1]; i++) {
+        const px = pos.getX(i) - l.hinge[0], pz = pos.getZ(i) - l.hinge[1];
+        const along = px * c - pz * s, across = px * s + pz * c;
+        truly(Math.abs(across) < 0.03 && along > 0 && along < l.length + 1e-6, `${d.id}: a corner ${along},${across} off its line`);
+      }
+      // shut: along its span, from its hinge's jamb across to the other; drawn open at a right angle
+      const shut = edgeAt(l, l.shut), at = onSpan(d.span, shut), hinge = onSpan(d.span, l.hinge);
+      truly(at.off < 0.06 && at.s > 0.85 && at.s < 1.05 && hinge.s < 0.05 && hinge.off < 0.06, `${d.id}: shut ${JSON.stringify([hinge, at])}`);
+      truly(Math.abs(Math.abs(wrapAngle(l.open - l.shut)) - Math.PI / 2) < 0.1, `${d.id}: opens ${wrapAngle(l.open - l.shut)}`);
+    }
+  }
+  truly(v === door.getAttribute("position").count && h === handle.getAttribute("position").count && door.index, "the runs are the pieces");
+  // in the walker's way: the walls' edges and the windows, not one open leaf
+  const edges = plan.wallRings.reduce((n, r) => n + r.length - 1, 0), windows = plan.ways.filter((w) => w.type === "window").length;
+  truly(obstacles.length === edges + windows, `${obstacles.length} obstacles: ${edges} walls' edges, ${windows} windows`);
+  for (const d of doors) {
+    for (const l of d.leaves) {
+      const tip = edgeAt(l, l.open);
+      truly(!obstacles.some(([x1, z1, x2, z2]) => Math.hypot(x2 - tip[0], z2 - tip[1]) < 0.01 || Math.hypot(x1 - tip[0], z1 - tip[1]) < 0.01),
+        `${d.id}: its leaf is in the way`);
+    }
+  }
+  // the lines along edges, built alone: the same doors, each leaf's run of lines (12 a box)
+  const lined = buildPieces(plan, { only: "edges" }).doors;
+  let e = 0;
+  truly(lined.length === doors.length && lined.every((d, i) => d.id === doors[i].id && d.leaves.every((l, k) => {
+    const ok = l.edges[0] === e && l.edges[1] === 24 && JSON.stringify(l.hinge) === JSON.stringify(doors[i].leaves[k].hinge);
+    e += 24;
+    return ok;
+  })), "the lines' runs");
+});
+
+test("doors drawn without their swings: one leaf into the room it serves, or two meeting in the middle; two swings drawn, two leaves", async () => {
+  const { plan } = await hqGround();
+  const swings = new Map(plan.ways.map((w) => [w, w.leaves]));
+  for (const w of plan.ways) w.leaves = [];
+  const wide = plan.ways.find((w) => w.type === "door" && Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]) > 1.3);
+  const { doors } = buildPieces(plan);
+  truly(doors.length === swings.size - [...swings.keys()].filter((w) => w.type !== "door").length, `${doors.length} doors`);
+  for (const d of doors) {
+    const len = Math.hypot(d.span[2] - d.span[0], d.span[3] - d.span[1]);
+    truly(d.leaves.length === (len > 1.3 ? 2 : 1), `${d.id}: ${d.leaves.length} leaves, ${len.toFixed(2)} m`);
+    // shut, they close the span: one from jamb to jamb, two each to the middle
+    const tips = d.leaves.map((l) => onSpan(d.span, edgeAt(l, l.shut)));
+    if (d.leaves.length === 2) truly(tips.every((t) => Math.abs(t.s - 0.5) < 0.01 && t.off < 0.01), `${d.id}: ${JSON.stringify(tips)}`);
+    else truly(Math.abs(tips[0].s - 1) < 0.01 && tips[0].off < 0.01, `${d.id}: ${JSON.stringify(tips)}`);
+  }
+  truly(wide && doors.find((d) => d.id === wide.id).leaves.length === 2, "the wide door: two leaves");
+  // a double door drawn: two swings, from each jamb, each half its width
+  const [a, b] = [wide.a, wide.b], len = Math.hypot(b[0] - a[0], b[1] - a[1]), nx = -(b[1] - a[1]) / len, nn = (b[0] - a[0]) / len;
+  wide.leaves = [[a, [a[0] + nx * len / 2, a[1] + nn * len / 2]], [b, [b[0] + nx * len / 2, b[1] + nn * len / 2]]];
+  const double = buildPieces(plan).doors.find((d) => d.id === wide.id);
+  const tips = double.leaves.map((l) => onSpan(double.span, edgeAt(l, l.shut)));
+  truly(double.leaves.length === 2 && tips.every((t) => Math.abs(t.s - 0.5) < 0.02 && t.off < 0.06)
+    && double.leaves.every((l) => Math.abs(Math.abs(wrapAngle(l.open - l.shut)) - Math.PI / 2) < 0.01), `drawn double: ${JSON.stringify(tips)}`);
 });
 
 test("lines along edges (the model look): only when asked for, the same when built alone; none on floors or glass", async () => {
