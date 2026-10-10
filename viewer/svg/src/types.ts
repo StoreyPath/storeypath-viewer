@@ -109,7 +109,29 @@ export interface Camera {
  * object of this shape: the walking on each floor, and the rides between floors. */
 export interface PlanRoute {
   /** The walking on one floor between rides: its line, in the floor's metres. */
-  legs: { floor_id: string; points: XY[] }[];
-  /** Each ride from floor to floor, between leg i and leg i + 1. */
-  changes: { by: string; from_floor_id: string; to_floor_id: string }[];
+  legs: { floor_id: string; points: XY[]; metres?: number }[];
+  /** Each ride from floor to floor, between leg i and leg i + 1 (`direction`, "up" or
+   * "down", as route() gives it: its tag says "Up to …" then). */
+  changes: { by: string; from_floor_id: string; to_floor_id: string; direction?: "up" | "down" | string }[];
+  /** What to tell a person, step by step (route()'s): stepping through them (showStep)
+   * and the places they name (the labels kept clear on a calm plan) need them. */
+  steps?: PlanRouteStep[];
+  metres?: number;
+  seconds?: number;
+}
+
+/** A step of a way, as route() gives it: its kind, where it is, and its words. */
+export interface PlanRouteStep {
+  kind: "start" | "walk" | "take" | "arrive" | string;
+  text?: string;
+  floor_id?: string;
+  from_floor_id?: string;
+  to_floor_id?: string;
+  /** The place it is at (start, arrive), or goes to (walk). */
+  place?: string | null;
+  /** The place most of a walk is in (a corridor). */
+  along?: string | null;
+  by?: string;
+  direction?: string;
+  metres?: number;
 }

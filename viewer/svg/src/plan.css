@@ -1,5 +1,8 @@
-/* StoreyPath floor plans in SVG. Theme with these variables on the container (or
-   any ancestor); everything else can be restyled through the classes. */
+/* StoreyPath floor plans in SVG. Theme with these variables on the plan (.sp-plan) or
+   any ancestor's rule for it; everything else can be restyled through the classes. Its
+   colours are light, or dark as the system has them; the engine's `theme` option ("light"
+   or "dark": .sp-theme-light, .sp-theme-dark) holds them to one, and its `style`
+   "wayfinding" (.sp-style-wayfinding) is the calm look for finding the way. */
 
 .sp-plan {
   --sp-background: transparent;
@@ -14,6 +17,7 @@
   --sp-way: #f08c00;
   --sp-fill-opacity: 0.55;
   --sp-label: #1d1d1f;
+  --sp-label-strong: #1d1d1f;
   --sp-label-halo: rgba(255, 255, 255, 0.9);
   --sp-select: #ff8a00;
   --sp-highlight: #0f9d74;
@@ -25,17 +29,28 @@
   --sp-item-front: #1d1d1f;
   --sp-item-mark: rgba(0, 0, 0, 0.55);
   --sp-item-chair: #5b5f69;
-  /* a way through the building (showRoute) */
-  --sp-route: #1a73e8;
-  --sp-route-width: 5px;
-  --sp-route-casing: rgba(255, 255, 255, 0.95);
-  --sp-route-casing-width: 9px;
+  /* a way through the building (showRoute): its line, a bright core on a darker casing
+     on a halo of the plan's paper; its marks */
+  --sp-route: #2463eb;
+  --sp-route-casing: #1747b0;
+  --sp-route-halo: rgba(255, 255, 255, 0.82);
+  --sp-route-width: 6px;
+  --sp-route-casing-width: 10px;
+  --sp-route-halo-width: 17px;
+  --sp-route-flow: rgba(255, 255, 255, 0.95);
+  --sp-route-done: #b9c8e8;
   --sp-route-arrow: #ffffff;
-  --sp-route-start: #0f9d58;
-  --sp-route-end: #d62d50;
+  --sp-route-start: var(--sp-route);
+  --sp-route-end: #e5484d;
+  --sp-route-room: var(--sp-route);
   --sp-route-marker-ring: #ffffff;
-  --sp-route-change: #6a3fc8;
-  --sp-route-change-text: #ffffff;
+  --sp-route-change: var(--sp-route);
+  --sp-route-badge: #ffffff;
+  --sp-route-chip: #ffffff;
+  --sp-route-chip-edge: rgba(15, 23, 42, 0.08);
+  --sp-route-chip-text: #1b1d22;
+  --sp-route-chip-sub: #686d77;
+  --sp-route-shadow: rgba(15, 23, 42, 0.22);
   display: block;
   width: 100%;
   height: 100%;
@@ -44,6 +59,26 @@
   user-select: none;
   cursor: grab;
   outline: none;
+}
+
+/* the calm look for finding the way: light rooms, their type a faint tint over the
+   floor; quiet walls and doors; labels muted, but the way's own */
+.sp-plan.sp-style-wayfinding {
+  --sp-outline: #f7f6f2;
+  --sp-fill-opacity: 0.2;
+  --sp-unit-stroke: rgba(40, 42, 50, 0.13);
+  --sp-zone-stroke: rgba(40, 42, 50, 0.12);
+  --sp-container: rgba(40, 42, 50, 0.2);
+  --sp-wall: #b4b2ac;
+  --sp-parapet: #d2d0ca;
+  --sp-door: #c4c1ba;
+  --sp-window: #b3cfd9;
+  --sp-way: #cfccc5;
+  --sp-label: #8b8d93;
+  --sp-label-strong: #23252a;
+  --sp-label-halo: rgba(247, 246, 242, 0.92);
+  --sp-item-calm: #dedcd6;
+  --sp-item-stroke: rgba(40, 42, 50, 0.16);
 }
 
 .sp-plan.sp-dragging { cursor: grabbing; }
@@ -78,6 +113,9 @@
 .sp-swing { stroke-linejoin: round; }
 .sp-window { stroke: var(--sp-window); stroke-width: 3; }
 .sp-way { stroke: var(--sp-way); stroke-width: 2.5; stroke-dasharray: 4 4; }
+.sp-style-wayfinding .sp-door { stroke-width: 1.25; }
+.sp-style-wayfinding .sp-window { stroke-width: 2; }
+.sp-style-wayfinding .sp-way { stroke-width: 1.5; }
 
 /* furniture and equipment, as Studio draws them: the footprint in its type's colour,
    its front darker; overhead (on the ceiling) dashed and pale */
@@ -96,6 +134,10 @@
 .sp-item-screen { fill: var(--sp-item-front); stroke: none; }
 .sp-item-ap .sp-item-mark { stroke: var(--sp-item-front); stroke-width: 1.5; stroke-linecap: round; }
 .sp-item.sp-selected .sp-item-body, .sp-item:focus-visible .sp-item-body { stroke: var(--sp-select); stroke-width: 3; stroke-dasharray: none; }
+/* calm: the furniture one quiet tone, its marks left out */
+.sp-style-wayfinding .sp-item-body, .sp-style-wayfinding .sp-item-chair { fill: var(--sp-item-calm) !important; fill-opacity: 1; }
+.sp-style-wayfinding .sp-item-mark, .sp-style-wayfinding .sp-item-front, .sp-style-wayfinding .sp-item-back,
+.sp-style-wayfinding .sp-item-dot, .sp-style-wayfinding .sp-item-screen { display: none; }
 
 .sp-labels { pointer-events: none; }
 .sp-labels text {
@@ -109,36 +151,135 @@
   unicode-bidi: plaintext;
 }
 .sp-labels .sp-label-sub { font-weight: 400; font-size: 0.85em; }
+.sp-style-wayfinding .sp-labels text { font-weight: 500; letter-spacing: 0.01em; }
+.sp-labels text.sp-label-strong { fill: var(--sp-label-strong); font-weight: 650; }
 
 .sp-pin path { fill: var(--sp-pin); stroke: var(--sp-pin-dot); stroke-width: 1.5; }
 .sp-pin circle { fill: var(--sp-pin-dot); }
 
-/* a way through the building: its line over the floor, its marks on the screen,
-   under the labels */
-.sp-route path { fill: none; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+/* ---- a way through the building ------------------------------------------------- */
+
+/* its line, on the screen: as wide, its corners as round at any zoom */
+.sp-route path { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.sp-route-halo { stroke: var(--sp-route-halo); stroke-width: var(--sp-route-halo-width); }
 .sp-route-casing { stroke: var(--sp-route-casing); stroke-width: var(--sp-route-casing-width); }
 .sp-route-line { stroke: var(--sp-route); stroke-width: var(--sp-route-width); }
+.sp-route-done { stroke: var(--sp-route-done); stroke-width: var(--sp-route-casing-width); }
+/* dots flowing along it the way it goes, once it is drawn in */
+.sp-route-flow { display: none; stroke: var(--sp-route-flow); stroke-width: 2.6px; stroke-dasharray: 0 22; }
+.sp-route-leg.sp-flowing .sp-route-flow { display: inline; animation: sp-route-flow 1.1s linear infinite; }
+@keyframes sp-route-flow { to { stroke-dashoffset: -22px; } }
+/* without motion: still arrows instead */
+.sp-route-arrow { fill: none; stroke: var(--sp-route-arrow); stroke-width: 1.8px; stroke-linecap: round; stroke-linejoin: round; }
+
+/* the destination's room: tinted, outlined; a ring pulsing out of it once */
+.sp-route-room path { vector-effect: non-scaling-stroke; pointer-events: none; }
+.sp-route-room-fill { fill: var(--sp-route-room); fill-opacity: 0.12; stroke: none; }
+.sp-route-room-edge { fill: none; stroke: var(--sp-route-room); stroke-width: 2px; stroke-opacity: 0.9; }
+.sp-route-room-pulse { fill: none; stroke: var(--sp-route-room); stroke-width: 2px; opacity: 0; }
+.sp-route-room { opacity: 0; transition: opacity 0.35s ease-out; }
+.sp-route-room.sp-in { opacity: 1; }
+.sp-route-room.sp-in .sp-route-room-pulse { animation: sp-room-pulse 1.5s cubic-bezier(0.2, 0.6, 0.3, 1) 0.15s 1; }
+@keyframes sp-room-pulse {
+  from { stroke-width: 2px; opacity: 0.85; }
+  to { stroke-width: 26px; opacity: 0; }
+}
+
 .sp-route-marks { pointer-events: none; }
-.sp-route-arrow { fill: none; stroke: var(--sp-route-arrow); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.sp-route-start-ring { fill: var(--sp-route-start); stroke: var(--sp-route-marker-ring); stroke-width: 2.5; }
-.sp-route-start-dot { fill: var(--sp-route-marker-ring); }
-.sp-route-end-pin { fill: var(--sp-route-end); stroke: var(--sp-route-marker-ring); stroke-width: 1.5; }
+.sp-route-marks .sp-enter { transform-box: fill-box; transform-origin: center; }
+
+/* the start: "you are here", a dot in a ring, its halo pulsing softly */
+.sp-route-start-halo { fill: var(--sp-route-start); opacity: 0.16; }
+.sp-route-start-ring { fill: var(--sp-route-marker-ring); filter: drop-shadow(0 1px 2px var(--sp-route-shadow)); }
+.sp-route-start-dot { fill: var(--sp-route-start); }
+.sp-route-start-pulse {
+  fill: var(--sp-route-start); opacity: 0; transform-box: fill-box; transform-origin: center;
+  animation: sp-route-pulse 2.4s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}
+@keyframes sp-route-pulse {
+  from { transform: scale(1); opacity: 0.42; }
+  to { transform: scale(3); opacity: 0; }
+}
+.sp-route-start.sp-in .sp-route-start-mark { animation: sp-route-pop 0.45s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+
+/* the destination: a pin dropping in on its point, its card over it */
+.sp-route-end { visibility: hidden; }
+.sp-route-end.sp-in { visibility: visible; }
+.sp-route-end-body { fill: var(--sp-route-end); stroke: var(--sp-route-marker-ring); stroke-width: 1.75px; filter: drop-shadow(0 2px 3px var(--sp-route-shadow)); }
 .sp-route-end-dot { fill: var(--sp-route-marker-ring); }
+.sp-route-end-shadow { fill: rgba(0, 0, 0, 0.22); }
 .sp-route-end-at { fill: var(--sp-route-end); stroke: var(--sp-route-marker-ring); stroke-width: 1.5; }
-.sp-route-leader { stroke: var(--sp-route-marker-ring); stroke-width: 3.5; stroke-linecap: round; }
-.sp-route-change .sp-route-leader { stroke: var(--sp-route-change); stroke-width: 2; }
-.sp-route-end .sp-route-leader { stroke: var(--sp-route-end); stroke-width: 2; }
-.sp-route-change-dot { fill: var(--sp-route-change); stroke: var(--sp-route-marker-ring); stroke-width: 2; }
-.sp-route-change-tag { fill: var(--sp-route-change); stroke: var(--sp-route-marker-ring); stroke-width: 1.5; }
-.sp-route-change-text {
-  fill: var(--sp-route-change-text);
+.sp-route-leader { stroke: var(--sp-route-end); stroke-width: 2; stroke-linecap: round; }
+.sp-route-end.sp-in .sp-route-end-drop { animation: sp-route-drop 0.6s cubic-bezier(0.3, 0.9, 0.35, 1) both; }
+.sp-route-end.sp-in .sp-route-end-shadow { animation: sp-route-grow 0.6s ease-out both; }
+.sp-route-end.sp-in .sp-route-card .sp-route-chip-in { animation: sp-route-rise 0.4s ease-out 0.3s both; }
+
+/* where the way changes floor: a round badge with the lift's or stairs' picture (a
+   button: it shows that floor), its tag beside it */
+.sp-route-change { visibility: hidden; cursor: pointer; }
+.sp-route-change.sp-in { visibility: visible; pointer-events: auto; }
+.sp-route-change:focus { outline: none; }
+.sp-route-change .sp-route-leader { stroke: var(--sp-route-change); }
+.sp-route-badge-ring { fill: var(--sp-route-change); stroke: var(--sp-route-marker-ring); stroke-width: 2.5px; filter: drop-shadow(0 1px 3px var(--sp-route-shadow)); }
+.sp-route-badge-glyph, .sp-route-chip-arrow {
+  fill: none; stroke: var(--sp-route-badge); stroke-width: 2px; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.sp-route-chip-arrow { stroke: var(--sp-route-change); }
+.sp-route-change:hover .sp-route-badge-ring, .sp-route-change:focus-visible .sp-route-badge-ring { fill: var(--sp-route-casing); }
+.sp-route-change:focus-visible .sp-route-chip-bg { stroke: var(--sp-route-change); stroke-width: 2px; }
+.sp-route-change.sp-in .sp-route-badge { animation: sp-route-pop 0.45s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+.sp-route-change.sp-in .sp-route-chip-in { animation: sp-route-rise 0.4s ease-out 0.15s both; }
+
+/* tags: the start's label, a floor change's, the destination's card */
+.sp-route-chip-bg { fill: var(--sp-route-chip); stroke: var(--sp-route-chip-edge); stroke-width: 1px; filter: drop-shadow(0 2px 5px var(--sp-route-shadow)); }
+.sp-route-chip-text {
+  fill: var(--sp-route-chip-text);
   font: 600 12px system-ui, -apple-system, "Segoe UI", "Noto Sans Arabic", sans-serif;
   unicode-bidi: plaintext;
 }
+.sp-route-chip-sub { fill: var(--sp-route-chip-sub); font-weight: 500; }
+.sp-route-card .sp-route-chip-title { font-weight: 700; }
+
+/* playing: the walker, facing the way it goes */
+.sp-route-walker-halo { fill: var(--sp-route); opacity: 0.2; }
+.sp-route-walker-ring { fill: var(--sp-route-marker-ring); filter: drop-shadow(0 1px 3px var(--sp-route-shadow)); }
+.sp-route-walker-arrow { fill: var(--sp-route); }
+
+@keyframes sp-route-pop {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes sp-route-drop {
+  0% { transform: translateY(-28px); opacity: 0; }
+  55% { transform: translateY(1.5px); opacity: 1; }
+  75% { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+@keyframes sp-route-grow {
+  from { transform: scale(0.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes sp-route-rise {
+  from { transform: translateY(5px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+/* shown at once (not drawn in): no marks dropping in */
+.sp-instant .sp-enter, .sp-instant.sp-enter { animation: none !important; }
+
+/* one floor fading into the next */
+.sp-fade { pointer-events: none; animation: sp-fade-out 0.32s ease-in-out forwards; }
+@keyframes sp-fade-out { to { opacity: 0; } }
+
+/* without motion (the `motion` option, or reduced motion asked for): nothing moves */
+.sp-plan.sp-still * { animation: none !important; transition: none !important; }
+.sp-plan.sp-still .sp-route-start-pulse { display: none; }
+
+/* ---- dark --------------------------------------------------------------------- */
 
 /* dark, as Studio's plan: walls dark between the rooms, light labels */
 @media (prefers-color-scheme: dark) {
-  .sp-plan {
+  .sp-plan:not(.sp-theme-light) {
     --sp-outline: #34343a;
     --sp-unit-stroke: rgba(255, 255, 255, 0.22);
     --sp-zone-stroke: rgba(255, 255, 255, 0.35);
@@ -146,20 +287,86 @@
     --sp-wall: #111114;
     --sp-parapet: #6e6e76;
     --sp-label: #f1f1f3;
+    --sp-label-strong: #ffffff;
     --sp-label-halo: rgba(20, 20, 24, 0.85);
     --sp-item-stroke: rgba(255, 255, 255, 0.45);
     --sp-item-front: #f1f1f3;
     --sp-item-mark: rgba(255, 255, 255, 0.6);
     --sp-item-chair: #8b909b;
-    --sp-route: #8ab4f8;
-    --sp-route-casing: rgba(16, 16, 20, 0.9);
-    --sp-route-arrow: #10243f;
-    --sp-route-start: #34c27a;
-    --sp-route-end: #ff6b85;
-    --sp-route-marker-ring: #16161a;
-    --sp-route-change: #a58cf0;
-    --sp-route-change-text: #16161a;
+    --sp-route: #4d8dff;
+    --sp-route-casing: #1d4fc4;
+    --sp-route-halo: rgba(14, 15, 18, 0.62);
+    --sp-route-done: #3a4a69;
+    --sp-route-arrow: #ffffff;
+    --sp-route-end: #ff5a63;
+    --sp-route-badge: #ffffff;
+    --sp-route-chip: #23262d;
+    --sp-route-chip-edge: rgba(255, 255, 255, 0.1);
+    --sp-route-chip-text: #eef0f3;
+    --sp-route-chip-sub: #9aa0aa;
+    --sp-route-shadow: rgba(0, 0, 0, 0.5);
   }
+  .sp-plan.sp-style-wayfinding:not(.sp-theme-light) {
+    --sp-outline: #1e2024;
+    --sp-fill-opacity: 0.12;
+    --sp-unit-stroke: rgba(255, 255, 255, 0.075);
+    --sp-zone-stroke: rgba(255, 255, 255, 0.07);
+    --sp-container: rgba(255, 255, 255, 0.12);
+    --sp-wall: #43464e;
+    --sp-parapet: #33363c;
+    --sp-door: #4a4d55;
+    --sp-window: #36525d;
+    --sp-way: #4a4d55;
+    --sp-label: #7c808a;
+    --sp-label-strong: #eef0f3;
+    --sp-label-halo: rgba(30, 32, 36, 0.9);
+    --sp-item-calm: #2c2f35;
+    --sp-item-stroke: rgba(255, 255, 255, 0.06);
+  }
+}
+.sp-plan.sp-theme-dark {
+  --sp-outline: #34343a;
+  --sp-unit-stroke: rgba(255, 255, 255, 0.22);
+  --sp-zone-stroke: rgba(255, 255, 255, 0.35);
+  --sp-container: rgba(255, 255, 255, 0.45);
+  --sp-wall: #111114;
+  --sp-parapet: #6e6e76;
+  --sp-label: #f1f1f3;
+  --sp-label-strong: #ffffff;
+  --sp-label-halo: rgba(20, 20, 24, 0.85);
+  --sp-item-stroke: rgba(255, 255, 255, 0.45);
+  --sp-item-front: #f1f1f3;
+  --sp-item-mark: rgba(255, 255, 255, 0.6);
+  --sp-item-chair: #8b909b;
+  --sp-route: #4d8dff;
+  --sp-route-casing: #1d4fc4;
+  --sp-route-halo: rgba(14, 15, 18, 0.62);
+  --sp-route-done: #3a4a69;
+  --sp-route-arrow: #ffffff;
+  --sp-route-end: #ff5a63;
+  --sp-route-badge: #ffffff;
+  --sp-route-chip: #23262d;
+  --sp-route-chip-edge: rgba(255, 255, 255, 0.1);
+  --sp-route-chip-text: #eef0f3;
+  --sp-route-chip-sub: #9aa0aa;
+  --sp-route-shadow: rgba(0, 0, 0, 0.5);
+}
+.sp-plan.sp-style-wayfinding.sp-theme-dark {
+  --sp-outline: #1e2024;
+  --sp-fill-opacity: 0.12;
+  --sp-unit-stroke: rgba(255, 255, 255, 0.075);
+  --sp-zone-stroke: rgba(255, 255, 255, 0.07);
+  --sp-container: rgba(255, 255, 255, 0.12);
+  --sp-wall: #43464e;
+  --sp-parapet: #33363c;
+  --sp-door: #4a4d55;
+  --sp-window: #36525d;
+  --sp-way: #4a4d55;
+  --sp-label: #7c808a;
+  --sp-label-strong: #eef0f3;
+  --sp-label-halo: rgba(30, 32, 36, 0.9);
+  --sp-item-calm: #2c2f35;
+  --sp-item-stroke: rgba(255, 255, 255, 0.06);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -8,23 +8,39 @@
 // leaves meaning to its host: the host says how each space looks (styleOf), what
 // it is called (label), which spaces can be chosen (interactive) and what to do
 // when one is (the "select" event). A way through the building (showRoute: a route
-// as navigation.js finds it, format 0.8) is drawn over the floor it is on, with its
-// start, its end and where it changes floor. Hooks for tests: the root carries data-cam
-// (k,tx,ty), each space data-sp-id (and data-selected when chosen), each item
-// data-sp-item, the pin data-sp-pin with data-plan-x/y, the route's lines data-sp-route
-// and its markers data-sp-route-start, -end and -change (with data-plan-x/y).
+// as navigation.js finds it, format 0.8) is drawn over the floor it is on: a line
+// that draws itself in and flows the way it goes, a "you are here" dot at its start,
+// a pin and a card at its end (its room lit), and a badge where it changes floor; it
+// can be stepped through (showStep) and played (playRoute: a dot walks it, floor by
+// floor, the view following). A calm look for finding the way ("wayfinding": light
+// rooms, quiet walls, muted labels but the way's own) and light or dark colours are
+// the page's to ask for. Hooks for tests: the root carries data-cam (k,tx,ty), each
+// space data-sp-id (and data-selected when chosen), each item data-sp-item, the pin
+// data-sp-pin with data-plan-x/y, the route's lines data-sp-route (and how far drawn,
+// data-sp-route-drawn) and its markers data-sp-route-start, -end, -change and -walker
+// (with data-plan-x/y), its destination room data-sp-route-room.
 
 import { TYPE_COLORS } from "./colors.js";
 import { boundsOf, finite, inside, pathOf, poleOf, round, type Box } from "./geometry.js";
-import type { Camera, FloorPlan, PlanItem, PlanOpening, PlanRoute, PlanSpace, SpaceStyle, XY } from "./types.js";
+import { glyphOf, ROUTE_GLYPHS } from "./glyphs.js";
+import { along, easeInOut, pointAt, rounded, thinned } from "./routegeom.js";
+import type { Camera, FloorPlan, PlanItem, PlanOpening, PlanRoute, PlanRouteStep, PlanSpace, SpaceStyle, XY } from "./types.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const ARROW_PX = 64; // a route's arrows this far apart on the screen
+const ARROW_PX = 72; // without motion: a route's arrows this far apart on the screen
+const CORNER_PX = 14; // a route's corners rounded this much on the screen
+const LINE_CLEAR = 9; // a label this far from a route's line (half its width with its halo)
 const RIDES: Record<string, string> = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ramp: "Ramp" };
 const AROUND: readonly (readonly [number, number])[] = [[1, 0], [-1, 0], [0.7071, -0.7071], [-0.7071, -0.7071], [0.7071, 0.7071],
   [-0.7071, 0.7071], [0, -1], [0, 1]]; // where a route's marker may be set off its point, in order
 const DRAG_PX = 4; // a press that moves less than this is a click
 const ANIMATION_MS = 260;
+const DRAW_MS = 1000; // a way drawing itself in
+const FADE_MS = 320; // one floor fading into the next
+const STEP_MS = 520; // the view going to a step
+/** Playing a way: the pause at a floor change before and after the floor is shown, and
+ * how wide (metres) the view is when it follows the walker. */
+const PLAY = { before: 650, after: 500, wide: 42 };
 
 export interface EngineOptions {
   /** A space's label, as lines (default: its name, then its number; else the text its drawing writes in it). */
@@ -54,15 +70,78 @@ export interface EngineOptions {
   labelSize?: number;
   /** What the plan is called, for screen readers. */
   title?: string;
+  /** Its colours: "light", "dark", or "auto" (the default: as the system has them). */
+  theme?: "auto" | "light" | "dark";
+  /** Its look: "default" (each space in its type's colour) or "wayfinding" (calm, for
+   * finding the way: light rooms with their type a faint tint, quiet walls and doors,
+   * labels muted but the way's own: its start, its end and the places it goes through). */
+  style?: "default" | "wayfinding";
 }
 
 /** How a route is drawn (showRoute). */
 export interface ShowRouteOptions {
-  /** A floor's name, for the markers where the route changes floor ("Lift to First
-   * floor"): by default its ID. */
+  /** A floor's name, for the markers where the route changes floor ("Up to First
+   * floor") and its destination's card: by default its ID. */
   floorName?: (floorId: string) => string;
   /** Bring the route on the floor shown into view. */
   fit?: boolean;
+  /** The plan's look while the route is shown (the engine's own `style` again after). */
+  style?: "default" | "wayfinding";
+  /** Draw it in (about a second, its end's pin dropping in as it gets there), then let
+   * dots flow along it the way it goes. Default: unless motion is off (the `motion`
+   * option, or the system asks for reduced motion: then it is drawn at once, still,
+   * arrows along it the way it goes). */
+  animate?: boolean;
+  /** The dots flowing along it (default: true; never without motion). */
+  flow?: boolean;
+  /** Its start's label ("You are here"); none by default. */
+  startLabel?: string | null;
+  /** Its destination's card: by default the name of the room it ends in and its floor
+   * ("OFFICE 205 · Floor 2"); null: none (the room's own label then shows). */
+  endLabel?: string | null;
+  /** What a floor change's tag says, where the way leaves a floor ("to") and where it
+   * comes onto one ("from"): by default "Up to Floor 2", "From Ground floor". */
+  changeLabel?: (change: PlanRoute["changes"][number], side: "to" | "from") => string;
+  /** The spaces whose labels stay clear on a calm plan (default: the way's start and
+   * the places it goes through: its lifts and stairs, the corridors it walks along). */
+  landmarks?: Iterable<string>;
+  /** Another floor's plan, for the engine to show it itself: when a floor change's badge
+   * is clicked, a step on another floor is shown, or playing goes on to the next floor
+   * (a short cross-fade). Without it a "routefloor" event asks the page, which shows the
+   * floor with setFloor. */
+  floorPlan?: (floorId: string) => FloorPlan | null | Promise<FloorPlan | null>;
+}
+
+/** Playing a way (playRoute). */
+export interface PlayRouteOptions {
+  /** Metres a second (default: the whole way in about ten seconds, 3 to 14 m/s). */
+  speed?: number;
+  /** From its start again, rather than from where it was paused. */
+  restart?: boolean;
+  /** The view follows the walker, framing each floor's part (default: true). */
+  follow?: boolean;
+}
+
+/** A step of the way shown: the "routestep" event's detail. */
+export interface RouteStepDetail {
+  index: number;
+  step: PlanRouteStep | null;
+  /** The leg it is on (its floor's walking). */
+  leg: number;
+  floor_id: string | null;
+}
+
+/** How far a way has been played: the "routeprogress" event's detail. */
+export interface RouteProgressDetail {
+  /** Metres walked of `total` (the walking alone: rides take no metres). */
+  metres: number;
+  total: number;
+  fraction: number;
+  leg: number;
+  step: number | null;
+  floor_id: string | null;
+  /** Where the walker is, in the floor's metres. */
+  at: XY;
 }
 
 export interface SelectDetail {
@@ -111,7 +190,7 @@ export class FloorPlanEngine extends EventTarget {
   private readonly labelLayer: SVGGElement;
   private readonly pinLayer: SVGGElement;
   private paths = new Map<string, SVGPathElement>();
-  private labels = new Map<string, { text: SVGTextElement; width: number; height: number }>();
+  private labels = new Map<string, { text: SVGTextElement; width: number; height: number; at?: XY }>();
   private measured = false;
   private spaces = new Map<string, PlanSpace>();
   private items = new Map<string, { item: PlanItem; shape: SVGGElement; outline: string }>();
@@ -126,14 +205,22 @@ export class FloorPlanEngine extends EventTarget {
   private dim = true;
   private pinned: string | null = null;
   private frame = 0;
+  private moving = false; // the view is moving to where it was asked to go
   private fitted = false;
   private size = { w: 0, h: 0 };
   private readonly observer: ResizeObserver;
   private pointers = new Map<number, XY>();
   private press: { start: XY; cam: Camera; moved: boolean; target: EventTarget | null } | null = null;
   private pinch: { distance: number; mid: XY; cam: Camera } | null = null;
-  private routed: { route: PlanRoute; floorName: (floorId: string) => string } | null = null;
-  private routeLegs: { index: number; points: XY[] }[] = []; // the route's legs on the floor shown
+  private readonly routeLine: SVGGElement; // a way's line, in screen space
+  private routed: Routed | null = null; // the way shown
+  private routeView: RouteView | null = null; // its parts on the floor shown
+  private drawn = 1; // how much of it is drawn in (1: all)
+  private drawStart = 0;
+  private stepNow: number | null = null; // the step shown (showStep), or playing
+  private playing: Playing | null = null;
+  private loop = 0; // the way's animation frame
+  private labelsOff = new Set<string>(); // labels a marker says instead (the destination's card)
 
   constructor(container: HTMLElement | string, options: EngineOptions = {}) {
     super();
@@ -150,16 +237,20 @@ export class FloorPlanEngine extends EventTarget {
       containers: svg("g", { class: "sp-containers" }),
       items: svg("g", { class: "sp-items" }), // over the spaces, under the walls and the labels
       selection: svg("g", { class: "sp-selection" }),
+      route: svg("g", { class: "sp-route-rooms" }), // a way's destination lit, under the walls
       walls: svg("g", { class: "sp-walls" }),
       openings: svg("g", { class: "sp-openings" }),
-      route: svg("g", { class: "sp-route" }), // over the walls and doors, under the labels
     };
     this.world.append(this.layers.outline, this.layers.units, this.layers.containers, this.layers.items, this.layers.selection,
-      this.layers.walls, this.layers.openings, this.layers.route);
-    this.routeMarks = svg("g", { class: "sp-route-marks" }); // in screen space, under the labels
+      this.layers.route, this.layers.walls, this.layers.openings);
+    // a way, in screen space (as wide, its corners as round and its dots as far apart at
+    // any zoom): its line over the walls and doors, its marks over it; both under the labels
+    this.routeLine = svg("g", { class: "sp-route" });
+    this.routeMarks = svg("g", { class: "sp-route-marks" });
     this.labelLayer = svg("g", { class: "sp-labels", "aria-hidden": "true" });
     this.pinLayer = svg("g", { class: "sp-pin-layer" });
-    this.svg.append(this.world, this.routeMarks, this.labelLayer, this.pinLayer);
+    this.svg.append(this.world, this.routeLine, this.routeMarks, this.labelLayer, this.pinLayer);
+    this.looks();
     element.append(this.svg);
     this.bind();
     this.observer = new ResizeObserver(() => this.resized());
@@ -213,19 +304,21 @@ export class FloorPlanEngine extends EventTarget {
     for (const o of d.openings ?? []) this.layers.openings.append(...this.drawOpening(o));
     for (const it of plan.items ?? []) this.drawItem(it);
     this.showItems();
-    this.drawRoute();
     this.floorBox = finite(box) ? box : [0, 0, 1, 1];
     if (this.chosen && !this.spaces.has(this.chosen) && !this.items.has(this.chosen)) this.chosen = null;
     if (this.pinned && !this.spaces.has(this.pinned)) this.pinned = null;
     this.restyle();
+    this.buildRoute();
     if (fit || !this.fitted) this.fit({ animate: false });
     else this.apply();
+    this.dispatchEvent(new CustomEvent<{ id: string | null }>("floorchange", { detail: { id: plan.id ?? null } }));
   }
 
   /** Change options (a new styleOf, label, colours…) and draw again what they change. */
   setOptions(options: EngineOptions): void {
     this.opts = { ...this.opts, ...options };
     if (options.colors) this.colors = { ...TYPE_COLORS, ...options.colors };
+    this.looks();
     if (this.plan && (options.label || options.ariaLabel || options.interactive || options.labelSize
       || options.interactiveItems !== undefined)) {
       this.setFloor(this.plan, { fit: false });
@@ -306,17 +399,29 @@ export class FloorPlanEngine extends EventTarget {
 
   // ---- a way through the building --------------------------------------------
 
-  /** Draw a way (as route() in navigation.js finds it, or any PlanRoute): its walking
-   * on the floor shown, with arrows the way it goes, its start and end, and where it
-   * changes floor ("Lift to First floor", "Stairs from Ground floor"). Kept when
-   * another floor is shown: its legs on that floor are drawn then. Null: none. */
-  showRoute(route: PlanRoute | null, { floorName, fit = false }: ShowRouteOptions = {}): void {
-    this.routed = route ? { route, floorName: floorName ?? ((id) => id) } : null;
-    this.drawRoute();
-    if (route && fit) this.fitRoute();
+  /** Draw a way (as route() in navigation.js finds it, or any PlanRoute) over the floor
+   * shown: its line, drawn in and flowing the way it goes (`animate`), a "you are here"
+   * dot at its start, a pin and a card at its end with its room lit, and a badge where it
+   * changes floor ("Up to Floor 2": a click shows that floor). Kept when another floor
+   * is shown: its legs on that floor are drawn then. Null: none. */
+  showRoute(route: PlanRoute | null, options: ShowRouteOptions = {}): void {
+    this.endPlay("stopped");
+    this.stepNow = null;
+    this.routed = route ? {
+      route, options, floorName: options.floorName ?? ((id) => id),
+      lengths: route.legs.map((l) => along(l.points)), stepLegs: stepLegsOf(route),
+    } : null;
+    this.drawn = route && (options.animate ?? true) && this.motion() ? 0 : 1;
+    this.drawStart = performance.now();
+    this.looks();
+    this.buildRoute();
+    this.placeLabels();
+    this.placeRoute();
+    if (route && options.fit) this.fitRoute();
+    if (this.drawn < 1) this.kick();
   }
 
-  /** Take the way away. */
+  /** Take the way away (and stop playing it). */
   clearRoute(): void {
     this.showRoute(null);
   }
@@ -329,10 +434,92 @@ export class FloorPlanEngine extends EventTarget {
   /** The way on the floor shown in view (nothing when it is not on this floor). */
   fitRoute({ animate = true }: { animate?: boolean } = {}): void {
     const box: Box = [Infinity, Infinity, -Infinity, -Infinity];
-    for (const { points } of this.routeLegs) boundsOf([[points]], box);
+    for (const { points } of this.routeView?.legs ?? []) boundsOf([[points]], box);
     if (!finite(box)) return;
-    const pad = 3; // metres round it: its markers
-    this.fitBox([box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad], animate, false);
+    const pad = 1; // metres round it, and room on the screen for its marks and tags
+    this.fitBox([box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad], animate, false, 56);
+  }
+
+  /** The step shown (showStep, or where playing has got to), or null. */
+  get routeStep(): number | null {
+    return this.stepNow;
+  }
+
+  /** Show a step of the way (route()'s `steps`): its floor (cross-faded to, through
+   * `floorPlan` or the page's "routefloor"), framed: the start and the first metres, a
+   * walk whole, the lift or stairs to take, the destination and the way into it. Says
+   * so ("routestep"). Resolves once it is shown. */
+  async showStep(index: number, { animate = true }: { animate?: boolean } = {}): Promise<void> {
+    const r = this.routed;
+    const steps = r?.route.steps ?? [];
+    if (!r || !Number.isInteger(index) || index < 0 || index >= steps.length) return;
+    if (this.playing) this.endPlay("stopped");
+    this.stepNow = index;
+    const leg = r.stepLegs[index] ?? 0;
+    this.emitStep();
+    const floor = r.route.legs[leg]?.floor_id;
+    if (!floor || !(await this.goToFloor(floor, "step", animate)) || this.stepNow !== index) return;
+    this.svg.setAttribute("data-sp-route-step", String(index));
+    this.frameStep(index, animate);
+  }
+
+  /** Show a leg of the way (its walking on one floor) whole, its floor cross-faded to. */
+  async showLeg(index: number, { animate = true }: { animate?: boolean } = {}): Promise<void> {
+    const r = this.routed, leg = r?.route.legs[index];
+    if (!r || !leg) return;
+    if (this.playing) this.endPlay("stopped");
+    if (!(await this.goToFloor(leg.floor_id, "step", animate))) return;
+    this.frameBox(this.legBox(index, 0, Infinity), animate);
+  }
+
+  /** Play the way: a dot walks it at a steady pace, floor by floor (a pause at each lift
+   * or stairs, then the next floor cross-faded to), the view following it; says how far
+   * it has got ("routeprogress", and "routestep" as it reaches each step) and when it
+   * plays, pauses, stops or ends ("routeplay"). Again after pauseRoute: on from there.
+   * Without motion, its steps one after another instead. Resolves when it ends or is
+   * stopped. Other floors need `floorPlan` (or the page's "routefloor"). */
+  playRoute({ speed, restart = false, follow = true }: PlayRouteOptions = {}): Promise<void> {
+    const r = this.routed;
+    if (!r || !r.route.legs.length) return Promise.resolve();
+    const p = this.playing;
+    if (p && !restart) {
+      if (p.state === "paused") {
+        p.state = "playing";
+        p.last = performance.now();
+        this.emitPlay("playing");
+        this.kick();
+      }
+      return p.promise;
+    }
+    if (p) this.endPlay("stopped");
+    const total = r.lengths.reduce((sum, l) => sum + (l[l.length - 1] ?? 0), 0);
+    let resolve: () => void = () => {};
+    const promise = new Promise<void>((res) => (resolve = res));
+    this.playing = { state: "playing", steps: !this.motion(), leg: 0, s: 0, metres: 0, total,
+      speed: speed && speed > 0 ? speed : Math.min(14, Math.max(3, total / 10)), phase: "begin", wait: 0,
+      last: performance.now(), follow, k: 0, resolve, promise, step: -1 };
+    this.drawn = 1;
+    this.emitPlay("playing");
+    this.kick();
+    return promise;
+  }
+
+  /** Pause playing (playRoute goes on from there). */
+  pauseRoute(): void {
+    const p = this.playing;
+    if (!p || p.state !== "playing") return;
+    p.state = "paused";
+    this.emitPlay("paused");
+  }
+
+  /** Stop playing: the walker taken away. */
+  stopRoute(): void {
+    this.endPlay("stopped");
+  }
+
+  /** Whether the way is "playing" or "paused", or null. */
+  get routePlay(): "playing" | "paused" | null {
+    return this.playing?.state ?? null;
   }
 
   /** Where a space's label and pin go: a point inside it (drawing metres). */
@@ -395,7 +582,9 @@ export class FloorPlanEngine extends EventTarget {
   }
 
   destroy(): void {
+    this.endPlay("stopped");
     cancelAnimationFrame(this.frame);
+    cancelAnimationFrame(this.loop);
     this.observer.disconnect();
     this.svg.remove();
   }
@@ -576,155 +765,644 @@ export class FloorPlanEngine extends EventTarget {
     }
   }
 
-  /** The route's lines on the floor shown (in the floor's metres, a line as wide at
-   * any zoom), then its marks. */
-  private drawRoute(): void {
-    const layer = this.layers.route;
-    layer.replaceChildren();
-    layer.removeAttribute("data-sp-route");
-    this.routeLegs = [];
-    const floor = this.plan?.id;
-    if (this.routed && floor !== undefined) {
-      this.routed.route.legs.forEach((leg, index) => {
-        if (leg.floor_id !== floor || !leg.points.length) return;
-        this.routeLegs.push({ index, points: leg.points });
-        if (leg.points.length < 2) return;
-        const d = `M${leg.points.map((p) => `${round(p[0])},${round(p[1])}`).join("L")}`;
-        layer.append(svg("path", { class: "sp-route-casing", d }), svg("path", { class: "sp-route-line", d }));
-      });
-      if (this.routeLegs.length) layer.setAttribute("data-sp-route", String(this.routeLegs.length));
-    }
-    this.drawRouteMarks();
+  // ---- a way: drawn, stepped through, played --------------------------------------
+
+  /** Whether moves and the way are animated: as asked (`motion`), else unless the system
+   * asks for reduced motion. */
+  private motion(): boolean {
+    return this.opts.motion ?? !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   }
 
-  /** The route's arrows and markers, on the screen: the same size at any zoom. */
-  private drawRouteMarks(): void {
-    const g = this.routeMarks;
-    g.replaceChildren();
-    const routed = this.routed;
-    if (!routed || !this.routeLegs.length) return;
-    const { legs, changes } = routed.route;
-    const arrows: SVGElement[] = [], marks: SVGElement[] = [], ends: SVGElement[] = [];
-    const place = (el: SVGElement, p: XY): SVGElement => {
-      const [sx, sy] = this.toScreen(p);
-      el.setAttribute("transform", `translate(${round(sx)},${round(sy)})`);
-      el.setAttribute("data-plan-x", String(round(p[0])));
-      el.setAttribute("data-plan-y", String(round(p[1])));
-      return el;
-    };
-    const titled = (el: SVGElement, text: string): SVGElement => {
-      const t = svg("title");
-      t.textContent = text;
-      el.prepend(t);
-      return el;
-    };
-    for (const { points } of this.routeLegs) {
-      // arrows the way it goes, evenly along it on the screen, clear of its ends
-      const screen = points.map((p) => this.toScreen(p));
-      const length = screen.slice(1).reduce((sum, q, i) => sum + Math.hypot(q[0] - screen[i]![0], q[1] - screen[i]![1]), 0);
-      let next = length < ARROW_PX ? length / 2 : ARROW_PX / 2;
-      let walked = 0;
-      for (let i = 1; i < screen.length; i++) {
-        const a = screen[i - 1]!, b = screen[i]!;
-        const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        while (seg > 0 && next <= walked + seg) {
-          if (next > 10 && length - next > 10) {
-            const t = (next - walked) / seg;
-            const angle = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
-            arrows.push(svg("path", { class: "sp-route-arrow", d: "M-4,-4.5L1.5,0L-4,4.5",
-              transform: `translate(${round(a[0] + (b[0] - a[0]) * t)},${round(a[1] + (b[1] - a[1]) * t)}) rotate(${round(angle)})` }));
-          }
-          next += ARROW_PX;
-        }
-        walked += seg;
+  /** The plan's look and colours as classes on it: its style (the way's, while one is
+   * shown and asks for one), its theme, and whether it moves. */
+  private looks(): void {
+    const style = (this.routed && this.routed.options.style) || this.opts.style || "default";
+    const theme = this.opts.theme ?? "auto";
+    const c = this.svg.classList;
+    c.toggle("sp-style-wayfinding", style === "wayfinding");
+    c.toggle("sp-theme-light", theme === "light");
+    c.toggle("sp-theme-dark", theme === "dark");
+    c.toggle("sp-still", !this.motion());
+  }
+
+  /** The unit (zone, or space with no zones) a point of the floor is in: the smallest. */
+  private unitAt(p: XY): string | null {
+    let best: string | null = null, area = Infinity;
+    for (const [id, s] of this.spaces) {
+      const b = this.boxes.get(id)!;
+      if (p[0] < b[0] || p[0] > b[2] || p[1] < b[1] || p[1] > b[3] || !inside(s.polygons, p)) continue;
+      const a = (b[2] - b[0]) * (b[3] - b[1]);
+      if (a < area) {
+        area = a;
+        best = id;
       }
     }
-    // the markers, beside the labels rather than over them: the start on its point; the
-    // end and each change of floor where they cover the fewest labels, nearest first,
-    // with a short leader from their point when they are set off it
+    return best;
+  }
+
+  /** A place a step names, as a unit of this floor (a zone, or a space with no zones). */
+  private unitOf(place: string | null | undefined): string | null {
+    return place && this.spaces.has(place) ? place : null;
+  }
+
+  /** The way's parts on the floor shown, made again (a way shown, or another floor): its
+   * legs' lines, its markers, its destination lit, and the labels it keeps clear. */
+  private buildRoute(): void {
+    this.routeLine.replaceChildren();
+    this.routeMarks.replaceChildren();
+    this.layers.route.replaceChildren();
+    this.routeLine.removeAttribute("data-sp-route");
+    this.routeLine.removeAttribute("data-sp-route-drawn");
+    this.svg.removeAttribute("data-sp-route-step");
+    this.labelsOff.clear();
+    for (const { text } of this.labels.values()) text.classList.remove("sp-label-strong");
+    this.routeView = null;
+    const r = this.routed, floor = this.plan?.id;
+    if (!r || floor === undefined) return;
+    const { legs, changes } = r.route;
+    const steps = r.route.steps ?? [];
+    const v: RouteView = { legs: [], start: null, end: null, changes: [], walker: null, room: null, instant: this.drawn >= 1 };
+    legs.forEach((leg, index) => {
+      if (leg.floor_id !== floor || !leg.points.length) return;
+      const g = svg("g", { class: "sp-route-leg", "data-leg": index });
+      const line = (cls: string, unit: boolean): SVGPathElement => g.appendChild(svg("path", unit ? { class: cls, pathLength: 1 } : { class: cls }));
+      v.legs.push({ index, points: leg.points, g, halo: line("sp-route-halo", true), casing: line("sp-route-casing", true),
+        core: line("sp-route-line", true), done: line("sp-route-done", true), flow: line("sp-route-flow", false),
+        arrows: g.appendChild(svg("g", { class: "sp-route-arrows" })) });
+      this.routeLine.append(g);
+    });
+    if (!v.legs.length) return;
+    this.routeView = v;
+    this.routeLine.setAttribute("data-sp-route", String(v.legs.length));
+    const last = legs.length - 1;
+    const strong = new Set<string>();
+    const arrive = steps.find((s) => s.kind === "arrive");
+    for (const lv of v.legs) {
+      const first = lv.points[0]!, end = lv.points[lv.points.length - 1]!;
+      if (lv.index === 0) {
+        v.start = this.makeStart(first, r.options.startLabel ?? null);
+        const at = this.unitOf(steps[0]?.kind === "start" ? steps[0].place : null) ?? this.unitAt(first);
+        if (at) strong.add(at);
+      }
+      if (lv.index === last) {
+        const room = this.unitOf(arrive?.place) ?? this.unitAt(end);
+        const text = r.options.endLabel === undefined ? this.endText(room, legs[last]!.floor_id) : r.options.endLabel;
+        v.end = this.makeEnd(end, text);
+        if (room) {
+          v.room = this.makeRoom(room);
+          if (v.end.card) this.labelsOff.add(room);
+          else strong.add(room);
+        }
+      }
+      if (lv.index > 0 && changes[lv.index - 1]) v.changes.push(this.makeChange(changes[lv.index - 1]!, "from", first, lv.index - 1));
+      if (lv.index < last && changes[lv.index]) v.changes.push(this.makeChange(changes[lv.index]!, "to", end, lv.index));
+    }
+    // the lifts and stairs: their badges say so; the corridors it goes along, clear
+    for (const c of v.changes) {
+      const at = this.unitAt(c.p);
+      if (at) this.labelsOff.add(at);
+    }
+    for (const s of steps) {
+      if (s.kind === "walk" && s.floor_id === floor) {
+        const along = this.unitOf(s.along);
+        if (along) strong.add(along);
+      }
+    }
+    const keep = r.options.landmarks ? new Set(r.options.landmarks) : strong;
+    for (const [id, { text }] of this.labels) text.classList.toggle("sp-label-strong", keep.has(id) && !this.labelsOff.has(id));
+    // in order: the floor changes, the start, the end over them; the walker over all
+    this.routeMarks.append(...v.changes.map((c) => c.g), ...(v.start ? [v.start.g] : []), ...(v.end ? [v.end.g] : []));
+    if (this.playing) this.placeWalker();
+    this.reveal();
+  }
+
+  /** What a destination's card says: its room's name and its floor. */
+  private endText(room: string | null, floor: string): string | null {
+    const s = room ? this.spaces.get(room) : null;
+    const name = s ? this.lines(s).join(" ") : "";
+    const where = this.routed?.floorName(floor) ?? floor;
+    return name ? `${name} · ${where}` : where;
+  }
+
+  /** A mark's group at a point of the plan (placed on the screen by placeRoute). */
+  private mark(cls: string, p: XY, attrs: Record<string, string | number> = {}): SVGGElement {
+    return svg("g", { class: cls, "data-plan-x": round(p[0]), "data-plan-y": round(p[1]), ...attrs });
+  }
+
+  /** "You are here": a dot, a soft halo pulsing round it, and its label if any. */
+  private makeStart(p: XY, label: string | null): MarkView & { chip: Chip | null } {
+    const g = this.mark("sp-route-start", p, { "data-sp-route-start": "" });
+    const dot = g.appendChild(svg("g", { class: "sp-route-start-mark sp-enter" }));
+    dot.append(svg("circle", { class: "sp-route-start-pulse", r: 9 }), svg("circle", { class: "sp-route-start-halo", r: 15 }),
+      svg("circle", { class: "sp-route-start-ring", r: 9 }), svg("circle", { class: "sp-route-start-dot", r: 5.5 }));
+    titled(g, label ?? "Start");
+    const chip = label ? this.makeChip(g, label, "sp-route-start-chip") : null;
+    return { g, p, chip };
+  }
+
+  /** A tag of text on a rounded card, measured: its group, size and text. */
+  private makeChip(parent: SVGGElement, text: string, cls: string, sub: string | null = null): Chip {
+    const g = parent.appendChild(svg("g", { class: `sp-route-chip ${cls}` }));
+    const inner = g.appendChild(svg("g", { class: "sp-route-chip-in sp-enter" }));
+    const bg = inner.appendChild(svg("rect", { class: "sp-route-chip-bg", rx: 8, height: 24, y: -12 }));
+    const t = inner.appendChild(svg("text", { class: "sp-route-chip-text", "dominant-baseline": "central", y: 0.5 }));
+    const main = t.appendChild(svg("tspan", { class: "sp-route-chip-title" }));
+    main.textContent = text;
+    if (sub) {
+      const s = t.appendChild(svg("tspan", { class: "sp-route-chip-sub" }));
+      s.textContent = ` · ${sub}`;
+    }
+    let width = (text.length + (sub ? sub.length + 3 : 0)) * 6.6;
+    try {
+      const w = t.getComputedTextLength();
+      if (w > 0) width = w;
+    } catch {
+      // not laid out (the plan is not shown): the guess
+    }
+    width = Math.ceil(width + 20);
+    bg.setAttribute("width", String(width));
+    t.setAttribute("x", "10");
+    return { g, width, height: 24 };
+  }
+
+  /** The destination: a pin on its point, and a card naming it (or none). */
+  private makeEnd(p: XY, text: string | null): MarkView & { pin: SVGGElement; leader: SVGLineElement; at: SVGCircleElement; card: Chip | null } {
+    const g = this.mark("sp-route-end", p, { "data-sp-route-end": "" });
+    const leader = g.appendChild(svg("line", { class: "sp-route-leader", x1: 0, y1: 0, x2: 0, y2: 0 }));
+    const at = g.appendChild(svg("circle", { class: "sp-route-end-at", r: 4 }));
+    const pin = g.appendChild(svg("g", { class: "sp-route-end-pin" }));
+    const drop = svg("g", { class: "sp-route-end-drop sp-enter" });
+    drop.append(svg("path", { class: "sp-route-end-body", d: "M0,0C-2.6,-6.5 -11,-11.5 -11,-20.5A11,11 0 1 1 11,-20.5C11,-11.5 2.6,-6.5 0,0Z" }),
+      svg("circle", { class: "sp-route-end-dot", cx: 0, cy: -20.5, r: 4.4 }));
+    pin.append(svg("ellipse", { class: "sp-route-end-shadow sp-enter", rx: 6.5, ry: 2.4 }), drop);
+    titled(g, text ?? "Destination");
+    let card: Chip | null = null;
+    if (text) {
+      const [title, ...rest] = text.split(" · ");
+      card = this.makeChip(g, title!, "sp-route-card", rest.length ? rest.join(" · ") : null);
+    }
+    return { g, p, pin, leader, at, card };
+  }
+
+  /** A floor change: a round badge with the lift's or stairs' picture, and a tag saying
+   * where it goes ("Up to Floor 2") or where it comes from; a button: it shows that floor. */
+  private makeChange(c: PlanRoute["changes"][number], side: "to" | "from", p: XY, index: number): ChangeView {
+    const r = this.routed!;
+    const floor = side === "to" ? c.to_floor_id : c.from_floor_id;
+    const text = r.options.changeLabel?.(c, side) ?? changeText(c, side, r.floorName);
+    const ride = RIDES[c.by] ?? c.by;
+    const said = side === "to" ? `${ride}: ${text}` : `${text}, by the ${c.by}`;
+    const g = this.mark("sp-route-change", p, { "data-sp-route-change": side, "data-floor": floor, "data-change": index,
+      role: "button", tabindex: 0, "aria-label": `${said}: show ${r.floorName(floor)}` });
+    const leader = g.appendChild(svg("line", { class: "sp-route-leader", x1: 0, y1: 0, x2: 0, y2: 0 }));
+    const badge = g.appendChild(svg("g", { class: "sp-route-badge sp-enter" }));
+    badge.append(svg("circle", { class: "sp-route-badge-ring", r: 13 }),
+      svg("path", { class: "sp-route-badge-glyph", d: glyphOf(c.by), transform: "translate(-7.2,-7.2) scale(0.6)" }));
+    const dir = c.direction === "up" || c.direction === "down" ? c.direction : null;
+    const chip = this.makeChip(g, text, "sp-route-change-chip");
+    if (dir && side === "to") { // which way: an arrow before its words
+      const arrow = svg("path", { class: "sp-route-chip-arrow", d: ROUTE_GLYPHS[dir]!, transform: "translate(8,-6) scale(0.5)" });
+      const text = chip.g.querySelector("text")!;
+      text.parentNode!.insertBefore(arrow, text);
+      text.setAttribute("x", "24");
+      chip.width += 14;
+      chip.g.querySelector("rect")!.setAttribute("width", String(chip.width));
+    }
+    titled(g, said);
+    return { g, p, side, change: c, floor, index, leader, chip };
+  }
+
+  /** The destination's room lit: tinted, outlined, and a ring pulsing out of it once. */
+  private makeRoom(id: string): SVGGElement {
+    const d = this.paths.get(id)?.getAttribute("d") ?? "";
+    const g = svg("g", { class: "sp-route-room", "data-sp-route-room": id });
+    g.append(svg("path", { class: "sp-route-room-fill", d }), svg("path", { class: "sp-route-room-pulse", d }),
+      svg("path", { class: "sp-route-room-edge", d }));
+    this.layers.route.append(g);
+    return g;
+  }
+
+  /** The marks shown as far as the line is drawn in: the start and where the way comes
+   * onto the floor at once; the end, its room and where it leaves the floor once the
+   * line gets there. Shown at once (no dropping in) when it is not drawn in. */
+  private reveal(): void {
+    const v = this.routeView;
+    if (!v) return;
+    const there = this.drawn >= 0.96;
+    const show = (el: Element | null, on: boolean): void => {
+      if (!el || el.classList.contains("sp-in") === on) return;
+      el.classList.toggle("sp-in", on);
+      if (on && v.instant) el.classList.add("sp-instant");
+    };
+    show(v.start?.g ?? null, true);
+    for (const c of v.changes) show(c.g, c.side === "from" || there);
+    show(v.end?.g ?? null, there);
+    show(v.room, there);
+  }
+
+  /** The way placed on the screen (the view moved, or it is drawing in): its lines
+   * through the floor's points, rounded at corners, drawn in as far as it has got; its
+   * marks beside the labels rather than over them; the walker where it has got to. */
+  private placeRoute(): void {
+    const v = this.routeView, r = this.routed;
+    if (!v || !r) return;
+    this.routeLine.setAttribute("data-sp-route-drawn", String(round(this.drawn)));
+    const moving = this.motion() && (r.options.animate ?? true);
+    const flowing = moving && (r.options.flow ?? true) && this.drawn >= 1;
+    for (const lv of v.legs) {
+      const screen = thinned(lv.points.map((p) => this.toScreen(p)), 0.75);
+      const { d } = rounded(screen, CORNER_PX);
+      for (const e of [lv.halo, lv.casing, lv.core, lv.done, lv.flow]) e.setAttribute("d", d);
+      const dash = this.drawn < 1 ? `${round(this.drawn)} 2` : "";
+      for (const e of [lv.halo, lv.casing, lv.core]) {
+        if (dash) e.setAttribute("stroke-dasharray", dash);
+        else e.removeAttribute("stroke-dasharray");
+      }
+      const done = this.doneOf(lv.index);
+      if (done > 0) {
+        lv.done.setAttribute("stroke-dasharray", `${round(done)} 2`);
+        lv.done.style.display = "";
+      } else lv.done.style.display = "none";
+      lv.g.classList.toggle("sp-flowing", flowing);
+      lv.arrows.replaceChildren(...(flowing || this.drawn < 1 ? [] : arrowsAlong(screen)));
+    }
+    this.placeMarks();
+    this.reveal();
+    if (this.playing) this.placeWalker();
+  }
+
+  /** The markers on the screen: the start on its point; the floor changes' badges on
+   * theirs, their tags beside them where they cover the fewest labels; the destination's
+   * pin on its point when its card names it (the room's label is then not shown), else
+   * beside the labels with a short leader; its card over the pin, or beside it. */
+  private placeMarks(): void {
+    const v = this.routeView!;
     const labels: Box[] = [];
-    for (const [id, label] of this.labels) {
-      const m = this.markers.get(id);
-      if (!m || label.text.getAttribute("visibility") !== "visible") continue;
-      const [sx, sy] = this.toScreen(m);
+    for (const label of this.labels.values()) {
+      if (!label.at || label.text.getAttribute("visibility") !== "visible") continue;
+      const [sx, sy] = label.at;
       labels.push([sx - label.width / 2, sy - label.height / 2, sx + label.width / 2, sy + label.height / 2]);
     }
     const taken: Box[] = [];
+    const line = this.routeOnScreen();
     const covered = (b: Box): number => [...labels, ...taken].reduce((sum, o) =>
-      sum + Math.max(0, Math.min(b[2], o[2]) - Math.max(b[0], o[0])) * Math.max(0, Math.min(b[3], o[3]) - Math.max(b[1], o[1])), 0);
-    /** Where a marker goes beside its point s (screen): ``boxOf(anchor, rightward)`` is
-     * the box it takes there. */
-    const spot = (s: XY, radii: number[], boxOf: (a: XY, right: boolean) => Box): { at: XY; right: boolean } => {
-      let best: { at: XY; right: boolean; box: Box; score: number } | null = null;
-      for (const r of radii) {
-        for (const [dx, dy] of r === 0 ? [[0, 0] as const] : AROUND) {
-          const at: XY = [s[0] + dx * r, s[1] + dy * r];
-          const right = dx >= 0;
-          const box = boxOf(at, right);
-          const score = covered(box) + r * 4; // a pixel further costs as much as 4 square pixels of a label covered
-          if (!best || score < best.score - 1e-9) best = { at, right, box, score };
-        }
+      sum + Math.max(0, Math.min(b[2], o[2]) - Math.max(b[0], o[0])) * Math.max(0, Math.min(b[3], o[3]) - Math.max(b[1], o[1])), 0)
+      + (line && crosses(line, [b[0] + LINE_CLEAR - 2, b[1] + LINE_CLEAR - 2, b[2] - LINE_CLEAR + 2, b[3] - LINE_CLEAR + 2]) ? 2400 : 0);
+    /** Where a mark goes about its point s: tried in turn (offsets), the one covering
+     * the fewest labels and marks, nearest first; ``boxOf(at)`` the box it takes there. */
+    const spot = (s: XY, offsets: XY[], boxOf: (at: XY) => Box, cost = 4, order = false): XY => {
+      let best: { at: XY; box: Box; score: number } | null = null;
+      for (const [i, o] of offsets.entries()) {
+        const at: XY = [s[0] + o[0], s[1] + o[1]];
+        const box = boxOf(at);
+        // a pixel further costs as much as `cost` square pixels of a label covered (or, in
+        // order, each place after the first as much as 60 pixels further)
+        const score = covered(box) + (order ? i * 60 : Math.hypot(o[0], o[1])) * cost;
+        if (!best || score < best.score - 1e-9) best = { at, box, score };
       }
       taken.push(best!.box);
-      return best!;
+      return best!.at;
     };
-    const leader = (m: SVGElement, to: XY): void => {
-      if (Math.hypot(to[0], to[1]) > 7) m.append(svg("line", { class: "sp-route-leader", x1: 0, y1: 0, x2: round(to[0]), y2: round(to[1]) }));
-    };
-    const starts: XY[] = [], ends_: XY[] = [], rides: { side: "to" | "from"; c: PlanRoute["changes"][number]; at: XY }[] = [];
-    for (const { index, points } of this.routeLegs) {
-      const first = points[0]!, last = points[points.length - 1]!;
-      if (index === 0) starts.push(first);
-      if (index === legs.length - 1) ends_.push(last);
-      if (index > 0 && changes[index - 1]) rides.push({ side: "from", c: changes[index - 1]!, at: first });
-      if (index < legs.length - 1 && changes[index]) rides.push({ side: "to", c: changes[index]!, at: last });
-    }
-    for (const p of starts) {
-      const m = svg("g", { class: "sp-route-start", "data-sp-route-start": "" });
-      m.append(svg("circle", { class: "sp-route-start-ring", r: 8.5 }), svg("circle", { class: "sp-route-start-dot", r: 3.5 }));
-      ends.push(titled(place(m, p), "Start"));
-      const [sx, sy] = this.toScreen(p);
-      taken.push([sx - 9, sy - 9, sx + 9, sy + 9]);
-    }
-    for (const p of ends_) {
+    const around = (radii: number[]): XY[] => radii.flatMap((r) => (r === 0 ? [[0, 0] as XY] : AROUND.map(([x, y]): XY => [x * r, y * r])));
+    const place = (g: SVGGElement, p: XY): XY => {
       const s = this.toScreen(p);
-      const { at } = spot(s, [0, 26, 44, 64], (a) => [a[0] - 11, a[1] - 31, a[0] + 11, a[1]]);
-      const to: XY = [at[0] - s[0], at[1] - s[1]];
-      const m = svg("g", { class: "sp-route-end", "data-sp-route-end": "" });
-      leader(m, to);
-      if (to[0] || to[1]) m.append(svg("circle", { class: "sp-route-end-at", r: 4 }));
-      const pin = svg("g", { transform: `translate(${round(to[0])},${round(to[1])})` });
-      pin.append(svg("path", { class: "sp-route-end-pin", d: "M0,0C-3,-7 -11,-12 -11,-20A11,11 0 1 1 11,-20C11,-12 3,-7 0,0Z" }),
-        svg("circle", { class: "sp-route-end-dot", cx: 0, cy: -20, r: 4.2 }));
-      m.append(pin);
-      ends.push(titled(place(m, p), "Destination"));
+      g.setAttribute("transform", `translate(${round(s[0])},${round(s[1])})`);
+      return s;
+    };
+    const lead = (line: SVGLineElement, to: XY): void => {
+      const far = Math.hypot(to[0], to[1]) > 7;
+      line.setAttribute("x2", String(far ? round(to[0]) : 0));
+      line.setAttribute("y2", String(far ? round(to[1]) : 0));
+    };
+    if (v.start) {
+      const s = place(v.start.g, v.start.p);
+      taken.push([s[0] - 12, s[1] - 12, s[0] + 12, s[1] + 12]);
     }
-    for (const { side, c, at: p } of rides) {
-      const floor = side === "to" ? c.to_floor_id : c.from_floor_id;
-      const text = `${RIDES[c.by] ?? c.by} ${side} ${routed.floorName(floor)}`;
-      const m = svg("g", { class: "sp-route-change", "data-sp-route-change": side, "data-floor": floor });
-      const label = svg("text", { class: "sp-route-change-text", "dominant-baseline": "central" });
-      label.textContent = text;
-      g.append(label); // laid out, to be measured
-      let width = text.length * 6.4 + 20;
-      try {
-        const w = label.getComputedTextLength();
-        if (w > 0) width = w + 20;
-      } catch {
-        // not laid out (the plan is not shown): the guess
+    for (const c of v.changes) {
+      const s = place(c.g, c.p);
+      taken.push([s[0] - 15, s[1] - 15, s[0] + 15, s[1] + 15]);
+    }
+    if (v.start?.chip) { // its label over it, or beside it
+      const { chip } = v.start, s = this.toScreen(v.start.p), w = chip.width;
+      const at = spot(s, [[-w / 2, -30], [17, 0], [-w - 17, 0], [-w / 2, 30]], (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 4, true);
+      chip.g.setAttribute("transform", `translate(${round(at[0] - s[0])},${round(at[1] - s[1])})`);
+    }
+    for (const c of v.changes) { // the tag beside its badge
+      const s = this.toScreen(c.p), w = c.chip.width;
+      const at = spot(s, [[19, 0], [-19 - w, 0], [-w / 2, -30], [-w / 2, 30], [19, -24], [-19 - w, -24], [19, 24], [-19 - w, 24]],
+        (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 1);
+      c.chip.g.setAttribute("transform", `translate(${round(at[0] - s[0])},${round(at[1] - s[1])})`);
+      lead(c.leader, [0, 0]);
+    }
+    if (v.end) {
+      const e = v.end, s = place(e.g, e.p);
+      // the pin: on its point when its card names the room; else where it covers no label
+      const pin = e.card ? s : spot(s, around([0, 26, 44, 64]), (a) => [a[0] - 11, a[1] - 32, a[0] + 11, a[1]]);
+      if (e.card) taken.push([s[0] - 11, s[1] - 32, s[0] + 11, s[1]]);
+      const to: XY = [pin[0] - s[0], pin[1] - s[1]];
+      e.pin.setAttribute("transform", `translate(${round(to[0])},${round(to[1])})`);
+      lead(e.leader, to);
+      e.at.style.display = to[0] || to[1] ? "" : "none";
+      if (e.card) {
+        const w = e.card.width, head: XY = [pin[0], pin[1] - 20.5];
+        const at = spot(head, [[-w / 2, -30], [16, 0], [-16 - w, 0], [-w / 2, 44]], (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 4, true);
+        e.card.g.setAttribute("transform", `translate(${round(at[0] - s[0])},${round(at[1] - s[1])})`);
       }
-      const s = this.toScreen(p);
-      const { at, right } = spot(s, [16, 30, 48], (a, r) => (r ? [a[0], a[1] - 11, a[0] + width, a[1] + 11]
-        : [a[0] - width, a[1] - 11, a[0], a[1] + 11]));
-      const x = at[0] - s[0] - (right ? 0 : width), y = at[1] - s[1];
-      leader(m, [at[0] - s[0], y]);
-      label.setAttribute("x", String(round(x + 10)));
-      label.setAttribute("y", String(round(y)));
-      m.append(svg("circle", { class: "sp-route-change-dot", r: 6 }),
-        svg("rect", { class: "sp-route-change-tag", x: round(x), y: round(y - 11), width: round(width), height: 22, rx: 11 }), label);
-      marks.push(titled(place(m, p), text));
     }
-    g.append(...arrows, ...marks, ...ends);
+  }
+
+  /** How much of a leg has been walked while playing (0 to 1). */
+  private doneOf(leg: number): number {
+    const p = this.playing, r = this.routed;
+    if (!p || !r || p.steps) return 0;
+    if (leg < p.leg) return 1;
+    if (leg > p.leg) return 0;
+    const total = r.lengths[leg]?.[r.lengths[leg]!.length - 1] ?? 0;
+    return total > 0 ? Math.min(1, p.s / total) : 0;
+  }
+
+  /** The walker (playing) where it has got to, facing the way it goes. */
+  private placeWalker(): void {
+    const p = this.playing, r = this.routed, v = this.routeView;
+    const leg = r?.route.legs[p?.leg ?? -1];
+    if (!p || !r || !v || p.steps || !leg || leg.floor_id !== this.plan?.id) {
+      v?.walker?.g.remove();
+      if (v) v.walker = null;
+      return;
+    }
+    if (!v.walker) {
+      const g = this.mark("sp-route-walker", leg.points[0]!, { "data-sp-route-walker": "" });
+      g.append(svg("circle", { class: "sp-route-walker-halo", r: 17 }), svg("circle", { class: "sp-route-walker-ring", r: 10.5 }));
+      const arrow = g.appendChild(svg("path", { class: "sp-route-walker-arrow", d: "M0,-6.5L5,5.5L0,2.8L-5,5.5Z" }));
+      v.walker = { g, p: leg.points[0]!, arrow };
+      this.routeMarks.append(g);
+    }
+    const { at, dir } = pointAt(leg.points, r.lengths[p.leg]!, p.s);
+    const s = this.toScreen(at);
+    const angle = (Math.atan2(this.ySign * dir[1], dir[0]) * 180) / Math.PI + 90;
+    v.walker.p = at;
+    v.walker.g.setAttribute("data-plan-x", String(round(at[0])));
+    v.walker.g.setAttribute("data-plan-y", String(round(at[1])));
+    v.walker.g.setAttribute("transform", `translate(${round(s[0])},${round(s[1])})`);
+    v.walker.arrow.setAttribute("transform", `rotate(${round(angle)})`);
+  }
+
+  /** The way's animation, a frame at a time while it draws in or plays; none otherwise. */
+  private kick(): void {
+    if (!this.loop) this.loop = requestAnimationFrame(this.tick);
+  }
+
+  private readonly tick = (now: number): void => {
+    this.loop = 0;
+    let again = false;
+    if (this.drawn < 1 && this.routed) {
+      const t = Math.min(1, Math.max(0, (now - this.drawStart) / DRAW_MS));
+      this.drawn = t >= 1 ? 1 : Math.min(0.999, easeInOut(t));
+      this.placeRoute();
+      again = this.drawn < 1;
+    }
+    const p = this.playing;
+    if (p && p.state === "playing") {
+      this.advance(p, now);
+      again = again || this.playing === p;
+    }
+    if (again) this.kick();
+  };
+
+  /** Playing: on a frame's worth (a long gap, as in a hidden tab, counts as one frame). */
+  private advance(p: Playing, now: number): void {
+    const r = this.routed!;
+    const dt = Math.min(100, Math.max(0, now - p.last));
+    p.last = now;
+    const legs = r.route.legs;
+    const length = (i: number): number => r.lengths[i]?.[r.lengths[i]!.length - 1] ?? 0;
+    if (p.steps) { // without motion: a step every so often
+      p.wait -= dt;
+      if (p.wait > 0 || p.phase === "switch") return;
+      const next = p.step + 1;
+      const steps = r.route.steps ?? [];
+      if (next >= steps.length) return this.endPlay("ended");
+      p.step = next;
+      p.phase = "switch";
+      void this.goToFloor(legs[r.stepLegs[next] ?? 0]!.floor_id, "play", false).then(() => {
+        if (this.playing !== p) return;
+        this.stepNow = next;
+        this.svg.setAttribute("data-sp-route-step", String(next));
+        this.frameStep(next, false);
+        this.emitStep();
+        p.phase = "walk";
+        p.wait = 1600;
+      });
+      return;
+    }
+    switch (p.phase) {
+      case "begin":
+      case "switch": {
+        if (p.wait === -1) return; // under way
+        p.wait = -1;
+        const leg = p.phase === "begin" ? 0 : p.leg + 1;
+        void this.goToFloor(legs[leg]!.floor_id, "play", true).then((shown) => {
+          if (this.playing !== p) return;
+          if (!shown) return this.endPlay("stopped");
+          p.leg = leg;
+          p.s = 0;
+          p.phase = "after";
+          p.wait = leg === 0 ? 350 : PLAY.after;
+          this.playView(p, true);
+          this.buildRoute(); // (the walker on this floor)
+          this.placeRoute();
+        });
+        return;
+      }
+      case "after":
+        p.wait -= dt;
+        if (p.wait <= 0) p.phase = "walk";
+        break;
+      case "walk": {
+        const total = length(p.leg);
+        p.s = Math.min(total, p.s + (p.speed * dt) / 1000);
+        if (p.s >= total) {
+          if (p.leg >= legs.length - 1) {
+            this.progress(p);
+            return this.endPlay("ended");
+          }
+          p.phase = "before";
+          p.wait = PLAY.before;
+        }
+        break;
+      }
+      case "before":
+        p.wait -= dt;
+        if (p.wait <= 0) {
+          p.phase = "switch";
+          p.wait = 0;
+        }
+        break;
+    }
+    if (p.follow) this.playView(p, false, dt);
+    this.placeRoute();
+    this.progress(p);
+  }
+
+  /** Playing: the view on the walker. At a leg's start, its whole walking framed when it
+   * fits at a comfortable zoom (the view then stays), else that zoom, following it. */
+  private playView(p: Playing, start: boolean, dt = 0): void {
+    const r = this.routed!, leg = r.route.legs[p.leg];
+    if (!leg || leg.floor_id !== this.plan?.id || !this.size.w) return;
+    const { w, h } = this.size, pad = this.opts.padding ?? 24;
+    if (start) {
+      const box = this.legBox(p.leg, 0, Infinity);
+      const fitK = Math.min((w - 2 * pad) / Math.max(box[2] - box[0], 1e-6), (h - 2 * pad) / Math.max(box[3] - box[1], 1e-6));
+      const easy = Math.min(w, h) / PLAY.wide;
+      p.k = fitK >= easy * 0.8 ? 0 : this.clampScale(easy); // 0: framed whole, not followed
+      if (!p.k) this.frameBox(box, true);
+      else {
+        const { at } = pointAt(leg.points, r.lengths[p.leg]!, 0);
+        this.moveTo({ k: p.k, tx: w / 2 - p.k * at[0], ty: h / 2 - this.ySign * p.k * at[1] }, this.motion(), STEP_MS);
+      }
+      return;
+    }
+    if (!p.k || this.moving) return;
+    const lengths = r.lengths[p.leg]!;
+    const { at } = pointAt(leg.points, lengths, p.s + p.speed * 1.2); // a little ahead of it
+    const k = this.cam.k;
+    const want = { tx: w / 2 - k * at[0], ty: h / 2 - this.ySign * k * at[1] };
+    const f = 1 - Math.exp(-dt / 450);
+    this.cam = { k, tx: this.cam.tx + (want.tx - this.cam.tx) * f, ty: this.cam.ty + (want.ty - this.cam.ty) * f };
+    this.apply();
+  }
+
+  /** Playing: how far it has got, and the step it is at (said when it changes). */
+  private progress(p: Playing): void {
+    const r = this.routed!;
+    let before = 0;
+    for (let i = 0; i < p.leg; i++) before += r.lengths[i]?.[r.lengths[i]!.length - 1] ?? 0;
+    const metres = before + p.s;
+    const leg = r.route.legs[p.leg]!;
+    const step = playStep(r, p);
+    if (step !== null && step !== this.stepNow) {
+      this.stepNow = step;
+      this.svg.setAttribute("data-sp-route-step", String(step));
+      this.emitStep();
+    }
+    const { at } = pointAt(leg.points, r.lengths[p.leg]!, p.s);
+    p.metres = metres;
+    this.dispatchEvent(new CustomEvent<RouteProgressDetail>("routeprogress", { detail: { metres: round(metres), total: round(p.total),
+      fraction: p.total > 0 ? round(metres / p.total) : 1, leg: p.leg, step, floor_id: leg.floor_id, at } }));
+  }
+
+  /** Playing ends: ended (got there), or stopped; the walker taken away. */
+  private endPlay(how: "ended" | "stopped"): void {
+    const p = this.playing;
+    if (!p) return;
+    this.playing = null;
+    if (how === "ended" && this.routed?.route.steps?.length) {
+      this.stepNow = this.routed.route.steps.length - 1;
+      this.svg.setAttribute("data-sp-route-step", String(this.stepNow));
+      this.emitStep();
+    }
+    this.placeWalker();
+    this.placeRoute();
+    this.emitPlay(how);
+    p.resolve();
+  }
+
+  private emitPlay(state: "playing" | "paused" | "stopped" | "ended"): void {
+    this.svg.setAttribute("data-sp-route-play", state);
+    this.dispatchEvent(new CustomEvent<{ state: string }>("routeplay", { detail: { state } }));
+  }
+
+  private emitStep(): void {
+    const r = this.routed, i = this.stepNow;
+    if (!r || i === null) return;
+    const leg = r.stepLegs[i] ?? 0;
+    this.dispatchEvent(new CustomEvent<RouteStepDetail>("routestep", { detail: { index: i, step: r.route.steps?.[i] ?? null, leg,
+      floor_id: r.route.legs[leg]?.floor_id ?? null } }));
+  }
+
+  /** Another floor of the way shown: by the page ("routefloor", which it may cancel, then
+   * showing it itself), else through `floorPlan`; cross-faded. Whether it is shown. */
+  private async goToFloor(id: string, reason: "badge" | "step" | "play", fade: boolean): Promise<boolean> {
+    if (this.plan?.id === id) return true;
+    const ask = new CustomEvent<{ floor_id: string; reason: string }>("routefloor", { cancelable: true, detail: { floor_id: id, reason } });
+    const before = this.plan;
+    this.dispatchEvent(ask);
+    if (this.plan?.id === id) return true; // the page showed it
+    const get = this.routed?.options.floorPlan;
+    if (ask.defaultPrevented || !get) return false;
+    const plan = await get(id);
+    if (!plan || !this.routed || this.plan !== before) return this.plan?.id === id;
+    if (fade) this.crossfade();
+    const drawn = this.drawn;
+    this.setFloor(plan, { fit: false });
+    this.drawn = drawn;
+    return true;
+  }
+
+  /** The floor shown fades out over the next one (a copy of it, taken away after). */
+  private crossfade(): void {
+    if (!this.motion()) return;
+    for (const old of this.svg.querySelectorAll(":scope > .sp-fade")) old.remove();
+    const ghost = svg("g", { class: "sp-fade", "aria-hidden": "true" });
+    for (const layer of [this.world, this.routeLine, this.routeMarks, this.labelLayer, this.pinLayer]) ghost.append(layer.cloneNode(true));
+    for (const e of ghost.querySelectorAll("*")) {
+      for (const a of [...e.attributes]) if (a.name.startsWith("data-sp") || a.name === "tabindex" || a.name === "role") e.removeAttribute(a.name);
+    }
+    this.svg.append(ghost);
+    const done = (): void => ghost.remove();
+    ghost.addEventListener("animationend", done);
+    setTimeout(done, FADE_MS + 400);
+  }
+
+  /** The part of a leg from `from` metres along it to `to`, as a box (the floor's metres). */
+  private legBox(leg: number, from: number, to: number): Box {
+    const r = this.routed!, l = r.route.legs[leg]!, lengths = r.lengths[leg]!;
+    const box: Box = [Infinity, Infinity, -Infinity, -Infinity];
+    const add = (p: XY): void => {
+      box[0] = Math.min(box[0], p[0]); box[1] = Math.min(box[1], p[1]);
+      box[2] = Math.max(box[2], p[0]); box[3] = Math.max(box[3], p[1]);
+    };
+    const total = lengths[lengths.length - 1] ?? 0;
+    const a = Math.max(0, from), b = Math.min(total, to);
+    add(pointAt(l.points, lengths, a).at);
+    add(pointAt(l.points, lengths, b).at);
+    l.points.forEach((p, i) => { if (lengths[i]! >= a && lengths[i]! <= b) add(p); });
+    return box;
+  }
+
+  /** A step framed: the start and the first metres from it; a walk whole; the lift or
+   * stairs and the last metres to them; the destination, its room and the way into it. */
+  private frameStep(index: number, animate: boolean): void {
+    const r = this.routed!, step = r.route.steps?.[index];
+    const leg = r.stepLegs[index] ?? 0;
+    if (!step || r.route.legs[leg]?.floor_id !== this.plan?.id) return;
+    const lengths = r.lengths[leg]!, total = lengths[lengths.length - 1] ?? 0;
+    const near = 14; // metres of the way round a start, a ride or an end
+    let box = step.kind === "start" ? this.legBox(leg, 0, near)
+      : step.kind === "take" ? this.legBox(leg, total - near, total)
+      : step.kind === "arrive" ? this.legBox(leg, total - near, total)
+      : this.legBox(leg, 0, total);
+    if (step.kind === "arrive") {
+      const room = this.routeView?.room?.getAttribute("data-sp-route-room");
+      const b = room ? this.boxes.get(room) : null;
+      if (b) box = [Math.min(box[0], b[0]), Math.min(box[1], b[1]), Math.max(box[2], b[2]), Math.max(box[3], b[3])];
+    }
+    this.frameBox(box, animate);
+  }
+
+  /** A box of the floor in view, with room round it for the way's marks, never closer
+   * than a comfortable zoom (some 18 m across). */
+  private frameBox(box: Box, animate: boolean): void {
+    if (!finite(box) || !this.size.w) return;
+    const { w, h } = this.size;
+    const pad = 3;
+    const b: Box = [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad];
+    const edge = (this.opts.padding ?? 24) + 24;
+    let k = Math.min((w - 2 * edge) / Math.max(b[2] - b[0], 1e-6), (h - 2 * edge) / Math.max(b[3] - b[1], 1e-6));
+    k = this.clampScale(Math.min(k, Math.min(w, h) / 18));
+    const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+    this.fitted = true;
+    this.moveTo({ k, tx: w / 2 - k * cx, ty: h / 2 - this.ySign * k * cy }, animate && this.motion(), STEP_MS);
   }
 
   private drawPin(): void {
@@ -739,10 +1417,10 @@ export class FloorPlanEngine extends EventTarget {
     this.pinLayer.append(pin);
   }
 
-  private fitBox(box: Box, animate: boolean, whole: boolean): void {
+  private fitBox(box: Box, animate: boolean, whole: boolean, extra = 0): void {
     const { w, h } = this.size;
     if (!w || !h) return;
-    const pad = this.opts.padding ?? 24;
+    const pad = Math.min((this.opts.padding ?? 24) + extra, w / 4, h / 4);
     const bw = Math.max(box[2] - box[0], 1e-6), bh = Math.max(box[3] - box[1], 1e-6);
     let k = Math.min((w - 2 * pad) / bw, (h - 2 * pad) / bh);
     if (!Number.isFinite(k) || k <= 0) k = 1;
@@ -757,20 +1435,21 @@ export class FloorPlanEngine extends EventTarget {
     return Math.min(Math.max(k, this.minScale), this.opts.maxScale ?? 400);
   }
 
-  private moveTo(target: Camera, animate: boolean): void {
+  private moveTo(target: Camera, animate: boolean, ms = ANIMATION_MS): void {
     cancelAnimationFrame(this.frame);
-    const motion = this.opts.motion ?? !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (!animate || !motion) {
+    this.moving = false;
+    if (!animate || !this.motion()) {
       this.cam = { ...target };
       this.apply();
       return;
     }
+    this.moving = true;
     // zoom in a straight line in log scale, keeping the screen point that moves to
     // the middle on a straight path
     const from = { ...this.cam };
     const start = performance.now();
     const step = (now: number): void => {
-      const t = Math.min(1, (now - start) / ANIMATION_MS);
+      const t = Math.min(1, (now - start) / ms);
       const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
       const k = Math.exp(Math.log(from.k) + (Math.log(target.k) - Math.log(from.k)) * e);
       const cFrom = [(this.size.w / 2 - from.tx) / from.k, (this.size.h / 2 - from.ty) / from.k];
@@ -779,6 +1458,7 @@ export class FloorPlanEngine extends EventTarget {
       this.cam = t < 1 ? { k, tx: this.size.w / 2 - k * cx, ty: this.size.h / 2 - k * cy } : { ...target };
       this.apply();
       if (t < 1) this.frame = requestAnimationFrame(step);
+      else this.moving = false;
     };
     this.frame = requestAnimationFrame(step);
   }
@@ -789,24 +1469,68 @@ export class FloorPlanEngine extends EventTarget {
     this.svg.setAttribute("data-cam", `${round(k)},${round(tx)},${round(ty)}`);
     this.placeLabels();
     this.drawPin();
-    this.drawRouteMarks();
+    this.placeRoute();
     this.dispatchEvent(new CustomEvent<Camera>("camerachange", { detail: this.camera() }));
   }
 
   private placeLabels(): void {
     const show = this.opts.labels !== false;
+    const line = this.routeOnScreen();
     for (const [id, label] of this.labels) {
       const b = this.boxes.get(id)!;
       const m = this.markers.get(id)!;
-      const fits = show && (b[2] - b[0]) * this.cam.k >= label.width * 1.05 && (b[3] - b[1]) * this.cam.k >= label.height * 1.1;
+      const fits = show && !this.labelsOff.has(id) && (b[2] - b[0]) * this.cam.k >= label.width * 1.05
+        && (b[3] - b[1]) * this.cam.k >= label.height * 1.1;
       if (!fits) {
         label.text.setAttribute("visibility", "hidden");
         continue;
       }
-      const [sx, sy] = this.toScreen(m);
+      let [sx, sy] = this.toScreen(m);
+      if (line) { // a way over it: moved off the line within its space, else not shown (but the way's own)
+        const hw = label.width / 2, hh = label.height / 2;
+        if (crosses(line, [sx - hw, sy - hh, sx + hw, sy + hh])) {
+          const p = this.toScreen([b[0], b[1]]), q = this.toScreen([b[2], b[3]]);
+          const room: Box = [Math.min(p[0], q[0]) + 2, Math.min(p[1], q[1]) + 2, Math.max(p[0], q[0]) - 2, Math.max(p[1], q[1]) - 2];
+          const off = (d: number): XY[] => [[0, -d - hh], [0, d + hh], [-d - hw, 0], [d + hw, 0]];
+          const tries = [LINE_CLEAR, LINE_CLEAR + 8, LINE_CLEAR + 18].flatMap(off);
+          const clear = (slack: number) => tries.find(([dx, dy]) => {
+            const box: Box = [sx + dx - hw, sy + dy - hh, sx + dx + hw, sy + dy + hh];
+            return box[0] >= room[0] - slack && box[1] >= room[1] - slack && box[2] <= room[2] + slack && box[3] <= room[3] + slack
+              && !crosses(line, box);
+          });
+          // the way's own (its corridor): just past a narrow room's edge, rather than on the line
+          const moved = clear(0) ?? (label.text.classList.contains("sp-label-strong") ? clear(label.height + 4) : undefined);
+          if (moved) {
+            sx += moved[0];
+            sy += moved[1];
+          } else if (!label.text.classList.contains("sp-label-strong")) {
+            label.text.setAttribute("visibility", "hidden");
+            continue;
+          }
+        }
+      }
       label.text.setAttribute("visibility", "visible");
       label.text.setAttribute("transform", `translate(${round(sx)},${round(sy)})`);
+      label.at = [sx, sy];
     }
+  }
+
+  /** The way's line on the floor shown, on the screen: its segments [x1, y1, x2, y2]
+   * and the box round them; null when none is shown here. */
+  private routeOnScreen(): { segments: number[][]; box: Box } | null {
+    const legs = this.routeView?.legs;
+    if (!legs?.length) return null;
+    const segments: number[][] = [];
+    const box: Box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const { points } of legs) {
+      const s = points.map((p) => this.toScreen(p));
+      for (let i = 0; i < s.length; i++) {
+        const [x, y] = s[i]!;
+        box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], y); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], y);
+        if (i > 0) segments.push([s[i - 1]![0], s[i - 1]![1], x, y]);
+      }
+    }
+    return segments.length ? { segments, box } : null;
   }
 
   private resized(): void {
@@ -831,6 +1555,8 @@ export class FloorPlanEngine extends EventTarget {
   }
 
   private chooseFrom(target: EventTarget | null): void {
+    const change = target instanceof Element ? target.closest<SVGGElement>("[data-sp-route-change]") : null;
+    if (change) return this.changeClicked(change);
     const el = target instanceof Element ? target.closest("[data-sp-id], [data-sp-item]") : null;
     const item = this.items.get(el?.getAttribute("data-sp-item") ?? "")?.item ?? null;
     if (item) {
@@ -845,8 +1571,28 @@ export class FloorPlanEngine extends EventTarget {
     this.dispatchEvent(new CustomEvent<SelectDetail>("select", { detail: { id: space?.id ?? null, space, item: null } }));
   }
 
+  /** A floor change's badge clicked (or Enter on it): the floor it goes to (or comes
+   * from) shown, the way there framed. */
+  private changeClicked(g: SVGGElement): void {
+    const floor = g.getAttribute("data-floor"), side = g.getAttribute("data-sp-route-change");
+    const index = Number(g.getAttribute("data-change"));
+    if (!floor || !this.routed) return;
+    if (this.playing) this.endPlay("stopped");
+    const leg = side === "to" ? index + 1 : index;
+    void this.goToFloor(floor, "badge", true).then((shown) => {
+      if (!shown || !this.routed) return;
+      const lengths = this.routed.lengths[leg] ?? [0], total = lengths[lengths.length - 1] ?? 0;
+      this.frameBox(side === "to" ? this.legBox(leg, 0, 18) : this.legBox(leg, total - 18, total), true);
+    });
+  }
+
   private bind(): void {
     const s = this.svg;
+    // the view taken in hand while a way plays: it no longer follows the walker
+    const hands = (): void => {
+      if (this.playing) this.playing.follow = false;
+    };
+    s.addEventListener("wheel", hands, { passive: true });
     s.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 && e.pointerType === "mouse") return;
       this.pointers.set(e.pointerId, this.local(e));
@@ -882,6 +1628,7 @@ export class FloorPlanEngine extends EventTarget {
       const dx = p[0] - press.start[0], dy = p[1] - press.start[1];
       if (!press.moved && Math.hypot(dx, dy) < DRAG_PX) return;
       press.moved = true;
+      hands();
       s.classList.add("sp-dragging");
       this.moveTo({ k: press.cam.k, tx: press.cam.tx + dx, ty: press.cam.ty + dy }, false);
     });
@@ -902,7 +1649,8 @@ export class FloorPlanEngine extends EventTarget {
       this.zoomBy(Math.exp(-e.deltaY * speed), this.local(e));
     }, { passive: false });
     s.addEventListener("keydown", (e) => {
-      const onSpace = e.target instanceof Element && (e.target.hasAttribute("data-sp-id") || e.target.hasAttribute("data-sp-item"));
+      const onSpace = e.target instanceof Element && (e.target.hasAttribute("data-sp-id") || e.target.hasAttribute("data-sp-item")
+        || e.target.hasAttribute("data-sp-route-change"));
       if (onSpace && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault();
         this.chooseFrom(e.target);
@@ -924,4 +1672,147 @@ export class FloorPlanEngine extends EventTarget {
       }
     });
   }
+}
+
+// ---- a way's parts and helpers ------------------------------------------------------
+
+interface Routed {
+  route: PlanRoute;
+  options: ShowRouteOptions;
+  floorName: (floorId: string) => string;
+  /** Each leg's lengths along it (the floor's metres). */
+  lengths: number[][];
+  /** The leg each step is on. */
+  stepLegs: number[];
+}
+
+/** A tag on a rounded card: its group, width and height. */
+interface Chip { g: SVGGElement; width: number; height: number }
+interface MarkView { g: SVGGElement; p: XY }
+interface LegView {
+  index: number;
+  points: XY[];
+  g: SVGGElement;
+  halo: SVGPathElement;
+  casing: SVGPathElement;
+  core: SVGPathElement;
+  done: SVGPathElement;
+  flow: SVGPathElement;
+  arrows: SVGGElement;
+}
+interface ChangeView extends MarkView {
+  side: "to" | "from";
+  change: PlanRoute["changes"][number];
+  floor: string;
+  index: number;
+  leader: SVGLineElement;
+  chip: Chip;
+}
+interface RouteView {
+  legs: LegView[];
+  start: (MarkView & { chip: Chip | null }) | null;
+  end: (MarkView & { pin: SVGGElement; leader: SVGLineElement; at: SVGCircleElement; card: Chip | null }) | null;
+  changes: ChangeView[];
+  walker: (MarkView & { arrow: SVGPathElement }) | null;
+  room: SVGGElement | null;
+  /** Shown at once, not drawn in: its marks shown without dropping in. */
+  instant: boolean;
+}
+interface Playing {
+  state: "playing" | "paused";
+  /** Without motion: its steps one after another. */
+  steps: boolean;
+  leg: number;
+  /** Metres along the leg; along the whole way, of `total`. */
+  s: number;
+  metres: number;
+  total: number;
+  speed: number;
+  phase: "begin" | "after" | "walk" | "before" | "switch";
+  /** Milliseconds left of a pause (-1: a floor being shown). */
+  wait: number;
+  last: number;
+  follow: boolean;
+  /** The zoom it follows the walker at (0: the leg framed whole, not followed). */
+  k: number;
+  step: number;
+  resolve: () => void;
+  promise: Promise<void>;
+}
+
+/** The leg each step of a way is on: the start and walks on theirs, a ride on the leg it
+ * leaves, the arrival on the last. */
+function stepLegsOf(route: PlanRoute): number[] {
+  let leg = 0;
+  const last = Math.max(0, route.legs.length - 1);
+  return (route.steps ?? []).map((s) => {
+    if (s.kind === "arrive") return last;
+    if (s.kind === "take") return Math.min(last, leg++);
+    return Math.min(last, leg);
+  });
+}
+
+/** The step a way being played is at: its start before it moves off; the walk of the
+ * leg it walks; the ride at the end of a leg, before the next floor; the arrival. */
+function playStep(r: Routed, p: Playing): number | null {
+  const steps = r.route.steps ?? [];
+  if (!steps.length) return null;
+  const on = (kind: string): number => steps.findIndex((s, i) => s.kind === kind && r.stepLegs[i] === p.leg);
+  if (p.phase === "before" || p.phase === "switch") {
+    const take = on("take");
+    if (take >= 0) return take;
+  }
+  if (p.leg === 0 && p.s < 0.5 && steps[0]?.kind === "start") return 0;
+  const walk = on("walk");
+  if (walk >= 0) return walk;
+  const any = r.stepLegs.findIndex((l) => l === p.leg);
+  return any >= 0 ? any : null;
+}
+
+/** What a floor change's tag says: "Up to Floor 2" where the way leaves the floor
+ * ("Lift to Floor 2" when it does not say which way); "From Ground floor" where it comes onto one. */
+function changeText(c: PlanRoute["changes"][number], side: "to" | "from", floorName: (id: string) => string): string {
+  if (side === "from") return `From ${floorName(c.from_floor_id)}`;
+  const way = c.direction === "up" ? "Up" : c.direction === "down" ? "Down" : RIDES[c.by] ?? c.by;
+  return `${way} to ${floorName(c.to_floor_id)}`;
+}
+
+/** Arrows along a line on the screen, the way it goes, evenly, clear of its ends: for a
+ * plan without motion, where no dots flow. */
+function arrowsAlong(screen: XY[]): SVGElement[] {
+  const out: SVGElement[] = [];
+  const lengths = along(screen), length = lengths[lengths.length - 1] ?? 0;
+  for (let at = length < ARROW_PX ? length / 2 : ARROW_PX / 2; at < length; at += ARROW_PX) {
+    if (at < 14 || length - at < 14) continue;
+    const { at: p, dir } = pointAt(screen, lengths, at);
+    const angle = (Math.atan2(dir[1], dir[0]) * 180) / Math.PI;
+    out.push(svg("path", { class: "sp-route-arrow", d: "M-3,-3.5L1.5,0L-3,3.5", transform: `translate(${round(p[0])},${round(p[1])}) rotate(${round(angle)})` }));
+  }
+  return out;
+}
+
+/** An element with a title, for a pointer resting on it and screen readers. */
+function titled<E extends SVGElement>(el: E, text: string): E {
+  const t = svg("title");
+  t.textContent = text;
+  el.prepend(t);
+  return el;
+}
+
+/** Whether a way's line (its segments on the screen) passes within LINE_CLEAR of a box. */
+function crosses(line: { segments: number[][]; box: Box }, b: Box): boolean {
+  const c = LINE_CLEAR, x0 = b[0] - c, y0 = b[1] - c, x1 = b[2] + c, y1 = b[3] + c;
+  if (line.box[0] > x1 || line.box[2] < x0 || line.box[1] > y1 || line.box[3] < y0) return false;
+  for (const [ax, ay, bx, by] of line.segments) { // clipped to the box (Liang-Barsky): does anything remain?
+    let t0 = 0, t1 = 1;
+    const dx = bx! - ax!, dy = by! - ay!;
+    const clip = (p: number, q: number): boolean => {
+      if (p === 0) return q >= 0;
+      const t = q / p;
+      if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+      return true;
+    };
+    if (clip(-dx, ax! - x0) && clip(dx, x1 - ax!) && clip(-dy, ay! - y0) && clip(dy, y1 - ay!)) return true;
+  }
+  return false;
 }

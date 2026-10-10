@@ -777,21 +777,22 @@ inChrome("a way is drawn on the floor it is on: its line, arrows, its start, and
   const look = (shown = way) => page.run((way, names) => {
     if (way) window.engine.showRoute(way, { floorName: (id) => names[id] });
     const mark = (s) => [...document.querySelectorAll(s)].map((m) => ({ at: [Number(m.dataset.planX), Number(m.dataset.planY)],
-      screen: m.getAttribute("transform"), text: m.querySelector("text")?.textContent ?? null, side: m.dataset.spRouteChange ?? null }));
+      screen: m.getAttribute("transform"), text: m.querySelector(".sp-route-chip-text")?.textContent ?? null,
+      side: m.dataset.spRouteChange ?? null, shown: m.classList.contains("sp-in") }));
     const r = window.engine.svg.getBoundingClientRect();
-    return { legs: document.querySelector(".sp-route").dataset.spRoute ?? null, lines: document.querySelectorAll(".sp-route path").length,
+    return { legs: document.querySelector(".sp-route").dataset.spRoute ?? null, lines: document.querySelectorAll(".sp-route .sp-route-line").length,
       arrows: document.querySelectorAll(".sp-route-arrow").length, start: mark("[data-sp-route-start]"),
-      end: mark("[data-sp-route-end]"), change: mark("[data-sp-route-change]"),
-      box: [r.width, r.height] };
+      end: mark("[data-sp-route-end]"), change: mark("[data-sp-route-change]"), room: document.querySelector("[data-sp-route-room]")?.dataset.spRouteRoom ?? null,
+      drawn: document.querySelector(".sp-route").dataset.spRouteDrawn ?? null, box: [r.width, r.height] };
   }, shown, floorNames);
   const at = (p) => page.run((p) => window.engine.toScreen(p).map((v) => Math.round(v * 100) / 100), p);
   const where = (m) => m.screen.match(/translate\(([-\d.]+),([-\d.]+)\)/).slice(1).map(Number);
   let got = await look();
-  equal([got.legs, got.lines, got.start.length, got.end.length, got.change.length], ["1", 2, 1, 0, 1], "the ground floor's leg");
-  truly(got.arrows >= 2, `arrows along it: ${got.arrows}`);
+  equal([got.legs, got.lines, got.start.length, got.end.length, got.change.length, got.drawn], ["1", 1, 1, 0, 1, "1"], "the ground floor's leg, drawn at once without motion");
+  truly(got.arrows >= 2, `arrows along it (no motion: no dots flow): ${got.arrows}`);
   near(got.start[0].at, ground.points[0], 0.001, "the start, at the way's first point");
   near(where(got.start[0]), await at(ground.points[0]), 1, "…on the screen, to a pixel");
-  equal([got.change[0].side, got.change[0].text], ["to", "Lift to Floor 1"], "where it leaves the floor");
+  equal([got.change[0].side, got.change[0].text, got.change[0].shown], ["to", "Up to Floor 1", true], "where it leaves the floor");
   near(got.change[0].at, ground.points.at(-1), 0.001, "…at the lift");
   // the view moves: the marks with it
   await page.run(() => window.engine.zoomBy(2, [300, 200]));
@@ -801,18 +802,19 @@ inChrome("a way is drawn on the floor it is on: its line, arrows, its start, and
   await page.run((p) => window.engine.setFloor(p), floorFromPackage(hq, up.floor_id));
   got = await look(null);
   equal([got.legs, got.start.length, got.end.length, got.change.length], ["1", 0, 1, 1], "the first floor's leg");
-  equal([got.change[0].side, got.change[0].text], ["from", "Lift from Ground floor"], "where it comes onto the floor");
+  equal([got.change[0].side, got.change[0].text], ["from", "From Ground floor"], "where it comes onto the floor");
   near(got.end[0].at, up.points.at(-1), 0.001, "the end, at the way's last point");
   near(where(got.end[0]), await at(up.points.at(-1)), 1, "…on the screen, to a pixel");
+  equal([got.end[0].text, got.room], ["OFFICE 112 · Floor 1", lifted.to], "its card names its room and floor; the room lit");
   // a floor it does not go to: nothing; and taken away
   await page.run((p) => window.engine.setFloor(p), floorFromPackage(hq, `${HQ}-F02`));
   got = await look(null);
-  equal([got.legs, got.lines, got.start.length, got.end.length, got.change.length, got.arrows], [null, 0, 0, 0, 0, 0], "the second floor");
+  equal([got.legs, got.lines, got.start.length, got.end.length, got.change.length, got.arrows, got.room], [null, 0, 0, 0, 0, 0, null], "the second floor");
   await page.run((p) => window.engine.setFloor(p), floorFromPackage(hq, up.floor_id));
-  equal((await look(null)).lines, 2, "back on the first floor");
+  equal((await look(null)).lines, 1, "back on the first floor");
   await page.run(() => window.engine.clearRoute());
   got = await look(null);
-  equal([got.legs, got.lines, got.end.length, got.change.length, got.arrows], [null, 0, 0, 0, 0], "cleared");
+  equal([got.legs, got.lines, got.end.length, got.change.length, got.arrows, got.room], [null, 0, 0, 0, 0, null], "cleared");
   equal(await page.run(() => window.engine.route), null, "no way shown");
 });
 
@@ -825,30 +827,264 @@ inChrome("a way is under the labels, its line as wide at any zoom, styled by the
     const order = [...svg.children].map((c) => c.getAttribute("class"));
     const world = [...document.querySelector(".sp-world").children].map((c) => c.getAttribute("class"));
     const line = document.querySelector(".sp-route-line");
-    const width = () => line.getBoundingClientRect();
     const before = getComputedStyle(line).strokeWidth;
     window.engine.zoomBy(3);
     const after = getComputedStyle(line).strokeWidth;
     svg.style.setProperty("--sp-route", "rgb(1, 2, 3)");
-    const styled = getComputedStyle(line).stroke;
-    // fitted: the leg's points inside the plan's box
-    const r = svg.getBoundingClientRect();
-    return { order, world, before, after, styled, effect: getComputedStyle(line).vectorEffect, box: [r.width, r.height] };
+    const styled = [getComputedStyle(line).stroke, getComputedStyle(document.querySelector(".sp-route-start-dot")).fill];
+    return { order, world, before, after, styled };
   }, way);
-  truly(got.order.indexOf("sp-route-marks") < got.order.indexOf("sp-labels") && got.order.indexOf("sp-world") < got.order.indexOf("sp-route-marks"),
-    `the marks over the plan, under the labels: ${got.order}`);
-  equal(got.world.at(-1), "sp-route", "the line over the walls and doors");
-  equal([got.before, got.after, got.effect], ["5px", "5px", "non-scaling-stroke"], "as wide at any zoom");
-  equal(got.styled, "rgb(1, 2, 3)", "the host's colour");
+  truly(got.order.indexOf("sp-world") < got.order.indexOf("sp-route") && got.order.indexOf("sp-route") < got.order.indexOf("sp-route-marks")
+    && got.order.indexOf("sp-route-marks") < got.order.indexOf("sp-labels"), `the line over the plan, its marks over it, both under the labels: ${got.order}`);
+  truly(got.world.indexOf("sp-route-rooms") < got.world.indexOf("sp-walls"), `the destination lit under the walls: ${got.world}`);
+  equal([got.before, got.after], ["6px", "6px"], "as wide at any zoom");
+  equal(got.styled, ["rgb(1, 2, 3)", "rgb(1, 2, 3)"], "the host's colour, the start's too");
   await page.run((way) => { window.engine.setCamera({ k: 0.5, tx: 0, ty: 0 }); window.engine.showRoute(way, { fit: true }); }, way);
   const inView = await page.run((points) => {
     const r = window.engine.svg.getBoundingClientRect();
     return points.every((p) => {
       const [x, y] = window.engine.toScreen(p);
-      return x >= 0 && y >= 0 && x <= r.width && y <= r.height;
+      return x >= 56 && y >= 56 && x <= r.width - 56 && y <= r.height - 56;
     });
   }, way.legs[0].points);
-  truly(inView, "fit: the way on this floor in view");
+  truly(inView, "fit: the way on this floor in view, with room for its marks");
+});
+
+// what a way is drawn with, on campus-hq: up the stairs from the kiosk to office 112
+const upstairs = routes.routes.find((c) => c.package === "campus-hq.storeypath" && !c.accessible && c.expect.changes[0]?.by === "stairs");
+/** A fresh plan with a way shown (options: the engine's; shown: showRoute's, with the
+ * floors' names and plans given), on the floor of its first leg. */
+const withWay = (page, options = {}, shown = {}, c = upstairs) => page.run(async (pkgOptions, shown, from, to, accessible) => {
+  const sp = window.sp, hq = window.hq;
+  const way = sp.route(hq, from, to, { accessible });
+  const names = Object.fromEntries(hq.floors.map((f) => [f.id, f.properties.name]));
+  await window.fresh(pkgOptions, sp.floorFromPackage(hq, way.legs[0].floor_id));
+  window.events = [];
+  for (const type of ["routestep", "routeplay", "routeprogress", "routefloor", "floorchange"]) {
+    window.engine.addEventListener(type, (e) => window.events.push([type, e.detail]));
+  }
+  window.way = way;
+  window.engine.showRoute(way, { floorName: (id) => names[id], floorPlan: (id) => sp.floorFromPackage(hq, id), ...shown });
+  return way;
+}, options, shown, c.from, c.to, c.accessible);
+
+inChrome("a way draws itself in over frames, its end dropping in as the line gets there, then dots flow along it", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  await withWay(page, { motion: true });
+  const seen = await page.run(async () => {
+    const out = [];
+    for (let i = 0; i < 600; i++) { // by frames, not the clock: a slow machine draws fewer of them
+      const line = document.querySelector(".sp-route");
+      const change = document.querySelector("[data-sp-route-change]");
+      out.push([Number(line.dataset.spRouteDrawn), change.classList.contains("sp-in"),
+        document.querySelector(".sp-route-leg").classList.contains("sp-flowing"), document.querySelectorAll(".sp-route-arrow").length]);
+      if (out.at(-1)[0] >= 1 && i > 2) break;
+      await window.frames(1);
+    }
+    return { out, still: window.engine.svg.classList.contains("sp-still"),
+      flow: getComputedStyle(document.querySelector(".sp-route-flow")).animationName };
+  });
+  const drawn = seen.out.map((o) => o[0]);
+  truly(drawn[0] < 0.5 && drawn.at(-1) === 1 && drawn.every((d, i) => i === 0 || d >= drawn[i - 1]), `drawn in, never back: ${drawn.join(" ")}`);
+  truly(seen.out.filter((o) => o[0] < 0.9).every((o) => !o[1] && !o[2]), "its far end's badge and the flow wait for the line");
+  const last = seen.out.at(-1);
+  equal([last[1], last[2], last[3], seen.still, seen.flow], [true, true, 0, false, "sp-route-flow"], "drawn: the badge in, dots flowing, no arrows");
+});
+
+inChrome("a way's animation asks for frames only while it draws in or plays: none once it is still", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  const counts = await page.run(async () => {
+    const raf = window.requestAnimationFrame.bind(window);
+    let asked = 0;
+    window.requestAnimationFrame = (fn) => { asked++; return raf(fn); };
+    try {
+      await window.fresh({ motion: true }, window.sp.floorFromPackage(window.hq, window.sp.route(window.hq, "E33G-XX6M-4W4", "PZG39S-DEMO-HQ-F00-0003").legs[0].floor_id));
+      const way = window.sp.route(window.hq, "E33G-XX6M-4W4", "PZG39S-DEMO-HQ-F00-0003");
+      window.engine.showRoute(way);
+      for (let i = 0; i < 600 && document.querySelector(".sp-route").dataset.spRouteDrawn !== "1"; i++) await new Promise((r) => raf(r));
+      const drawing = asked;
+      await new Promise((r) => setTimeout(r, 400));
+      const still = asked - drawing;
+      return { drawing, still };
+    } finally {
+      window.requestAnimationFrame = raf;
+    }
+  });
+  truly(counts.drawing > 3, `frames while it drew in: ${counts.drawing}`);
+  equal(counts.still, 0, "frames asked for once still (the dots flow by CSS alone)");
+});
+
+inChrome("without motion (the option, or reduced motion asked for), a way is drawn at once, still, with arrows", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  await page.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  try {
+    await withWay(page, { motion: undefined });
+    const got = await page.run(() => ({ drawn: document.querySelector(".sp-route").dataset.spRouteDrawn, still: window.engine.svg.classList.contains("sp-still"),
+      end: document.querySelectorAll(".sp-in").length, arrows: document.querySelectorAll(".sp-route-arrow").length,
+      flowing: document.querySelectorAll(".sp-flowing").length, pulse: getComputedStyle(document.querySelector(".sp-route-start-pulse")).display }));
+    equal([got.drawn, got.still, got.flowing, got.pulse], ["1", true, 0, "none"], "drawn at once; nothing flows or pulses");
+    truly(got.arrows >= 2 && got.end >= 2, `arrows the way it goes, its marks shown: ${JSON.stringify(got)}`);
+  } finally {
+    await page.send("Emulation.setEmulatedMedia", { features: [] });
+  }
+});
+
+inChrome("the calm look and the theme: classes on the plan; the way's own labels clear, its destination's said by its card, others off its line", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  const way = await withWay(page, { theme: "dark" }, { style: "wayfinding", startLabel: "You are here" });
+  const got = await page.run(() => {
+    const c = window.engine.svg.classList;
+    const strong = [...document.querySelectorAll(".sp-labels text.sp-label-strong")].map((t) => t.textContent);
+    const line = [...document.querySelectorAll(".sp-route-leg")].length;
+    return { classes: [c.contains("sp-style-wayfinding"), c.contains("sp-theme-dark"), c.contains("sp-theme-light")], strong,
+      startChip: document.querySelector(".sp-route-start-chip")?.textContent, line,
+      wall: getComputedStyle(document.querySelector(".sp-wall")).fill };
+  });
+  equal(got.classes, [true, true, false], "wayfinding style, dark");
+  truly(got.strong.some((t) => t.startsWith("RECEPTION")) && got.strong.some((t) => t.startsWith("CORRIDOR")), `the start and the corridor along: ${got.strong}`);
+  equal([got.startChip, got.wall], ["You are here", "rgb(67, 70, 78)"], "its start's label; quiet walls");
+  // no label crosses the line: moved off it, or not shown
+  const crossed = await page.run(() => {
+    const line = [...document.querySelectorAll(".sp-route-line")].map((p) => p.getAttribute("d"));
+    const pts = line.flatMap((d) => [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]));
+    const out = [];
+    for (const t of document.querySelectorAll(".sp-labels text")) {
+      if (t.getAttribute("visibility") !== "visible") continue;
+      const b = t.getBoundingClientRect(), o = window.engine.svg.getBoundingClientRect();
+      const box = [b.left - o.left, b.top - o.top, b.right - o.left, b.bottom - o.top];
+      for (let i = 1; i < pts.length; i++) {
+        const [a, c] = [pts[i - 1], pts[i]];
+        for (let k = 0; k <= 20; k++) {
+          const x = a[0] + ((c[0] - a[0]) * k) / 20, y = a[1] + ((c[1] - a[1]) * k) / 20;
+          if (x > box[0] + 2 && x < box[2] - 2 && y > box[1] + 2 && y < box[3] - 2) { out.push(t.textContent); k = 21; i = pts.length; }
+        }
+      }
+    }
+    return out;
+  });
+  equal(crossed, [], "labels the line runs through");
+  // upstairs: its destination's label said by its card alone
+  await page.run(() => window.engine.setFloor(window.sp.floorFromPackage(window.hq, window.way.legs[1].floor_id)));
+  const up = await page.run((room) => {
+    const label = [...document.querySelectorAll(".sp-labels text")].find((t) => t.textContent.startsWith("OFFICE112"));
+    return { label: label?.getAttribute("visibility"), card: document.querySelector(".sp-route-card")?.textContent,
+      room: document.querySelector("[data-sp-route-room]")?.dataset.spRouteRoom === room };
+  }, way.to);
+  equal(up, { label: "hidden", card: "OFFICE 112 · Floor 1", room: true }, "the destination: its card, not its label; its room lit");
+});
+
+inChrome("a floor change's badge is a button: clicked, or Enter on it, its floor is shown (asked of the page first), the way there framed", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  const way = await withWay(page);
+  const badge = await page.run(() => {
+    const b = document.querySelector("[data-sp-route-change] .sp-route-badge").getBoundingClientRect();
+    const g = document.querySelector("[data-sp-route-change]");
+    return { at: [b.left + b.width / 2, b.top + b.height / 2], role: g.getAttribute("role"), label: g.getAttribute("aria-label") };
+  });
+  equal([badge.role, badge.label], ["button", "Stairs: Up to Floor 1: show Floor 1"], "a button, said");
+  await page.click(...badge.at);
+  await page.run(async (floor) => { for (let i = 0; i < 100 && window.engine.svg.querySelector("[data-sp-route-end]") === null; i++) await window.frames(1); }, way.legs[1].floor_id);
+  const got = await page.run(() => ({ events: window.events.filter(([t]) => t === "routefloor" || t === "floorchange").map(([t, d]) => [t, d.floor_id ?? d.id, d.reason ?? null]),
+    end: Boolean(document.querySelector("[data-sp-route-end]")) }));
+  equal(got.events, [["routefloor", way.legs[1].floor_id, "badge"], ["floorchange", way.legs[1].floor_id, null]], "asked, then shown");
+  truly(got.end, "the floor the way ends on");
+  // the badge there: Enter on it goes back down; a page that says no (preventDefault) keeps the floor
+  await page.run(() => window.engine.addEventListener("routefloor", (e) => e.preventDefault(), { once: true }));
+  await page.run(() => document.querySelector("[data-sp-route-change]").focus());
+  await page.key("Enter", "Enter", 13);
+  await page.run(() => window.frames(2));
+  equal(await page.run(() => document.querySelector("[data-sp-route-change]").dataset.spRouteChange), "from", "kept, as the page said");
+  await page.run(() => document.querySelector("[data-sp-route-change]").focus());
+  await page.key("Enter", "Enter", 13);
+  await page.run(async () => { for (let i = 0; i < 100 && !document.querySelector("[data-sp-route-start]"); i++) await window.frames(1); });
+  truly(await page.run(() => Boolean(document.querySelector("[data-sp-route-start]"))), "Enter: back on the floor it starts on");
+});
+
+inChrome("showStep frames each step on its floor and says so; without floorPlan the page shows the floor (routefloor)", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  const way = await withWay(page);
+  const shots = [];
+  for (let i = 0; i < way.steps.length; i++) {
+    await page.run((i) => window.engine.showStep(i), i);
+    shots.push(await page.run(() => ({ floor: window.engine.svg.querySelector("[data-sp-route-start]") ? "start" : "end",
+      step: window.engine.routeStep, attr: window.engine.svg.dataset.spRouteStep, cam: window.engine.camera() })));
+  }
+  const events = await page.run(() => window.events.filter(([t]) => t === "routestep").map(([, d]) => [d.index, d.leg, d.step.kind]));
+  equal(events, way.steps.map((s, i) => [i, s.kind === "arrive" || i > way.steps.findIndex((x) => x.kind === "take") ? 1 : 0, s.kind]), "each step said, with its leg");
+  equal(shots.map((s) => s.step), way.steps.map((_, i) => i), "the step shown");
+  equal(shots.map((s) => s.floor), way.steps.map((s, i) => (i > way.steps.findIndex((x) => x.kind === "take") ? "end" : "start")), "each on its floor");
+  truly(shots[0].cam.k > shots[1].cam.k * 1.05, `the start framed closer than the walk: ${shots[0].cam.k} ${shots[1].cam.k}`);
+  // no floorPlan: the page asked, and shows the floor itself
+  await page.run((w) => {
+    window.engine.showRoute(window.way, {});
+    window.engine.addEventListener("routefloor", (e) => window.engine.setFloor(window.sp.floorFromPackage(window.hq, e.detail.floor_id)));
+  });
+  await page.run((n) => window.engine.showStep(n - 1), way.steps.length);
+  equal(await page.run(() => Boolean(document.querySelector("[data-sp-route-end]"))), true, "the page showed its floor");
+});
+
+inChrome("playing: a walker goes along the way floor by floor, the floor cross-faded, saying how far it has got; paused, played on, ended", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  const way = await withWay(page, { motion: true }, { animate: false });
+  const got = await page.run(async () => {
+    const e = window.engine;
+    const playing = e.playRoute({ speed: 40 });
+    const seen = { walker: [], fades: 0, floors: new Set() };
+    let ended = false;
+    playing.then(() => (ended = true));
+    let paused = null;
+    for (let i = 0; i < 4000 && !ended; i++) {
+      await window.frames(1);
+      const w = document.querySelector("[data-sp-route-walker]");
+      if (w) seen.walker.push([Number(w.dataset.planX), Number(w.dataset.planY)]);
+      if (document.querySelector(".sp-fade")) seen.fades++;
+      if (!paused && seen.walker.length === 6) { // paused a while: no further
+        e.pauseRoute();
+        const at = window.events.filter(([t]) => t === "routeprogress").length;
+        await new Promise((r) => setTimeout(r, 300));
+        paused = { state: e.routePlay, progress: window.events.filter(([t]) => t === "routeprogress").length - at };
+        e.playRoute();
+      }
+    }
+    const progress = window.events.filter(([t]) => t === "routeprogress").map(([, d]) => d.metres);
+    return { ended, paused, walker: seen.walker.length, fades: seen.fades, progress: [progress[0], progress.at(-1)],
+      monotonic: progress.every((m, i) => i === 0 || m >= progress[i - 1] - 1e-6),
+      steps: [...new Set(window.events.filter(([t]) => t === "routestep").map(([, d]) => d.index))],
+      play: window.events.filter(([t]) => t === "routeplay").map(([, d]) => d.state),
+      floors: window.events.filter(([t]) => t === "routefloor").map(([, d]) => d.reason), left: Boolean(document.querySelector("[data-sp-route-walker]")),
+      total: window.events.filter(([t]) => t === "routeprogress").at(-1)[1].total };
+  });
+  truly(got.ended && got.walker > 10 && got.fades > 0, `played to its end, a walker seen, the floors cross-faded: ${JSON.stringify(got)}`);
+  equal(got.paused, { state: "paused", progress: 0 }, "paused: no further");
+  truly(got.monotonic && got.progress[0] < 5 && Math.abs(got.progress[1] - got.total) < 0.01, `on and on to its end: ${got.progress} of ${got.total}`);
+  equal(got.steps, way.steps.map((_, i) => i), "each step in turn");
+  equal(got.play, ["playing", "paused", "playing", "ended"], "said");
+  equal([got.floors, got.left], [["play"], false], "the next floor shown for it; the walker gone at the end");
+  // stopped part way
+  const stopped = await page.run(async () => {
+    const e = window.engine;
+    const p = e.playRoute({ speed: 5 });
+    await window.frames(4);
+    e.stopRoute();
+    await p;
+    return [e.routePlay, Boolean(document.querySelector("[data-sp-route-walker]")), window.events.filter(([t]) => t === "routeplay").at(-1)[1].state];
+  });
+  equal(stopped, [null, false, "stopped"], "stopped: the walker taken away");
+});
+
+inChrome("playing without motion steps through the way, a step at a time", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  const way = await withWay(page, { motion: false });
+  const got = await page.run(async () => {
+    const e = window.engine;
+    const p = e.playRoute();
+    for (let i = 0; i < 2000 && window.events.filter(([t]) => t === "routestep").length < 2; i++) await window.frames(1);
+    const walker = Boolean(document.querySelector("[data-sp-route-walker]"));
+    e.stopRoute();
+    await p;
+    return { steps: window.events.filter(([t]) => t === "routestep").map(([, d]) => d.index), walker };
+  });
+  equal([got.steps.slice(0, 2), got.walker], [[0, 1], false], "its steps in turn, no walker");
 });
 
 // ---- run ----------------------------------------------------------------------
