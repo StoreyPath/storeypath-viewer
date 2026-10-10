@@ -1410,6 +1410,9 @@ export class StoreyPathWorld extends EventTarget {
   #animateRoute(dt) {
     const shown = this.#route;
     if (!shown) return;
+    // a tenth of a second at most a frame, as the walker: after a long frame (shaders
+    // made on first showing it, a slow or busy machine) the way still rises in, not at once
+    dt = Math.min(dt, 0.1);
     const moving = this.#motion();
     shown.clock += moving ? dt : 0;
     const t = shown.clock;
