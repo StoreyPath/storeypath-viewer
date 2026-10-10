@@ -246,10 +246,13 @@ export interface WorldOptions {
 	quality?: WorldQuality;
 	/** Walking: a shut door opens when walked into ("auto"), or stays shut until opened ("manual"). */
 	doors?: DoorMode;
+	/** Walking: the key (a KeyboardEvent `code`) that opens or shuts the door under the pointer, else the nearest
+	 * ahead (`useDoor`): "KeyE" by default; null leaves every key to the page. */
+	doorKey?: string | null;
 }
 
 /** Doors when walking: "auto", a shut door opens when the walker walks into it; "manual", it stays
- * shut until opened (a click or E at it, or `setDoorOpen`). */
+ * shut until opened (a click on it, E, or `setDoorOpen`). */
 export type DoorMode = 'auto' | 'manual';
 
 /** A door as a floor's plan has it (local metres, x east, z south). */
@@ -294,16 +297,28 @@ export interface WorldEvents {
 	select: { id: string | null; feature: Feature | null };
 	/** The walker went into another space. */
 	roomchange: { id: string | null; type: string | null; name: string | null; number: string | null; stairs: boolean };
+	/** @deprecated The mouse is never taken now: said as the walk view starts (`locked` true) and ends. */
 	walklock: { locked: boolean };
-	/** A click on the dollhouse view, or walking with the mouse taken (at the crosshair): what is
-	 * there, and walking, the door within reach there (`door`). Cancelable: unless a listener calls
-	 * preventDefault, what was clicked is selected (walking, at a door: the door opened or shut). */
-	pick: WorldPoint & { door: string | null; button: number; altKey: boolean; shiftKey: boolean };
+	/** A click (a press that does not move a few pixels; a tap) at a point of the view, in either view: what is
+	 * there, and walking, the door within reach there (`door`: under the pointer; an open door is looked through,
+	 * its leaf is on it). Cancelable: unless a listener calls preventDefault, what was clicked is chosen (walking,
+	 * on a door: the door opened or shut). */
+	pick: WorldPoint & { door: string | null; button: number; altKey: boolean; shiftKey: boolean; clientX: number; clientY: number;
+		pointerType: string };
+	/** A right-click (a press of the right button that does not move: a right-drag looks or moves the view), or
+	 * walking a long press of a finger: what is there, for the page's menu (the browser's own is not shown). */
+	menu: WorldPoint & { door: string | null; clientX: number; clientY: number; pointerType: string };
+	/** Walking: what is under the pointer changed (its floor, space, room, item, wall, or the door there or whether it
+	 * is open); null when nothing is (the pointer gone, or dragging). */
+	hover: (WorldPoint & { door: { id: string; open: boolean } | null }) | null;
+	/** Walking: a glide (a double-click on the floor) set off ("going"), got there, stopped short (a key, a door
+	 * shut in the way), or was refused (something in the way at once, or no floor there). */
+	glide: { state: 'going' | 'there' | 'stopped' | 'refused'; x: number | null; z: number | null };
 	/** A door asked to open or shut (by the walker, walking into it, or the page): it swings. */
 	doorchange: { id: string; open: boolean; floor: string };
-	/** Walking: the door within reach at the crosshair changed, or what it would do (`open`: as it
-	 * is now); `id` null when none. */
-	dooraim: { id: string | null; open: boolean | null };
+	/** Walking: the door E works (useDoor) changed, or what it would do (`open`: as it is now): the door under
+	 * the pointer (`under`), else the nearest ahead within reach; `id` null when none. */
+	dooraim: { id: string | null; open: boolean | null; under: boolean };
 	/** An item carried across its floor (setDraggable): where it is dragged, on its floor's level. */
 	itemdragstart: ItemDrag;
 	itemdrag: ItemDrag;
@@ -432,6 +447,7 @@ export declare class StoreyPathWorld extends EventTarget {
 	readonly mode: WorldMode;
 	readonly selected: string | null;
 	readonly room: unknown;
+	/** Whether the walk view is on: its keys move the walker, a drag looks round. (Before, whether the mouse was taken.) */
 	readonly walking: boolean;
 	readonly atStairs: boolean;
 	readonly walkFloor: string | null;
@@ -453,10 +469,13 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * none), on `floor`, facing `heading`; back to the dollhouse, round the whole building, or with
 	 * `back`, where the view was before walking. */
 	setMode(mode: WorldMode, options?: { at?: { x: number; z: number }; floor?: string; heading?: number; back?: boolean }): void;
-	/** In the walk view, take the mouse to look around (call from a click). */
+	/** @deprecated The walk view (as `setMode('walk')`): the mouse is never taken now, a drag looks round. */
 	startWalking(): void;
-	/** Give the mouse back, still walking. */
+	/** @deprecated Nothing: the mouse is never taken now. */
 	stopWalking(): void;
+	/** Walking: how far a drag turns the view, times what feels right (1, the default: what was pressed stays under
+	 * the pointer; 0.25 to 4). */
+	lookSensitivity: number;
 	/** Where the dollhouse view looks (the point it turns around), local metres. */
 	readonly target: { x: number; z: number };
 	/** Stop drawing for a while (the world kept); `resume` draws again at once. */
@@ -478,15 +497,21 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * (null when the package does not place the building: before format 0.7). */
 	worldPoint(point: [number, number]): { x: number; z: number } | null;
 	buildingPoint(point: { x: number; z: number }): [number, number] | null;
-	/** What is under a point of the screen (client pixels), or the crosshair when walking with the
-	 * mouse taken (or given none): quick enough to follow the pointer. */
+	/** What is under a point of the screen (client pixels; given none, the middle of the view): quick enough to
+	 * follow the pointer. Walking, on the walker's floor. */
 	pointAt(clientX?: number, clientY?: number): WorldPoint | null;
+	/** Walking: what is under the pointer, as `hover` said it last; null when nothing is. */
+	readonly hovered: (WorldPoint & { door: { id: string; open: boolean } | null }) | null;
 	/** Replace one floor's furniture and equipment without building anything else again. */
 	setFloorItems(floorId: string, items: GivenItem[]): boolean;
 	/** Where an item would go, see-through (red when `ok` is false), with the magnet's guides
 	 * ([[x, y], [x, y]] each, building frame); null takes it away. */
 	ghost(spec: (GivenItem & { floor?: string; ok?: boolean; guides?: [[number, number], [number, number]][] }) | null): void;
-	/** Items carried across their floor by a drag in the dollhouse view (itemdrag… events). */
+	/** Mark lightly what a click would act on (not the choice's highlight): a space's or zone's floor, the faces of a
+	 * space's walls towards it (a zone's: its space's), or an item; null: nothing. */
+	mark(target: { floor: string } | { walls: string } | { item: string } | null): void;
+	/** Items carried across their floor by a drag (itemdrag… events): in the dollhouse view any item shown; walking,
+	 * the item chosen (a drag elsewhere looks round). */
 	setDraggable(on: boolean): void;
 	readonly draggable: boolean;
 	/** A space or zone corrected: its label at once, its finishes in place (format 0.9: its
@@ -517,8 +542,11 @@ export declare class StoreyPathWorld extends EventTarget {
 	/** Doors when walking: "auto" (the default) or "manual". */
 	setDoors(mode: DoorMode): void;
 	readonly doors: DoorMode;
-	/** Walking: the door within reach at the crosshair (a click or E opens or shuts it), or null. */
-	readonly aimedDoor: { id: string; open: boolean } | null;
+	/** Walking: the door E works: under the pointer within reach (`under`), else the nearest ahead within reach; or null. */
+	readonly aimedDoor: { id: string; open: boolean; under: boolean } | null;
+	/** Walking: open the door under the pointer (within reach) if shut, shut it if open; else the nearest ahead
+	 * (as E does). Its new state, or null when there is none. */
+	useDoor(): { id: string; open: boolean } | null;
 	/** Highlight a space, zone or item (null: none); `go` (default true) takes the view to it. */
 	select(id: string | null, options?: { go?: boolean }): void;
 	/** Up (+1) or down (−1) a floor from where the walker stands. */

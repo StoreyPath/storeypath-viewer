@@ -21,19 +21,26 @@
 // shown, a box each when more are.
 //
 // A page may edit on top of it (Studio's Review does): pointAt says what is under the
-// pointer or the crosshair (a wall, and the room on that side of it), ghost shows where
-// an item would go, setFloorItems draws a floor's items again (nothing else), items are
-// dragged (setDraggable, itemdrag…), a click says what it is on first (pick,
-// cancelable), updateSpace shows a room corrected (a finish at once, in place: its
-// triangles drawn in another material, nothing built again) and reload a floor read
+// pointer (a wall, and the room on that side of it), ghost shows where an item would go,
+// mark shows lightly what a click would act on (a room's floor, its walls, an item),
+// setFloorItems draws a floor's items again (nothing else), items are dragged
+// (setDraggable, itemdrag…), a click says what it is on first (pick, cancelable), a
+// right-click too (menu), updateSpace shows a room corrected (a finish at once, in place:
+// its triangles drawn in another material, nothing built again) and reload a floor read
 // again; finishOf says what a room's floor and walls are in. The world itself changes
 // nothing.
 //
-// Doors open and shut when walking (doors.js): a click or E at one within reach of the
-// crosshair swings it, a shut one is in the walker's way and opens when walked into (unless
-// the page asks for "manual" doors); setDoorOpen and doorchange let a page do and follow the
-// same. They start as the plan draws them, open; how they are is the view's, not the
-// package's. An open leaf is never in the way.
+// Walking (walk.js), the mouse is never taken: a drag (either button, or a finger) looks
+// round, W A S D or the arrows move, a click acts where the pointer is, a double-click (or
+// a double tap) on the floor glides there; what is under the pointer is said as it changes
+// (hover), and a ring on the floor shows where a double-click would go.
+//
+// Doors open and shut when walking (doors.js): a click on one within reach swings it, as
+// E does (the door under the pointer, else the nearest ahead); a shut one is in the
+// walker's way and opens when walked into (unless the page asks for "manual" doors);
+// setDoorOpen, useDoor and doorchange let a page do and follow the same. They start as the
+// plan draws them, open; how they are is the view's, not the package's. An open leaf is
+// never in the way.
 //
 // A way through the building (format 0.8: route() in ../navigation.js) is drawn with
 // showRoute: a ribbon just over each floor it walks on, through the lift or stairs
@@ -64,7 +71,7 @@ import { toLonLat } from "./frame.js";
 import { qualityFor, rendererName } from "./gpu.js";
 import { Materials } from "./materials.js";
 import { QUALITY, SLOW_FRAME, STYLES } from "./style.js";
-import { Obstacles, Walker } from "./walk.js";
+import { LOOK, Obstacles, Walker } from "./walk.js";
 import {
   ROUTE_SIZE, along, arrowMesh, columnMaterial, discGeometry, easeInOut, easeOutBack, lengthsOf, lineMaterial, markMaterial, pinMesh,
   ribbon, ringGeometry, smoothed, tag, tourOf, walkedAt,
@@ -80,11 +87,12 @@ const DEFAULTS = {
   quality: "auto", // "auto", "high" or "low"
   fog: null, // its colour (default: the look's)
   doors: "auto", // walking: a shut door opens when walked into ("auto"), or stays shut until opened ("manual")
+  doorKey: "KeyE", // walking: the key (a KeyboardEvent code) that opens or shuts a door (useDoor); null: the page's
 };
 const DOOR_MODES = new Set(["auto", "manual"]);
-// the hint at the crosshair when a door is within reach
+// the hint by the pointer when it is on a door within reach
 const HINT_STYLE = {
-  position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, 16px)", pointerEvents: "none", zIndex: "1",
+  position: "absolute", left: "0", top: "0", pointerEvents: "none", zIndex: "1",
   padding: "3px 9px", borderRadius: "7px", background: "rgba(16, 18, 23, 0.72)", color: "#fff", whiteSpace: "nowrap",
   font: '600 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif', display: "none",
 };
@@ -94,6 +102,8 @@ const LABEL_STYLE = {
   font: '600 11px/1.25 system-ui, -apple-system, "Segoe UI", sans-serif', boxShadow: "0 1px 4px rgba(0, 0, 0, 0.18)",
 };
 const VERTICAL = new Set(["stairs", "elevator", "escalator", "ramp"]);
+// what pick, menu and hover say where nothing is
+const NOWHERE = Object.freeze({ floor: null, x: null, z: null, local: null, space: null, room: null, item: null, wall: false });
 const LABEL_ROOM = 56; // px: a room this wide on the screen (its longer side) has its label shown
 // what casts and takes shadows, by material (walking, the ceiling keeps the sun out but
 // at the windows); the order drawn in, after the rest
@@ -178,10 +188,16 @@ export class StoreyPathWorld extends EventTarget {
   #toDress = new Map(); // floor → the kinds ("floor", "wall") whose finishes changed, dressed before the next frame
   #shut = new Set(); // the doors asked to be shut, by ID: kept when their floor is built again (a view's, not the package's)
   #swinging = new Set(); // the floors' doors (FloorDoors) with a door swinging
-  #aimed = null; // walking: the door within reach at the crosshair, { floor, door }
-  #aimFrom = null; // the camera it was aimed from (its matrix): null, aimed again (a door moved)
-  #aimSaid = ""; // what was said of the door aimed at: its ID and whether open
-  #hint; // the hint at the crosshair
+  #aimed = null; // walking: the door E works, { floor, door, under } (under the pointer, else the nearest ahead)
+  #aimFrom = null; // the view and the pointer it was aimed from: null, aimed again (a door moved)
+  #aimSaid = ""; // what was said of the door aimed at: its ID, whether open, whether under the pointer
+  #hint; // the hint by the pointer, on a door within reach
+  #pointer = null; // walking: the mouse over the view (client pixels), or null
+  #hovered = null; // walking: what is under the pointer ({ ...pointAt, door }), as hover said it
+  #hoverSaid = "";
+  #ring = null; // walking: the ring on the floor under the pointer (where a double-click goes)
+  #mark = null; // what a click would act on, marked lightly (mark)
+  #carry = null; // an item carried by a drag: { id, floor, at, moved }
   #look = new THREE.Vector3(); // (the way the camera looks: kept, not made each frame)
 
   constructor(container, options = {}) {
@@ -247,9 +263,7 @@ export class StoreyPathWorld extends EventTarget {
     element.appendChild(this.#hint);
     window.addEventListener("keydown", this.#onKey, true); // (first: a page's own E sees it was a door's)
 
-    this.#walker = new Walker(camera, renderer.domElement);
-    this.#walker.addEventListener("lock", () => this.#emit("walklock", { locked: true }));
-    this.#walker.addEventListener("unlock", () => this.#emit("walklock", { locked: false }));
+    this.#walker = new Walker(camera, renderer.domElement, { claim: (e) => this.#claim(e) });
 
     this.#pointerPicking();
     this.#applyLook({ quiet: true });
@@ -264,7 +278,7 @@ export class StoreyPathWorld extends EventTarget {
   pause() {
     if (this.#paused) return;
     this.#paused = true;
-    this.#walker.unlock();
+    this.#walker.release();
     this.#renderer.setAnimationLoop(null);
   }
 
@@ -427,7 +441,8 @@ export class StoreyPathWorld extends EventTarget {
   get mode() { return this.#mode; }
   get selected() { return this.#selected; }
   get room() { return this.#room; }
-  get walking() { return this.#walker.locked; }
+  /** Whether the walker is walking (the walk view): its keys move it, a drag looks. */
+  get walking() { return this.#mode === "walk"; }
   /** The floors shown from the package's pre-built 3D rather than built here. */
   get prebuilt() { return [...this.#floors.values()].filter((f) => f.prebuilt).map((f) => f.id); }
   /** The three.js camera, renderer and scene, for anything else. */
@@ -481,6 +496,7 @@ export class StoreyPathWorld extends EventTarget {
     this.#selected = null;
     this.#lit = null;
     this.#ghost = null;
+    this.#mark = null;
     this.#buildingGroup = this.#buildBuilding(id, { keepOrigin: keep });
     this.#scene.add(this.#buildingGroup);
     if (keep) {
@@ -536,6 +552,7 @@ export class StoreyPathWorld extends EventTarget {
     const old = this.#floors.get(id), floor = this.#pkg?.get(id);
     if (!old || !floor) return;
     if (this.#ghost?.parent === old.group) this.#ghost = null; // goes with it
+    if (this.#mark?.parent === old.group) this.#mark = null;
     if (this.#lit?.parent === old.group) this.#lit = null;
     const route = this.#route;
     if (route) this.clearRoute(); // drawn again over the floor built again
@@ -596,14 +613,16 @@ export class StoreyPathWorld extends EventTarget {
       const start = at ? this.#standAt(floorId, at) : this.#startPoint(floorId);
       this.#orbit.enabled = false;
       this.#walker.enabled = true;
+      this.#walker.gates = this.#o.doors !== "auto";
       const dir = this.#camera.getWorldDirection(new THREE.Vector3());
       this.#walkTo(floorId, start.x, start.z, heading ?? start.heading ?? Math.atan2(-dir.x, -dir.z));
     } else {
       this.#walker.enabled = false;
-      this.#walker.unlock();
+      this.#walker.release();
       this.#orbit.enabled = true;
       this.#room = null;
-      this.#aim(); // (none, now)
+      this.#renderer.domElement.style.cursor = "";
+      this.#aimFrame(); // (none, now)
       if (back && this.#orbitView) {
         const { position, target } = this.#orbitView;
         this.#flight = { from: this.#camera.position.clone(), to: position, fromT: this.#orbit.target.clone(), toT: target, t: 0 };
@@ -611,17 +630,24 @@ export class StoreyPathWorld extends EventTarget {
     }
     this.#applyVisibility();
     this.#emit("modechange", { mode });
+    this.#emit("walklock", { locked: mode === "walk" }); // (as before the mouse was never taken)
   }
 
-  /** In the walk view: take the mouse to look around (call from a click). */
+  /** The walk view (as setMode("walk")). Before, it took the mouse to look around; it is
+   * never taken now: a drag looks. Kept for pages written for that. */
   startWalking() {
     if (this.#mode !== "walk") this.setMode("walk");
-    this.#walker.lock();
   }
 
-  /** Give the mouse back (as Esc does), still in the walk view. */
-  stopWalking() {
-    this.#walker.unlock();
+  /** Nothing now (the mouse is never taken). Kept for pages written for when it was. */
+  stopWalking() {}
+
+  /** How far a drag turns the view, times what feels right (1, the default: what was
+   * pressed stays under the pointer). */
+  get lookSensitivity() { return this.#walker.sensitivity; }
+  set lookSensitivity(k) {
+    const v = Number(k);
+    if (Number.isFinite(v) && v > 0) this.#walker.sensitivity = Math.min(4, Math.max(0.25, v));
   }
 
   /** Where the dollhouse view looks: the point it turns around, { x, z } in local metres. */
@@ -678,19 +704,24 @@ export class StoreyPathWorld extends EventTarget {
     return p;
   }
 
-  // ---- aiming: what is under the pointer, or the crosshair ------------------------------------
+  // ---- aiming: what is under the pointer ----------------------------------------------------
 
-  /** What is under a point of the screen (client pixels) — walking with the mouse taken,
-   * or given no point, under the middle of the view (the crosshair): the floor, the point
-   * on it ({ x, z }, local metres, and ``local``, [x, y] in the building's own frame), the
-   * space or zone it is in, and the item there, if one is in the way. The first thing in
-   * the way counts: aimed at a wall, the point is on the floor just before it; at an item,
-   * the point under where it was met. Null when nothing is in the way and no floor is
-   * there. Quick whatever the floor (no triangles: the plan's walls and the items' boxes),
-   * so it can follow the pointer, or the crosshair every frame. ``wall``: whether a wall
-   * (or the wall over or under an opening) was met first; ``room``: the space the point
-   * is in (``space``, or the space a zone is part of): on a wall, the room on its side. */
+  /** What is under a point of the screen (client pixels; given none, the middle of the
+   * view): the floor, the point on it ({ x, z }, local metres, and ``local``, [x, y] in the
+   * building's own frame), the space or zone it is in, and the item there, if one is in the
+   * way. The first thing in the way counts: aimed at a wall, the point is on the floor just
+   * before it; at an item, the point under where it was met. Null when nothing is in the way
+   * and no floor is there. Quick whatever the floor (no triangles: the plan's walls and the
+   * items' boxes), so it can follow the pointer every frame. ``wall``: whether a wall (or
+   * the wall over or under an opening) was met first; ``room``: the space the point is in
+   * (``space``, or the space a zone is part of): on a wall, the room on its side. Walking,
+   * on the walker's floor. */
   pointAt(clientX, clientY) {
+    return this.#pointOn(clientX, clientY)?.point ?? null;
+  }
+
+  /** pointAt's point, and how far along the ray from the eye it was met (``t``). */
+  #pointOn(clientX, clientY) {
     if (!this.#pkg) return null;
     this.#camera.updateMatrixWorld(); // (moved since the last frame, maybe)
     this.#caster.setFromCamera(this.#ndc(clientX, clientY), this.#camera);
@@ -714,14 +745,14 @@ export class StoreyPathWorld extends EventTarget {
     if (!best) return null;
     const { f, x, z, item = null, wall = false } = best;
     const unit = this.#spaceAt(f, x, z);
-    return { floor: f.id, x, z, local: this.buildingPoint({ x, z }), space: unit?.id ?? null, room: unit?.space ?? null, item,
-      wall: Boolean(wall) && !item };
+    return { t: best.t, point: { floor: f.id, x, z, local: this.buildingPoint({ x, z }), space: unit?.id ?? null, room: unit?.space ?? null,
+      item, wall: Boolean(wall) && !item } };
   }
 
   /** The point of the view under a point of the screen, as three.js has it (-1 to 1); the
-   * middle when walking with the mouse taken, or given none. */
+   * middle, given none. */
   #ndc(clientX, clientY) {
-    if (clientX === undefined || clientY === undefined || (this.#mode === "walk" && this.#walker.locked)) return new THREE.Vector2(0, 0);
+    if (clientX === undefined || clientY === undefined || clientX === null || clientY === null) return new THREE.Vector2(0, 0);
     const r = this.#renderer.domElement.getBoundingClientRect();
     return new THREE.Vector2(((clientX - r.left) / (r.width || 1)) * 2 - 1, -((clientY - r.top) / (r.height || 1)) * 2 + 1);
   }
@@ -861,6 +892,7 @@ export class StoreyPathWorld extends EventTarget {
    * setFloorItems takes one (no ID needed), on ``floor`` (default: the floor shown, or
    * walked on). Null takes it away. */
   ghost(spec) {
+    this.#aimFrom = null; // (walking: the ring under the pointer, not with a ghost)
     if (this.#ghost) {
       this.#ghost.removeFromParent();
       this.#ghost.traverse((o) => o.geometry?.dispose());
@@ -895,10 +927,73 @@ export class StoreyPathWorld extends EventTarget {
     this.#ghost = group;
   }
 
-  /** Let items be carried across their floor by a drag in the dollhouse view (not by
-   * default): the world says where they are dragged (itemdragstart, itemdrag, itemdragend,
-   * each { id, floor, x, z, local, altKey, shiftKey }) and the page moves them
-   * (setFloorItems, ghost) as it decides. A press that does not move stays a click. */
+  /** Mark lightly what a click would act on (not the choice's highlight): ``{ floor: id }``
+   * a space's or zone's floor; ``{ walls: id }`` the faces of a space's walls towards it (a
+   * zone's: its space's); ``{ item: id }`` an item; null: nothing. As a page shows, following
+   * the pointer (hover), what painting or choosing there would do. */
+  mark(target) {
+    const key = target ? JSON.stringify(target) : "";
+    if (this.#mark && this.#mark.userData.key === key && this.#mark.parent) return;
+    if (!target && !this.#mark) return;
+    this.#aimFrom = null; // (walking: the ring under the pointer, not with a mark)
+    if (this.#mark) {
+      this.#mark.removeFromParent();
+      this.#mark.geometry.dispose();
+      this.#mark = null;
+    }
+    if (!target) return;
+    let floor = null, geometry = null;
+    if (target.item) {
+      const found = this.#findItem(target.item);
+      if (found) [floor, geometry] = [found.floor, itemBox(found.floor.plan, found.item)];
+    } else if (target.floor) {
+      const found = this.#findSpace(target.floor);
+      if (found) [floor, geometry] = [found.floor, flat(found.space.rings, found.floor.elevation + 0.025)];
+    } else if (target.walls) {
+      const found = this.#findSpace(target.walls);
+      if (found) [floor, geometry] = [found.floor, this.#wallFaces(found.floor, found.space.space ?? found.space.id)];
+    }
+    if (!geometry) return;
+    this.#markLook ??= new THREE.MeshBasicMaterial({ color: 0x4d8dff, transparent: true, opacity: 0.3, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const mesh = new THREE.Mesh(geometry, this.#markLook);
+    mesh.name = "mark";
+    mesh.renderOrder = 4;
+    mesh.userData.key = key;
+    mesh.raycast = () => {};
+    floor.group.add(mesh);
+    this.#mark = mesh;
+  }
+
+  #markLook = null;
+
+  /** The faces of a floor's walls towards a space (as they are finished: their ``_room``),
+   * a little off them; or null. */
+  #wallFaces(f, spaceId) {
+    const index = f.rooms?.indexOf(spaceId) ?? -1;
+    if (index < 0) return null;
+    const out = [];
+    for (const mesh of f.pieces) {
+      if (mesh.userData.material !== "wall") continue;
+      const g = mesh.geometry, room = g.getAttribute("_room"), pos = g.getAttribute("position"), nor = g.getAttribute("normal");
+      if (!room || !pos) continue;
+      const idx = g.index, n = idx ? idx.count : pos.count;
+      for (let i = 0; i + 2 < n; i += 3) {
+        if (room.getX(idx ? idx.getX(i) : i) !== index) continue;
+        for (let k = 0; k < 3; k++) {
+          const v = idx ? idx.getX(i + k) : i + k, off = 0.006;
+          out.push(pos.getX(v) + (nor ? nor.getX(v) * off : 0), pos.getY(v) + (nor ? nor.getY(v) * off : 0), pos.getZ(v) + (nor ? nor.getZ(v) * off : 0));
+        }
+      }
+    }
+    return out.length ? new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(out, 3)) : null;
+  }
+
+  /** Let items be carried across their floor by a drag (not by default): in the dollhouse
+   * view any item shown; walking, the item chosen (a drag elsewhere looks round). The world
+   * says where they are dragged (itemdragstart, itemdrag, itemdragend, each { id, floor, x,
+   * z, local, altKey, shiftKey }) and the page moves them (setFloorItems, ghost) as it
+   * decides. A press that does not move stays a click. */
   setDraggable(on) {
     this.#draggable = Boolean(on);
     if (!on) this.#renderer.domElement.style.cursor = "";
@@ -1023,17 +1118,30 @@ export class StoreyPathWorld extends EventTarget {
   /** Doors, when walking: "auto" (the default), a shut door opens when the walker walks
    * into it; "manual", it stays shut until opened (a click or E at it, or setDoorOpen). */
   setDoors(mode) {
-    if (DOOR_MODES.has(mode)) this.#o.doors = mode;
+    if (!DOOR_MODES.has(mode)) return;
+    this.#o.doors = mode;
+    this.#walker.gates = mode !== "auto"; // (a glide goes through doors that open as walked into)
   }
 
   /** "auto" or "manual" (setDoors). */
   get doors() { return this.#o.doors; }
 
-  /** Walking: the door within reach at the crosshair (a click or E would open or shut it),
-   * { id, open }; else null. */
+  /** Walking: the door E works (useDoor): the door under the pointer, within reach, else
+   * the nearest ahead within reach: { id, open, under } (under: the pointer's); else null. */
   get aimedDoor() {
     const a = this.#aimed;
-    return a ? { id: a.door.id, open: a.door.open } : null;
+    return a ? { id: a.door.id, open: a.door.open, under: a.under } : null;
+  }
+
+  /** Walking: open the door under the pointer (within reach) if it is shut, shut it if open;
+   * else the nearest ahead within reach (as E does). { id, open } (its new state), or null
+   * when there is none. */
+  useDoor() {
+    if (this.#mode !== "walk" || this.#paused) return null;
+    const aimed = this.#aimNow();
+    if (!aimed) return null;
+    this.#setDoor(aimed.floor, aimed.door, !aimed.door.open);
+    return { id: aimed.door.id, open: aimed.door.open };
   }
 
   /** A door of the building shown, by its ID: { floor, door }, or null. */
@@ -1061,59 +1169,165 @@ export class StoreyPathWorld extends EventTarget {
     return changed;
   }
 
-  /** E, walking: the door at the crosshair, within reach, opened or shut (its key taken:
-   * the page sees it was, defaultPrevented); not a key typed into a field of the page. */
+  /** The door key (E), walking: the door under the pointer, else the nearest ahead,
+   * opened or shut (its key taken: the page sees it was, defaultPrevented); not a key typed
+   * into a field of the page, nor one the page took first. */
   #onKey = (e) => {
-    if (e.code !== "KeyE" || e.repeat || e.ctrlKey || e.metaKey || e.altKey || this.#mode !== "walk" || this.#paused) return;
-    if (e.target?.closest?.("input, textarea, select, [contenteditable]")) return;
-    const aimed = this.#aimNow();
-    if (!aimed) return;
-    e.preventDefault();
-    this.#setDoor(aimed.floor, aimed.door, !aimed.door.open);
+    if (!this.#o.doorKey || e.code !== this.#o.doorKey || e.repeat || e.ctrlKey || e.metaKey || e.altKey || this.#mode !== "walk"
+      || this.#paused || e.defaultPrevented) return;
+    if (e.target?.closest?.("input, textarea, select, [contenteditable], dialog[open]")) return;
+    if (this.useDoor()) e.preventDefault();
   };
 
-  /** Walking: the door within reach at the crosshair, worked out now ({ floor, door }), or null. */
+  /** Walking: the door E works, worked out now ({ floor, door, under }), or null. */
   #aimNow() {
     this.#aimFrom = null;
-    this.#aim();
+    this.#aimFrame();
     return this.#aimed;
   }
 
-  /** Walking, each frame: what the door at the crosshair is, again when the view moved or a
-   * door did; its hint shown, and dooraim when it changed. */
-  #aim() {
-    const f = this.#mode === "walk" ? this.#floors.get(this.#walkFloor) : null;
-    let aimed = null;
-    if (f) {
-      const cam = this.#camera;
-      cam.updateMatrixWorld();
-      const view = cam.matrixWorld.elements, was = this.#aimFrom;
-      if (was && was.floor === f && view.every((v, i) => v === was.view[i])) return; // as it was
-      this.#aimFrom = { floor: f, view: view.slice() };
-      const hit = f.doors.aim(cam.position, cam.getWorldDirection(this.#look), f.elevation, DOOR.reach, f.obstacles);
-      aimed = hit ? { floor: f, door: hit.door } : null;
-    } else this.#aimFrom = null;
-    this.#aimed = aimed;
-    const said = aimed ? `${aimed.door.id}:${aimed.door.open}` : "";
-    if (said === this.#aimSaid) return;
-    this.#aimSaid = said;
-    const hint = this.#hint;
-    hint.textContent = aimed ? `${aimed.door.open ? "Close" : "Open"} door (E)` : "";
-    hint.style.display = aimed ? "block" : "none";
-    this.#element.classList.toggle("sp3d-door-aim", Boolean(aimed));
-    this.#emit("dooraim", aimed ? { id: aimed.door.id, open: aimed.door.open } : { id: null, open: null });
+  /** The door under a point of the screen on a walker's floor, within reach, and nearer
+   * than anything else there (``hit``: #pointOn's, if known): { door, t }, or null. A door
+   * open is looked through, not on: its leaf is what is on it. */
+  #doorUnder(f, clientX, clientY, hit = this.#pointOn(clientX, clientY)) {
+    this.#caster.setFromCamera(this.#ndc(clientX, clientY), this.#camera);
+    const { origin, direction } = this.#caster.ray;
+    const got = f.doors.aim(origin, direction, f.elevation, DOOR.reach, f.obstacles, { through: false });
+    return got && (!hit || got.t <= hit.t + 0.05) ? got : null;
   }
 
-  /** Walking, each frame: a shut door walked into opened (doors "auto"), and the door at
-   * the crosshair. */
+  /** Walking, each frame (again only when the view, the pointer or a door moved): what is
+   * under the pointer, said as it changes (hover); the door E works (dooraim), its hint by
+   * the pointer when it is under it; the ring on the floor where a double-click would go;
+   * and the pointer's look over the view. */
+  #aimFrame() {
+    const f = this.#mode === "walk" && !this.#paused ? this.#floors.get(this.#walkFloor) : null;
+    const cam = this.#camera, at = f ? this.#pointer : null;
+    const busy = this.#walker.looking ? "look" : this.#carry ? "carry" : this.#walker.gliding ? "glide" : "";
+    if (f) {
+      cam.updateMatrixWorld();
+      const view = cam.matrixWorld.elements, was = this.#aimFrom;
+      if (was && was.floor === f && was.x === at?.x && was.y === at?.y && was.busy === busy && view.every((v, i) => v === was.view[i])) return;
+      this.#aimFrom = { floor: f, view: view.slice(), x: at?.x, y: at?.y, busy };
+    } else this.#aimFrom = null;
+    // under the pointer (not while the view is dragged or an item carried)
+    const looks = at && busy !== "look" && busy !== "carry";
+    const hit = looks ? this.#pointOn(at.x, at.y) : null;
+    const under = looks ? this.#doorUnder(f, at.x, at.y, hit) : null;
+    let aimed = under ? { floor: f, door: under.door, under: true } : null;
+    if (f && !aimed) {
+      const ahead = f.doors.ahead(cam.position, cam.getWorldDirection(this.#look), DOOR.reach, f.obstacles);
+      aimed = ahead ? { floor: f, door: ahead, under: false } : null;
+    }
+    this.#aimed = aimed;
+    const said = aimed ? `${aimed.door.id}:${aimed.door.open}:${aimed.under}` : "";
+    if (said !== this.#aimSaid) {
+      this.#aimSaid = said;
+      this.#element.classList.toggle("sp3d-door-aim", Boolean(aimed?.under));
+      this.#emit("dooraim", aimed ? { id: aimed.door.id, open: aimed.door.open, under: aimed.under } : { id: null, open: null, under: false });
+    }
+    this.#sayHover(hit ? { ...hit.point, door: under ? { id: under.door.id, open: under.door.open } : null } : null);
+    this.#placeHint();
+    this.#placeRing(hit && !under && !hit.point.item && !hit.point.wall && !busy ? hit.point : null);
+    if (f) {
+      this.#renderer.domElement.style.cursor = busy === "look" || busy === "carry" ? "grabbing" : under || hit?.point.item ? "pointer" : "";
+    }
+  }
+
+  /** hover, when what is under the pointer changed: its floor, space, room, item, wall or
+   * door (or whether that door is open); null when nothing is (the pointer gone). */
+  #sayHover(now) {
+    const key = now ? [now.floor, now.space, now.room, now.item, now.wall, now.door?.id, now.door?.open].join("|") : "";
+    this.#hovered = now;
+    if (key === this.#hoverSaid) return;
+    this.#hoverSaid = key;
+    this.#emit("hover", now);
+  }
+
+  /** Walking: what is under the pointer ({ ...pointAt, door }), as hover said it last; null
+   * when nothing is (or the pointer is not over the view). */
+  get hovered() { return this.#hovered; }
+
+  /** The hint by the pointer: on a door within reach, what E or a click does to it. */
+  #placeHint() {
+    const hint = this.#hint, a = this.#aimed, at = this.#pointer;
+    if (this.#flashUntil > performance.now()) return; // (a word said for a moment: #flash)
+    if (!a?.under || !at) {
+      hint.style.display = "none";
+      return;
+    }
+    const key = this.#o.doorKey ? ` (${this.#o.doorKey.replace(/^Key|^Digit/, "")})` : "";
+    hint.textContent = `${a.door.open ? "Close" : "Open"} door${key}`;
+    this.#hintAt(at.x, at.y);
+  }
+
+  /** The hint shown by a point of the screen, inside the view. */
+  #hintAt(x, y) {
+    const hint = this.#hint, r = this.#element.getBoundingClientRect();
+    hint.style.display = "block";
+    const w = hint.offsetWidth, h = hint.offsetHeight;
+    hint.style.left = `${Math.max(4, Math.min(r.width - w - 4, x - r.left + 14))}px`;
+    hint.style.top = `${Math.max(4, Math.min(r.height - h - 4, y - r.top + 18))}px`;
+  }
+
+  #flashUntil = 0;
+  #flashTimer = 0;
+
+  /** A word by a point of the screen, for a moment (a glide refused). */
+  #flash(text, x, y) {
+    this.#hint.textContent = text;
+    this.#hintAt(x, y);
+    this.#flashUntil = performance.now() + 1400;
+    clearTimeout(this.#flashTimer);
+    this.#flashTimer = setTimeout(() => {
+      this.#flashUntil = 0;
+      this.#placeHint();
+    }, 1400);
+  }
+
+  /** The ring on the floor under the pointer, walking (where a double-click would glide):
+   * at ``p`` ({ x, z } on the walker's floor), or none. Not while a ghost or a mark shows
+   * what a click would do. */
+  #placeRing(p) {
+    const f = this.#floors.get(this.#walkFloor);
+    if (!p || !f || this.#ghost || this.#mark || this.#mode !== "walk") {
+      if (this.#ring) this.#ring.visible = false;
+      return;
+    }
+    if (!this.#ring) {
+      const ring = new THREE.Group();
+      ring.name = "walk-ring";
+      const part = (inner, outer, color, opacity, y) => {
+        const m = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity,
+          depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+        m.rotation.x = -Math.PI / 2;
+        m.position.y = y;
+        m.renderOrder = 9;
+        m.raycast = () => {};
+        ring.add(m);
+      };
+      part(0.2, 0.235, 0x000000, 0.22, 0); // a soft dark rim: seen on a light floor
+      part(0.16, 0.2, 0xffffff, 0.9, 0.001);
+      part(0, 0.16, 0xffffff, 0.16, 0.001);
+      this.#scene.add(ring);
+      this.#ring = ring;
+    }
+    const d = Math.hypot(p.x - this.#camera.position.x, p.z - this.#camera.position.z);
+    this.#ring.scale.setScalar(Math.max(0.8, Math.min(2.4, d / 5)));
+    this.#ring.position.set(p.x, f.elevation + 0.012, p.z);
+    this.#ring.visible = true;
+  }
+
+  /** Walking, each frame: a shut door walked into opened (doors "auto"; gliding, one in
+   * the glide's way), and what is under the pointer and the door E works (#aimFrame). */
   #walkDoors() {
     const f = this.#floors.get(this.#walkFloor), intent = this.#walker.intent;
     if (f && intent && this.#o.doors === "auto") {
-      const p = this.#camera.position, look = this.#camera.getWorldDirection(this.#look);
+      const p = this.#camera.position, look = this.#walker.gliding ? intent : this.#camera.getWorldDirection(this.#look);
       const door = f.doors.bumped(p.x, p.z, intent, { x: look.x, z: look.z });
       if (door) this.#setDoor(f, door, true);
     }
-    this.#aim();
+    this.#aimFrame();
   }
 
   /** The doors swinging moved on (each frame a tenth of a second at most, so that a swing
@@ -2510,32 +2724,36 @@ export class StoreyPathWorld extends EventTarget {
     this.#labelsMoved = true;
   }
 
-  /** A click (a press that does not move) on the dollhouse view, or walking with the mouse
-   * taken (at the crosshair): ``pick``, which a page may cancel (preventDefault: it does
-   * something else with the click, as placing an item there), else what was clicked is
-   * selected; walking, a door within reach at the crosshair is opened or shut instead (the
-   * pick says which: ``door``). A press on an item that moves, where items may be carried
-   * (setDraggable): the item dragged. */
+  /** The pointer on the view. In the dollhouse view a click (a press that does not move)
+   * says ``pick``, which a page may cancel (preventDefault: it does something else with the
+   * click, as placing an item there), else what was clicked is chosen; a right-click says
+   * ``menu``. Walking (the walker tells a click from a drag that looks): a click at the
+   * pointer says ``pick`` too, else the door there within reach is opened or shut (the pick
+   * says which: ``door``) or what is there chosen; a double-click (a double tap) glides to
+   * the floor there; a right-click (a long press) says ``menu``. A press on an item that
+   * moves, where items may be carried (setDraggable; walking, the item chosen): the item
+   * dragged. */
   #pointerPicking() {
     const canvas = this.#renderer.domElement;
-    let down = null, drag = null, hover = 0;
+    let down = null, hover = 0;
     // An item taken up: before the orbit sees the press (this listens on the way down to it).
     this.#element.addEventListener("pointerdown", (e) => {
       if (!this.#draggable || this.#mode !== "dollhouse" || e.button !== 0 || e.target !== canvas) return;
       const p = this.pointAt(e.clientX, e.clientY);
       if (!p?.item) return;
       this.#orbit.enabled = false;
-      drag = { id: p.item, floor: this.#floors.get(p.floor), at: [e.clientX, e.clientY], moved: false };
-      canvas.setPointerCapture?.(e.pointerId);
+      this.#takeUp(e, p);
     }, true);
     const where = (e, [cx, cy] = [e.clientX, e.clientY]) => {
-      const at = this.#onLevel(drag.floor, cx, cy);
+      const drag = this.#carry, at = this.#onLevel(drag.floor, cx, cy);
       return { id: drag.id, floor: drag.floor.id, x: at?.x ?? null, z: at?.z ?? null, local: at ? this.buildingPoint(at) : null,
         altKey: e.altKey, shiftKey: e.shiftKey };
     };
     canvas.addEventListener("pointermove", (e) => {
+      if (this.#mode === "walk") this.#pointer = e.pointerType === "touch" ? null : { x: e.clientX, y: e.clientY };
+      const drag = this.#carry;
       if (drag) {
-        if (!drag.moved && Math.hypot(e.clientX - drag.at[0], e.clientY - drag.at[1]) <= 4) return;
+        if (!drag.moved && Math.hypot(e.clientX - drag.at[0], e.clientY - drag.at[1]) <= LOOK.drag) return;
         if (!drag.moved) {
           drag.moved = true;
           this.#emit("itemdragstart", where(e, drag.at));
@@ -2547,15 +2765,17 @@ export class StoreyPathWorld extends EventTarget {
       if (!this.#draggable || this.#mode !== "dollhouse" || e.buttons || hover) return;
       hover = requestAnimationFrame(() => {
         hover = 0;
-        if (!this.#draggable) return;
+        if (!this.#draggable || this.#mode !== "dollhouse") return;
         canvas.style.cursor = this.pointAt(e.clientX, e.clientY)?.item ? "grab" : "";
       });
     });
+    canvas.addEventListener("pointerleave", () => { this.#pointer = null; });
     const putDown = (e, cancelled = false) => {
+      const drag = this.#carry;
       if (!drag) return;
       const { moved } = drag;
       if (moved) this.#emit("itemdragend", { ...where(e), cancelled });
-      drag = null;
+      this.#carry = null;
       this.#orbit.enabled = this.#mode === "dollhouse";
       if (moved) down = null; // not a click
     };
@@ -2563,19 +2783,82 @@ export class StoreyPathWorld extends EventTarget {
     canvas.addEventListener("pointercancel", (e) => putDown(e, true));
     canvas.addEventListener("pointerdown", (e) => (down = [e.clientX, e.clientY]));
     canvas.addEventListener("pointerup", (e) => {
-      const walking = this.#mode === "walk" && this.#walker.locked;
+      if (this.#mode !== "dollhouse" || !down) return; // (walking: the walker's, below)
+      const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]) > LOOK.drag;
+      down = null;
+      if (moved) return;
+      if (e.button === 2) return this.#emit("menu", { ...(this.pointAt(e.clientX, e.clientY) ?? NOWHERE), door: null,
+        clientX: e.clientX, clientY: e.clientY, pointerType: e.pointerType });
       if (e.button !== 0) return;
-      if (!walking && (this.#mode !== "dollhouse" || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4)) return;
-      const p = this.pointAt(e.clientX, e.clientY); // walking: at the crosshair
-      const door = walking ? this.#aimNow() : null; // walking: a door within reach there
-      const pick = new CustomEvent("pick", { cancelable: true, detail: {
-        ...(p ?? { floor: null, x: null, z: null, local: null, space: null, item: null }),
-        door: door?.door.id ?? null, button: e.button, altKey: e.altKey, shiftKey: e.shiftKey } });
+      const p = this.pointAt(e.clientX, e.clientY);
+      const pick = new CustomEvent("pick", { cancelable: true, detail: { ...(p ?? NOWHERE), door: null, button: e.button,
+        altKey: e.altKey, shiftKey: e.shiftKey, clientX: e.clientX, clientY: e.clientY, pointerType: e.pointerType } });
       this.dispatchEvent(pick);
-      if (pick.defaultPrevented) return;
-      if (door) this.#setDoor(door.floor, door.door, !door.door.open); // opened or shut, not chosen
-      else this.select(walking ? p?.item ?? p?.space ?? null : this.#clicked(e.clientX, e.clientY), { go: false });
+      if (!pick.defaultPrevented) this.select(this.#clicked(e.clientX, e.clientY), { go: false });
     });
+    // walking: what the walker says the pointer did
+    const w = this.#walker;
+    w.addEventListener("click", ({ detail }) => this.#walkClick(detail));
+    w.addEventListener("double", ({ detail }) => this.#walkGlide(detail));
+    w.addEventListener("menu", ({ detail: d }) => {
+      if (this.#mode !== "walk") return;
+      const f = this.#floors.get(this.#walkFloor), hit = this.#pointOn(d.clientX, d.clientY);
+      const under = f ? this.#doorUnder(f, d.clientX, d.clientY, hit) : null;
+      this.#emit("menu", { ...(hit?.point ?? NOWHERE), door: under ? under.door.id : null, clientX: d.clientX, clientY: d.clientY,
+        pointerType: d.pointerType });
+    });
+    w.addEventListener("look", () => { this.#aimFrom = null; });
+    w.addEventListener("glide", ({ detail }) => {
+      this.#aimFrom = null;
+      this.#emit("glide", detail);
+    });
+  }
+
+  /** Walking: a click at a point of the screen. ``pick`` (cancelable) says what is there and
+   * the door within reach there; else that door is opened or shut, or what is there chosen. */
+  #walkClick({ clientX, clientY, button, altKey, shiftKey, pointerType }) {
+    if (this.#mode !== "walk") return;
+    const f = this.#floors.get(this.#walkFloor), hit = this.#pointOn(clientX, clientY);
+    const under = f ? this.#doorUnder(f, clientX, clientY, hit) : null;
+    const p = hit?.point ?? null;
+    const pick = new CustomEvent("pick", { cancelable: true, detail: { ...(p ?? NOWHERE), door: under?.door.id ?? null, button,
+      altKey, shiftKey, clientX, clientY, pointerType } });
+    this.dispatchEvent(pick);
+    if (pick.defaultPrevented) return;
+    if (under) this.#setDoor(f, under.door, !under.door.open); // opened or shut, not chosen
+    else this.select(p?.item ?? p?.space ?? null, { go: false });
+  }
+
+  /** Walking: a double-click (a double tap) glides to the floor there, as far as nothing is
+   * in the way; refused (said by the pointer for a moment, and ``glide``) when something is
+   * at once, or nothing of the walker's floor is there. */
+  #walkGlide({ clientX, clientY }) {
+    if (this.#mode !== "walk") return;
+    const p = this.pointAt(clientX, clientY);
+    const to = p && p.floor === this.#walkFloor ? this.#walker.glideTo(p.x, p.z) : null;
+    if (to) return;
+    this.#flash(p ? "Something is in the way" : "No floor there", clientX, clientY);
+    this.#emit("glide", { state: "refused", x: p?.x ?? null, z: p?.z ?? null });
+  }
+
+  /** Walking: a press as it starts (the walker asks): on the item chosen, where items may
+   * be carried, the item taken up (the press is not a look). */
+  #claim(e) {
+    if (!this.#draggable || this.#mode !== "walk" || !this.#selected) return false;
+    const p = this.pointAt(e.clientX, e.clientY);
+    if (!p?.item || p.item !== this.#selected) return false;
+    this.#takeUp(e, p);
+    return true;
+  }
+
+  /** An item taken up by a press at ``p`` (pointAt's): carried once the press moves. */
+  #takeUp(e, p) {
+    this.#carry = { id: p.item, floor: this.#floors.get(p.floor), at: [e.clientX, e.clientY], moved: false };
+    try {
+      this.#renderer.domElement.setPointerCapture?.(e.pointerId);
+    } catch {
+      // (a pointer no longer down)
+    }
   }
 
   /** The room or item clicked in the dollhouse view: of the floor finishes and the items

@@ -1,7 +1,7 @@
-// A floor's doors in the 3D world, shut and opened: by the walker (a click or E at one
-// within reach, or walking into one shut), or by the page (setDoorOpen). A door starts
-// open, as the plan draws it; shut, it is a gate across its span that the walker bumps
-// into.
+// A floor's doors in the 3D world, shut and opened: by the walker (a click on one within
+// reach, E at the one under the pointer or the nearest ahead, or walking into one shut),
+// or by the page (setDoorOpen). A door starts open, as the plan draws it; shut, it is a
+// gate across its span that the walker bumps into.
 //
 // Each leaf is a run of its floor's merged door and handle geometry, and of the door's
 // lines along edges (the "model" look), as build.js lists them (``doors``): a leaf swings
@@ -12,10 +12,11 @@
 import * as THREE from "three";
 
 /** How doors are used: from this near (m, along the floor, from the walker to where the
- * crosshair meets the door or its doorway); swinging this long (s, eased; a door turned
- * back half way, half as long); and, walked into from this near (m, the walker to its span)
- * while shut, opened by itself (doors: "auto"). */
-export const DOOR = { reach: 2, seconds: 0.5, auto: 0.5 };
+ * pointer meets the door, or to its span ahead); ahead: no more than ``ahead`` radians off
+ * the way the walker looks (stood in its span, any way); swinging this long (s, eased; a
+ * door turned back half way, half as long); and, walked into from this near (m, the walker
+ * to its span) while shut, opened by itself (doors: "auto"). */
+export const DOOR = { reach: 2, ahead: Math.PI / 3, seconds: 0.5, auto: 0.5 };
 const CELL = 4; // m: the grid doors are found by, near the walker
 
 /** Eased in and out: 0 to 1, slow at each end. */
@@ -140,12 +141,13 @@ export class FloorDoors {
     for (const d of this.doors) if (d.t !== 1) this.#pose(d);
   }
 
-  /** The door the crosshair is on: the first of the doors near the eye ``o`` (a Vector3)
-   * that the look ``d`` (a unit Vector3) meets — a leaf as it is now, or the doorway between
-   * its jambs, between the floor at ``y0`` and the door's head — within ``reach`` metres along
+  /** The door a ray is on: the first of the doors near the eye ``o`` (a Vector3) that the
+   * ray ``d`` (a unit Vector3) meets — a leaf as it is now, or the doorway between its
+   * jambs, between the floor at ``y0`` and the door's head (an open one's only with
+   * ``through``: else what is seen through it is not the door) — within ``reach`` metres along
    * the floor, with no wall or window of ``walls`` (Obstacles) before it. { door, t } (t:
-   * metres along the look), or null. */
-  aim(o, d, y0, reach, walls) {
+   * metres along the ray), or null. */
+  aim(o, d, y0, reach, walls, { through = true } = {}) {
     const flat = Math.hypot(d.x, d.z);
     if (flat < 1e-6) return null; // looking straight up or down
     let best = null;
@@ -159,7 +161,7 @@ export class FloorDoors {
       return y >= 0 && y <= top ? t : null;
     };
     for (const door of this.near(o.x, o.z, reach)) {
-      const hits = [meet(...door.span, door.top)];
+      const hits = through || !door.open ? [meet(...door.span, door.top)] : [];
       for (const leaf of door.leaves) {
         const a = door.angle(leaf), [hx, hz] = leaf.hinge;
         hits.push(meet(hx, hz, hx + Math.cos(a) * leaf.length, hz - Math.sin(a) * leaf.length, door.top));
@@ -175,6 +177,44 @@ export class FloorDoors {
       if (t !== null && t < best.t - 0.03) return null;
     }
     return best;
+  }
+
+  /** The nearest door ahead of the walker at ``o`` (a Vector3), looking ``look`` (a
+   * Vector3): its span within ``reach`` metres along the floor and no more than DOOR.ahead
+   * off the look (stood in it, any way), with no wall or window of ``walls`` (Obstacles)
+   * between; the one most ahead of those as near. A door, or null. */
+  ahead(o, look, reach, walls) {
+    const ll = Math.hypot(look.x, look.z);
+    if (ll < 1e-6) return null;
+    const lx = look.x / ll, lz = look.z / ll, least = Math.cos(DOOR.ahead);
+    let best = null;
+    for (const door of this.near(o.x, o.z, reach)) {
+      const [x1, z1, x2, z2] = door.span, ex = x2 - x1, ez = z2 - z1;
+      // the nearest point of its span (not quite its jambs: what is beside them is the wall)
+      const s = Math.max(0.1, Math.min(0.9, ((o.x - x1) * ex + (o.z - z1) * ez) / (ex * ex + ez * ez || 1e-9)));
+      const px = x1 + s * ex, pz = z1 + s * ez, vx = px - o.x, vz = pz - o.z, d = Math.hypot(vx, vz);
+      if (d > reach) continue;
+      const cos = d < 1e-6 ? 1 : (vx * lx + vz * lz) / d;
+      if (d > 0.45 && cos < least) continue;
+      if (walls && d > 1e-6 && this.#walled(o.x, o.z, px, pz, walls)) continue;
+      const score = d / (0.5 + 0.5 * Math.max(cos, least)); // as near, the more ahead the better
+      if (!best || score < best.score) best = { door, score };
+    }
+    return best?.door ?? null;
+  }
+
+  /** Whether a wall or window of ``walls`` is between (ax, az) and (bx, bz). */
+  #walled(ax, az, bx, bz, walls) {
+    const dx = bx - ax, dz = bz - az;
+    for (const k of walls.near(ax, az)) {
+      const seg = walls.segments[k];
+      if (!seg) continue; // (a gate: a door's own span)
+      const [x1, z1, x2, z2] = seg, ex = x2 - x1, ez = z2 - z1, den = dx * ez - dz * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const qx = x1 - ax, qz = z1 - az, t = (qx * ez - qz * ex) / den, u = (qx * dz - qz * dx) / den;
+      if (t > 0 && t < 0.97 && u >= 0 && u <= 1) return true;
+    }
+    return false;
   }
 
   /** A shut door the walker at (x, z) walks into: within DOOR.auto of its span, going
