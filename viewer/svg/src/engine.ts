@@ -259,8 +259,10 @@ export class FloorPlanEngine extends EventTarget {
 
   // ---- what is shown ----------------------------------------------------------
 
-  /** Draw a floor; fitted unless `fit` is false (then the view stays). */
-  setFloor(plan: FloorPlan, { fit = true }: { fit?: boolean } = {}): void {
+  /** Draw a floor; fitted unless `fit` is false (then the view stays); with `fade`, the
+   * floor shown before fades out over it (unless motion is off). */
+  setFloor(plan: FloorPlan, { fit = true, fade = false }: { fit?: boolean; fade?: boolean } = {}): void {
+    if (fade && this.plan) this.crossfade();
     this.plan = plan;
     this.ySign = plan.yDown ? 1 : -1;
     if (!this.size.w) {
