@@ -8,7 +8,7 @@ export { route, shortest, Graph } from './navigation.js';
 export { ITEM_ID_ALPHABET, itemCheckSymbol, isItemId, normalizeItemId } from './ids.js';
 export type { Navigation, NavEdge, NavFloor, NavNode, NavPlace, Route, RouteChange, RouteLeg, RouteStep, RouteOptions,
 	Routable } from './navigation.js';
-import type { Navigation, Route } from './navigation.js';
+import type { Navigation, Route, RouteStep } from './navigation.js';
 
 /** One of StoreyPath's finishes (format 0.9, spec/finishes.json). */
 export interface Finish {
@@ -312,6 +312,53 @@ export interface WorldEvents {
 	reload: { floors: string[] };
 	/** The look or quality changed (setStyle, setQuality, or auto choosing Low). */
 	lookchange: WorldLook;
+	/** A step of the way shown (showStep), or the camera going along it got to one. */
+	routestep: RouteStepDetail;
+	/** Going along the way (playRoute, flyRoute): how far it has got, each frame. */
+	routeprogress: RouteProgressDetail;
+	/** Going along the way began, paused, went on, ended (got there) or stopped. */
+	routeplay: { state: 'playing' | 'paused' | 'ended' | 'stopped' };
+}
+
+/** A step of a way: its index in `steps`, the step, the leg it is on and that leg's floor. */
+export interface RouteStepDetail {
+	index: number;
+	step: RouteStep | null;
+	leg: number;
+	floor_id: string | null;
+}
+
+/** How far going along a way has got: metres walked of `total` (rides take none). */
+export interface RouteProgressDetail {
+	metres: number;
+	total: number;
+	fraction: number;
+	leg: number;
+	step: number | null;
+	floor_id: string | null;
+}
+
+/** How a way is drawn in 3D (showRoute). */
+export interface WorldRouteOptions {
+	/** The camera goes along it (flyRoute) once it is drawn. */
+	fly?: boolean;
+	/** The camera frames the whole way. */
+	fit?: boolean;
+	/** It rises in from its start to its end (default: true; never when reduced motion is asked for). */
+	animate?: boolean;
+	/** Its start's tag ("You are here"); none by default. */
+	startLabel?: string | null;
+	/** Its end's card: by default its room's name and floor ("OFFICE 205 · Floor 2"); null: none (the room's own label shows). */
+	endLabel?: string | null;
+	/** A floor's name, for its tags (default: its name in the package). */
+	floorName?: (floorId: string) => string;
+	/** Its colours (CSS colours, as a page has them; by default the plan viewer's): its core, its rim (`casing`),
+	 * its chevrons (`arrow`), its start's, its end's. */
+	color?: string;
+	casing?: string;
+	arrow?: string;
+	start?: string;
+	end?: string;
 }
 
 /** A point of the world, as `pointAt` finds it. */
@@ -480,18 +527,36 @@ export declare class StoreyPathWorld extends EventTarget {
 	plan(floorId: string): WorldPlan | null;
 	/** The way shown (showRoute), or null. */
 	readonly route: Route | null;
-	/** Draw a way (as `route()` finds it, format 0.8): an edged ribbon just over each floor it walks on, arrows the
-	 * way it goes, joined through the lift or stairs between floors, its start and end marked; seen through the
-	 * floors above it, which the dollhouse view of the whole building then leaves out. Null: none. With `fly`, the
-	 * camera goes along it; resolves when it is there. Its colours (CSS colours, as a page has them light or dark;
-	 * by default the plan viewer's): `color`, `casing` (its edge), `arrow`, `start`, `end`. */
-	showRoute(route: Route | null, options?: { fly?: boolean; color?: string; casing?: string; arrow?: string;
-		start?: string; end?: string }): Promise<void>;
-	/** Take the way away. */
+	/** Draw a way (as `route()` finds it, format 0.8): a softly glowing ribbon a little over each floor it walks
+	 * on, chevrons flowing along it the way it goes; a glowing column through each lift or stairs, an arrow up or
+	 * down on it; a ring pulsing at its start, a pin over its end, its room lit, and their tags; seen through what
+	 * is in front of it. It rises in from its start (`animate`). Over the whole building the floors it does not
+	 * walk on fade back, those above it are left out, and on a way of several floors those but the one it is at
+	 * fade too; rooms' labels other than its own are not shown meanwhile. Null: none. With `fit`, the camera frames
+	 * it; with `fly`, it goes along it, resolving when it is there. */
+	showRoute(route: Route | null, options?: WorldRouteOptions): Promise<void>;
+	/** Take the way away (and stop going along it). */
 	clearRoute(): void;
-	/** Take the camera along the way shown, over `seconds` (default 14), in the dollhouse view, the floors it is
-	 * not on faded meanwhile; resolves when it is there, or when the way is taken away. */
+	/** Show a step of the way (`steps`): its leg's floor clear, the way's others faded, the camera framing it (the
+	 * start, a walk, the lift or stairs between both floors, the destination); "routestep". */
+	showStep(index: number, options?: { animate?: boolean }): void;
+	/** Show a leg of the way whole, its floor clear. */
+	showLeg(index: number, options?: { animate?: boolean }): void;
+	/** The step shown, or the one the camera going along the way is at; null for none. */
+	readonly routeStep: number | null;
+	/** Take the camera along the way shown, in the dollhouse view of the whole building: just behind and above,
+	 * looking ahead, slower at turns; at each lift or stairs it stops and rides up or down with the column to the
+	 * next floor; it ends framing the destination. About `seconds` long (default: as long as the way is, 8 to
+	 * 20 s); at once when reduced motion is asked for. Resolves when it is there, or stopped. */
 	flyRoute(options?: { seconds?: number }): Promise<void>;
+	/** As flyRoute, or on from where pauseRoute left it (unless `restart`). */
+	playRoute(options?: { seconds?: number; restart?: boolean }): Promise<void>;
+	/** Pause going along the way (the view the page's meanwhile). */
+	pauseRoute(): void;
+	/** Stop going along the way. */
+	stopRoute(): void;
+	/** "playing" or "paused" while going along the way, else null. */
+	readonly routePlay: 'playing' | 'paused' | null;
 	/** Stop drawing and free the GPU; the container is emptied. */
 	destroy(): void;
 	addEventListener<K extends keyof WorldEvents>(

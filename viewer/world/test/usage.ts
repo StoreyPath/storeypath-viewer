@@ -83,7 +83,20 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 	const way: Route | null = pkg.navigation && kiosk && office ? route(pkg, kiosk.id, office.id, { accessible: true }) : null;
 	if (way) {
 		console.log(way.steps.map((s) => s.text).join('; '), way.metres, way.changes[0]?.by);
-		await world.showRoute(way, { fly: false });
+		await world.showRoute(way, { fly: false, fit: true, animate: true, startLabel: 'You are here', endLabel: null,
+			floorName: (id: string) => id, color: '#2463eb', arrow: '#ffffff' });
+		world.addEventListener('routestep', (e) => console.log(e.detail.index, e.detail.step?.text, e.detail.floor_id));
+		world.addEventListener('routeprogress', (e) => console.log(e.detail.fraction.toFixed(2), e.detail.step));
+		world.addEventListener('routeplay', (e) => console.log(e.detail.state));
+		world.showStep(0, { animate: false });
+		world.showLeg(0);
+		const step: number | null = world.routeStep;
+		const playing = world.playRoute({ seconds: 10 });
+		world.pauseRoute();
+		const state: 'playing' | 'paused' | null = world.routePlay;
+		console.log(step, state);
+		world.stopRoute();
+		await playing;
 		await world.flyRoute({ seconds: 8 });
 		world.clearRoute();
 	}

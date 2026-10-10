@@ -1280,7 +1280,10 @@ test("a way is drawn over each floor it walks on, through the lift between them,
     const left = named("route:").length;
     // the page's colours
     await world.showRoute(way, { color: "#ff0000", casing: "rgb(0, 0, 255)", end: "nonsense" });
-    const colours = ["route:leg:0", "route:casing:0", "route:end"].map((n) => named(n)[0].material.color.getHexString());
+    const leg = named("route:leg:0")[0].material.uniforms;
+    let pin = null;
+    named("route:end")[0].traverse((o) => { if (!pin && o.isMesh && o.material.emissive) pin = o.material; });
+    const colours = [leg.uColor.value.getHexString(), leg.uEdge.value.getHexString(), pin.color.getHexString()];
     world.clearRoute();
     const shown = floors.map((f) => world.scene.getObjectByName(f.id).visible);
     world.destroy();
@@ -1299,8 +1302,195 @@ test("a way is drawn over each floor it walks on, through the lift between them,
   truly(r.moved > 1, `the camera went along it: ${r.moved}`);
   truly(r.during.length === 2 && Math.min(...r.during) < 0.5 && Math.max(...r.during) > 0.9
     && r.after.every((o) => o > 0.9), `the floor it is not on faded as it goes: ${r.during} then ${r.after}`);
-  truly(JSON.stringify(r.colours) === JSON.stringify(["ff0000", "0000ff", "d62d50"]), `the page's colours: ${r.colours}`);
+  truly(JSON.stringify(r.colours) === JSON.stringify(["ff0000", "0000ff", "e5484d"]), `the page's colours: ${r.colours}`);
   truly(r.left === 0 && JSON.stringify(r.shown) === "[true,true,true]", `taken away, every floor shown again: ${r.left}, ${r.shown}`);
+});
+
+// what a way is drawn with, as the camera goes along it, and the floors round it
+const upstairs = routes.routes.find((c) => c.package === "campus-hq.storeypath" && !c.accessible && c.expect.changes[0]?.by === "stairs");
+/** A world (#v) with campus-hq open, whole, cut away, and a way shown on it: ``options``
+ * showRoute's; events of the way in window.events. */
+const withWay = (options = {}, c = upstairs) => page.run(async (options, c) => {
+  window.wayWorld?.destroy();
+  const world = (window.wayWorld = new window.sp.StoreyPathWorld("#v"));
+  const pkg = await world.open("/campus-hq.storeypath");
+  world.setFloor(null);
+  world.setCutaway(true);
+  window.events = [];
+  for (const type of ["routestep", "routeplay", "routeprogress"]) world.addEventListener(type, (e) => window.events.push([type, e.detail]));
+  const way = window.sp.route(pkg, c.from, c.to, { accessible: c.accessible });
+  window.wayNow = way;
+  await world.showRoute(way, options);
+  await window.frames(2);
+  return { floors: way.legs.map((l) => l.floor_id), steps: way.steps.map((s) => s.kind), to: way.to };
+}, options, c);
+const named = (prefix) => page.run((prefix) => {
+  const out = [];
+  window.wayWorld.scene.traverse((o) => { if (o.name.startsWith(prefix)) out.push(o.name); });
+  return out;
+}, prefix);
+
+test("a way rises in from its start, its end's pin shown once it gets there; chevrons flow along it, frame by frame", async () => {
+  await withWay({ animate: true });
+  const r = await page.run(async () => {
+    const world = window.wayWorld;
+    const leg = world.scene.getObjectByName("route:leg:0").material.uniforms, end = world.scene.getObjectByName("route:end");
+    const seen = [];
+    for (let i = 0; i < 1500; i++) { // by frames: drawn in software, they are few
+      seen.push([leg.uReveal.value, end.visible, leg.uTime.value]);
+      if (seen.at(-1)[0] > 1e5 && i > 2) break;
+      await window.frames(1);
+    }
+    return seen;
+  });
+  const reveal = r.map((x) => x[0]);
+  // (frames drawn in software are slow: the first seen may be some metres on, but short of its end)
+  truly(reveal[0] < 30 && reveal.some((v) => v > reveal[0] && v < 1e5) && reveal.at(-1) > 1e5 && reveal.every((v, i) => i === 0 || v >= reveal[i - 1]),
+    `drawn in, never back: ${reveal.slice(0, 8)}`);
+  truly(r.filter((x) => x[0] < 3).every((x) => !x[1]) && r.at(-1)[1], "the end's pin once the way is there");
+  truly(r.at(-1)[2] > r[0][2], `the chevrons' clock goes on: ${r[0][2]} then ${r.at(-1)[2]}`);
+});
+
+test("without motion (reduced motion asked for) a way is there at once, and going along it is there at once", async () => {
+  await page.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  try {
+    await withWay({ animate: true });
+    const r = await page.run(async () => {
+      const world = window.wayWorld;
+      const reveal = world.scene.getObjectByName("route:leg:0").material.uniforms.uReveal.value;
+      const end = world.scene.getObjectByName("route:end");
+      let done = false;
+      const flying = world.flyRoute().then(() => (done = true));
+      for (let i = 0; i < 20 && !done; i++) await window.frames(1);
+      await flying;
+      const p = world.camera.position.clone();
+      end.getWorldPosition(p);
+      return { reveal, end: end.visible, done, near: world.camera.position.distanceTo(p),
+        plays: window.events.filter(([t]) => t === "routeplay").map(([, d]) => d.state) };
+    });
+    truly(r.reveal > 1e5 && r.end && r.done && r.near < 40, `at once, the destination framed: ${JSON.stringify(r)}`);
+    truly(JSON.stringify(r.plays) === '["playing","ended"]', `said: ${r.plays}`);
+  } finally {
+    await page.send("Emulation.setEmulatedMedia", { features: [] });
+  }
+});
+
+test("while a way is shown, rooms' labels but its own are not; its tags say where it starts, ends and changes floor", async () => {
+  await withWay({ startLabel: "You are here", animate: false });
+  const r = await page.run(() => {
+    const world = window.wayWorld;
+    const rooms = [...document.querySelectorAll("#v .sp3d-label")].filter((l) => l.parentElement.style.display !== "none").map((l) => l.textContent);
+    const tags = Object.fromEntries([...document.querySelectorAll("#v .sp3d-route-tag")].map((t) => [t.className.split(" ")[1], t.textContent]));
+    world.clearRoute();
+    return { rooms, tags };
+  });
+  truly(r.rooms.length > 0 && r.rooms.every((t) => t.startsWith("CORRIDOR")), `the corridors it goes along alone: ${r.rooms}`);
+  truly(r.tags["sp3d-route-start"] === "You are here" && r.tags["sp3d-route-end"] === "OFFICE 112· Floor 1"
+    && r.tags["sp3d-route-change"] === "↑Stairs up to Floor 1", JSON.stringify(r.tags));
+  const after = await page.run(async () => {
+    await window.frames(2);
+    return [...document.querySelectorAll("#v .sp3d-label")].filter((l) => l.parentElement.style.display !== "none").length;
+  });
+  truly(after > 5, `taken away: the rooms' labels again (${after})`);
+});
+
+test("over the whole building, floors a way does not walk on fade back; on one of several floors, the others but the one it is at; as drawn again after", async () => {
+  const shown = await withWay();
+  const r = await page.run((floors) => {
+    const world = window.wayWorld;
+    const state = () => Object.fromEntries(world.package.floorsOf(world.building).map((f) => {
+      const g = world.scene.getObjectByName(f.id);
+      const pieces = g.children.filter((m) => m.isMesh && m.userData.material);
+      return [f.id, { visible: g.visible, faded: pieces.length > 0 && pieces.every((m) => m.userData.faded), shadows: pieces.some((m) => m.castShadow) }];
+    }));
+    const overview = state();
+    world.showStep(window.wayNow.steps.length - 1, { animate: false }); // the end: its floor clear
+    const end = state();
+    world.setFloor(floors[0]);
+    const one = state();
+    world.setFloor(null);
+    world.clearRoute();
+    return { overview, end, one, cleared: state() };
+  }, shown.floors);
+  const [ground, up] = shown.floors;
+  truly(!r.overview[ground].faded && r.overview[ground].shadows && r.overview[up].faded && !r.overview[up].shadows, `at its start: ${JSON.stringify(r.overview)}`);
+  truly(r.end[ground].faded && !r.end[up].faded, `at its end: ${JSON.stringify(r.end)}`);
+  truly(!r.one[ground].faded && !r.one[up].visible, `one floor shown: as it is: ${JSON.stringify(r.one)}`);
+  truly(Object.values(r.cleared).every((f) => f.visible && !f.faded), `taken away: every floor as drawn: ${JSON.stringify(r.cleared)}`);
+});
+
+test("showStep frames each step of a way and says so; the step's leg clear, the others faded", async () => {
+  const shown = await withWay();
+  const r = await page.run(async (n) => {
+    const world = window.wayWorld;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      world.showStep(i, { animate: false });
+      await window.frames(1);
+      const legs = [0, 1].map((k) => world.scene.getObjectByName(`route:leg:${k}`).material.opacity);
+      out.push({ step: world.routeStep, target: [world.target.x, world.target.z], legs });
+    }
+    return { out, said: window.events.filter(([t]) => t === "routestep").map(([, d]) => [d.index, d.leg]) };
+  }, shown.steps.length);
+  const take = shown.steps.indexOf("take");
+  truly(JSON.stringify(r.said) === JSON.stringify(shown.steps.map((s, i) => [i, s === "arrive" || i > take ? 1 : 0])), `said: ${JSON.stringify(r.said)}`);
+  truly(r.out.every((o, i) => o.step === i), "the step shown");
+  truly(r.out.every((o, i) => (i > take || shown.steps[i] === "arrive" ? o.legs[1] > 0.9 && o.legs[0] < 0.5 : o.legs[0] > 0.9 && o.legs[1] < 0.5)),
+    `its leg clear: ${JSON.stringify(r.out.map((o) => o.legs))}`);
+  const moved = r.out.slice(1).some((o, i) => Math.hypot(o.target[0] - r.out[i].target[0], o.target[1] - r.out[i].target[1]) > 2);
+  truly(moved, "each framed where it is");
+});
+
+test("playing a way: the camera along it, saying how far and which step; paused, played on, stopped; the walk drawn every frame", async () => {
+  const shown = await withWay();
+  const r = await page.run(async () => {
+    const world = window.wayWorld;
+    const playing = world.playRoute({ seconds: 6 });
+    let ended = false;
+    playing.then(() => (ended = true));
+    for (let i = 0; i < 6 && !ended; i++) await window.frames(1);
+    world.pauseRoute();
+    const at = window.events.filter(([t]) => t === "routeprogress").length;
+    const cam = world.camera.position.clone();
+    await window.frames(4);
+    const paused = { state: world.routePlay, progress: window.events.filter(([t]) => t === "routeprogress").length - at,
+      still: world.camera.position.distanceTo(cam) < 1e-6 };
+    world.playRoute();
+    const until = performance.now() + 120000;
+    while (!ended && performance.now() < until) await window.frames(1);
+    const progress = window.events.filter(([t]) => t === "routeprogress").map(([, d]) => d.fraction);
+    const again = world.playRoute({ seconds: 30 });
+    await window.frames(3);
+    world.stopRoute();
+    await again;
+    return { ended, paused, first: progress[0], last: progress.at(-1), rising: progress.every((f, i) => i === 0 || f >= progress[i - 1] - 1e-6),
+      steps: [...new Set(window.events.filter(([t]) => t === "routestep").map(([, d]) => d.index))],
+      plays: window.events.filter(([t]) => t === "routeplay").map(([, d]) => d.state), after: world.routePlay };
+  });
+  truly(r.ended && r.rising && r.first < 0.2 && r.last > 0.99, `along it to its end: ${JSON.stringify(r)}`);
+  truly(r.paused.state === "paused" && r.paused.progress === 0 && r.paused.still, `paused: ${JSON.stringify(r.paused)}`);
+  truly(JSON.stringify(r.steps) === JSON.stringify(shown.steps.map((_, i) => i)), `each step in turn: ${r.steps}`);
+  truly(JSON.stringify(r.plays) === JSON.stringify(["playing", "paused", "playing", "ended", "playing", "stopped"]) && r.after === null, `said: ${r.plays}`);
+});
+
+test("a way's pin and start keep their size on the screen far off: scaled with the distance, never below their own", async () => {
+  await withWay();
+  const r = await page.run(async () => {
+    const world = window.wayWorld, end = world.scene.getObjectByName("route:end");
+    const near = world.camera.position.clone();
+    end.getWorldPosition(near);
+    world.camera.position.set(near.x + 4, near.y + 6, near.z + 4);
+    world.camera.lookAt(near);
+    await window.frames(2);
+    const close = end.scale.x;
+    world.camera.position.set(near.x + 60, near.y + 70, near.z + 60);
+    await window.frames(2);
+    const far = end.scale.x;
+    world.destroy();
+    window.wayWorld = null;
+    return { close, far };
+  });
+  truly(r.close === 1 && r.far > 2, `scaled: ${JSON.stringify(r)}`);
 });
 
 // ---- editing on top of the world: what is aimed at, items given, a ghost, items carried ----
@@ -1609,7 +1799,7 @@ test("a way shown stays shown when a floor it walks on is built again (a room's 
       const out = [];
       world.scene.traverse((o) => { if (o.name.startsWith("route:leg:")) out.push(o); });
       return out.map((m) => ({ floor: m.parent.name, live: world.scene.getObjectByName(m.parent.name) === m.parent,
-        color: m.material.color.getHexString() })).sort((x, y) => x.floor.localeCompare(y.floor));
+        color: m.material.uniforms.uColor.value.getHexString() })).sort((x, y) => x.floor.localeCompare(y.floor));
     };
     const before = legs();
     const room = pkg.unitsOn(way.legs[0].floor_id).find((u) => u.properties.type === "office");
