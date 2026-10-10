@@ -2630,13 +2630,22 @@ test("walking, a double-click on the floor glides there, frame by frame; at a wa
   }, r);
   truly(stopped.done.state === "there" && stopped.near >= 0.2 && stopped.near < 0.4, `at the wall: ${JSON.stringify(stopped)} (it was ${wall.d.toFixed(2)} m off)`);
   // the same wall again, there already: refused, said by the pointer for a moment
-  await page.run(() => { window.glides = []; });
+  // (the pointer's word read as the refusal is said: shown for a moment only, which on CI
+  // may be over before two frames are)
+  await page.run(() => {
+    window.glides = [];
+    window.refusedHint = undefined;
+    window.world.addEventListener("glide", (e) => {
+      if (e.detail.state !== "refused" || window.refusedHint !== undefined) return;
+      const hint = document.querySelector("#w .sp3d-door-hint");
+      window.refusedHint = hint.style.display !== "none" ? hint.textContent : null;
+    });
+  });
   await new Promise((res) => setTimeout(res, 500)); // (not a double-click with the last)
   await doubleClick(...wall.at);
   const refused = await page.run(async () => {
     await window.frames(2);
-    const hint = document.querySelector("#w .sp3d-door-hint");
-    return { glides: window.glides.map((g) => g.state), hint: hint.style.display !== "none" ? hint.textContent : null };
+    return { glides: window.glides.map((g) => g.state), hint: window.refusedHint };
   });
   truly(refused.glides.join() === "refused" && refused.hint === "Something is in the way", `refused: ${JSON.stringify(refused)}`);
 });
