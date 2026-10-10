@@ -153,7 +153,7 @@ export interface SelectDetail {
 
 /** How an item is drawn, by its type code's first part (DESK-MANAGER is a desk);
  * others by how they are mounted. */
-const ITEM_KINDS: Record<string, string> = { DESK: "desk", SOFA: "sofa", TV: "tv", SCREEN: "tv", COPIER: "copier",
+const ITEM_KINDS: Record<string, string> = { DESK: "desk", MEETING: "table", SOFA: "sofa", TV: "tv", SCREEN: "tv", COPIER: "copier",
   PRINTER: "copier", ACCESS: "ap", BED: "bed", KIOSK: "kiosk" };
 /** What goes with a desk, by the grade it is for: visitors' chairs across it
  * (armchairs for the president's), a return at its side (an L-shaped desk), a
@@ -168,6 +168,20 @@ const DESK_SETS: Record<string, DeskSet> = {
   c_level: { visitors: 2, return: true, cabinet: true, executive: true },
   president: { visitors: 2, armchairs: true, return: true, cabinet: true, executive: true },
 };
+/** Where a meeting table's chairs stand, the table ``w`` long and ``d`` across: one in
+ * each 0.65 m of its long sides (its ends' 0.1 m aside), spread evenly, and one at each
+ * end of a table at least 0.8 m across; each its middle on the table's edge and the way
+ * out from it. A board table's (3.6 m long or more) are high-backed. Studio's 3D and
+ * Review seat it the same. */
+function tableChairs(w: number, d: number): { at: [number, number, XY][]; board: boolean } {
+  const n = Math.max(1, Math.floor((w - 0.2) / 0.65 + 1e-9)), at: [number, number, XY][] = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i - (n - 1) / 2) * (w / n);
+    at.push([x, d / 2, [0, 1]], [x, -d / 2, [0, -1]]);
+  }
+  if (d >= 0.8 - 1e-9) at.push([w / 2, 0, [1, 0]], [-w / 2, 0, [-1, 0]]);
+  return { at, board: w >= 3.6 - 1e-9 };
+}
 const itemKind = (it: PlanItem): string =>
   ITEM_KINDS[(it.type ?? "").split("-")[0]!] ?? (it.mount === "ceiling" ? "round" : "plain");
 const fine = (v: number): number => Math.round(v * 1e4) / 1e4;
@@ -732,6 +746,20 @@ export class FloorPlanEngine extends EventTarget {
         for (const x of xs) {
           mark("rect", { x: round(x - vw / 2), y: round(-d / 2 - 0.15 - vd), width: round(vw), height: round(vd), rx: 0.08 }, "sp-item-chair sp-item-visitor");
           mark("rect", { x: round(x - vw / 2), y: round(-d / 2 - 0.15 - vd), width: round(vw), height: 0.12, rx: 0.04 }, "sp-item-chair sp-item-back");
+        }
+      } else if (kind === "table") { // its chairs round it, their backs away from it
+        const { at, board } = tableChairs(w, d);
+        const cw = board ? 0.6 : 0.44, cd = board ? 0.62 : 0.42, gap = board ? 0.08 : 0.1, back = board ? 0.14 : 0.1;
+        for (const [x, y, [ox, oy]] of at) {
+          // from ``near`` to ``far`` metres out from the edge, ``cw`` along it: the chair, its back
+          const part = (near: number, far: number): Record<string, number> => {
+            const out0 = gap + near, out1 = gap + far;
+            const [x0, x1] = ox ? [x + ox * out0, x + ox * out1].sort((p, q) => p - q) : [x - cw / 2, x + cw / 2];
+            const [y0, y1] = oy ? [y + oy * out0, y + oy * out1].sort((p, q) => p - q) : [y - cw / 2, y + cw / 2];
+            return { x: round(x0!), y: round(y0!), width: round(x1! - x0!), height: round(y1! - y0!) };
+          };
+          mark("rect", { ...part(0, cd), rx: board ? 0.08 : 0.1 }, "sp-item-chair");
+          mark("rect", { ...part(cd - back, cd), rx: 0.04 }, "sp-item-chair sp-item-back");
         }
       } else if (kind === "sofa") { // its seat, between the arms and before the back
         const arm = Math.min(0.2, w / 6), back = Math.min(0.22, d / 3);

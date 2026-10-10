@@ -239,8 +239,8 @@ the manifest's `export.previous_sequence`.
 ## Items
 
 Items are the furniture and equipment people place on floors: desks (by grade:
-a manager's, a junior staff member's), central photocopiers, wireless access points,
-sofas, TVs. `items.geojson` holds them; `catalogue.json` says what each type is.
+a manager's, a junior staff member's), meeting tables, central photocopiers, wireless
+access points, sofas, TVs. `items.geojson` holds them; `catalogue.json` says what each type is.
 
 **An item's ID does not say where it is, nor whose it is.** It is an asset ID, the
 tag on the asset: ten random symbols and a check symbol, `7K2Q-XM9F-4DP` (Asset IDs,
@@ -692,7 +692,7 @@ meshes of their own (`floor:shaft:hidden`, `"hidden": true`), shown only when as
 for. A plain glTF viewer shows every mesh at once. The items' pieces are kept apart
 from the rest, so that a viewer leaves them out until they are asked for; a floor
 with no items has none. Drawn in detail (a desk with its chairs, and what goes with
-its grade), items are not in the file: a viewer builds them from the items, as
+its grade; a meeting table with as many chairs round it as its size seats), items are not in the file: a viewer builds them from the items, as
 quickly as it would read them (files of builder 2 have them, as `items` and
 `items:high`).
 

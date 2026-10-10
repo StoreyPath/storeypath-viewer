@@ -29,7 +29,7 @@ register(`data:text/javascript,${encodeURIComponent(`
   }`)}`);
 const { FORMAT_VERSION, loadPackage } = await import("../../src/package.js");
 const { BUILDER, buildItems, buildPieces, ceilingPanels, groupByFinish, inside, itemExtent, originOf, planFloor, roomFinder,
-  setItems, toLocal } = await import("../../src/world/build.js");
+  setItems, tableChairs, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
 const { TYPE_COLORS } = await import("../../src/theme.js");
@@ -306,6 +306,38 @@ test("a desk is built with what goes with its grade: visitors' chairs, a return,
     "DESK-SECTION-HEAD": of({ return: true, visitors: 1 }), "DESK-SENIOR": of({ return: true }) };
   const got = Object.fromEntries(Object.entries(seen).sort(([a], [b]) => a.localeCompare(b)));
   truly(JSON.stringify(got) === JSON.stringify(want), `by grade: ${JSON.stringify(got)}`);
+});
+
+// the catalogue's meeting tables: [seats, length, across] (Studio's catalogue.py)
+const TABLES = [[4, 1.2, 1.2], [6, 1.8, 0.9], [8, 2.4, 1.2], [12, 3.6, 1.4], [14, 4.2, 1.4], [16, 4.8, 1.5]];
+
+test("a meeting table is built with its chairs round it, as many as its size seats, facing it; a board table's high-backed", async () => {
+  const got = {};
+  for (const [seats, w, d] of TABLES) {
+    const it = { id: "T", type: `MEETING-TABLE-${seats}`, mount: "floor", x: 0, n: 0, fx: 0, fn: 1, width: w, depth: d, height: 0.75,
+      color: "#a8845e", grade: null, y: 0 };
+    const g = buildItems({ elevation: 0, items: [it] }).find((p) => p.name === "items").geometry, pos = g.getAttribute("position");
+    const at = []; // [across, ahead, up]: its own frame (here facing the drawing's +y)
+    for (let i = 0; i < pos.count; i++) at.push([-pos.getX(i), -pos.getZ(i), pos.getY(i)]);
+    const { at: chairs, board } = tableChairs(w, d), [a0, b0, a1, b1, top] = itemExtent(it);
+    got[seats] = {
+      chairs: chairs.length,
+      // each clear of the table: a seat where it stands, its back's top on the far side from the table
+      seated: chairs.every(([x, z, turn]) => {
+        const ox = -Math.sin(turn), oz = Math.cos(turn), near = at.filter(([u, v]) => Math.hypot(u - x, v - z) < 0.45);
+        return (Math.abs(x) > w / 2 || Math.abs(z) > d / 2) && near.some(([, , y]) => y > 0.4 && y < 0.5)
+          && near.some(([u, v, y]) => y > 0.95 && (u - x) * ox + (v - z) * oz > 0.15);
+      }),
+      board,
+      high: at.some(([, , y]) => y > 1.15),
+      // what a click or the walker meets: all of it
+      within: at.every(([u, v, y]) => u >= a0 - 1e-3 && u <= a1 + 1e-3 && v >= b0 - 1e-3 && v <= b1 + 1e-3 && y >= -1e-3 && y <= top + 1e-3),
+    };
+  }
+  const want = Object.fromEntries(TABLES.map(([seats, w]) => [seats, { chairs: seats, seated: true, board: w >= 3.6, high: w >= 3.6, within: true }]));
+  truly(JSON.stringify(got) === JSON.stringify(want), `by size: ${JSON.stringify(got)}`);
+  const narrow = tableChairs(1.6, 0.6).at;
+  truly(narrow.length === 4 && narrow.every(([x]) => Math.abs(x) < 0.8), `a narrow table has none at its ends: ${JSON.stringify(narrow)}`);
 });
 
 test("a wayfinding kiosk: a plinth, a post and a head, its screen ahead, as tall as its type, seen in the cutaway", async () => {

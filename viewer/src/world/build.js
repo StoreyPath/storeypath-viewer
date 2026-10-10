@@ -1383,6 +1383,23 @@ export const DESK_SETS = {
 // where a desk's chair and its visitors' chairs stand (DRAW.DESK, itemExtent)
 const CHAIR = { behind: 0.4, reach: 0.335 }; // its middle behind the desk's back edge, and its base's reach
 const VISITOR = { side: { half: 0.235, depth: 0.24, back: 0.245 }, arm: { half: 0.36, depth: 0.31, back: 0.31 }, gap: 0.2 };
+// a meeting table's chairs (tableChairs): one in each 0.65 m of its long sides (its ends'
+// 0.1 m aside), one at each end of a table at least 0.8 m across, their middles 0.35 m
+// out from its edge; a board table's (3.6 m long or more) high-backed, in leather
+const TABLE = { pitch: 0.65, ends: 0.8, out: 0.35, board: 3.6 };
+
+/** Where a meeting table's chairs stand, the table ``w`` long and ``d`` across, in its
+ * own frame: [across, ahead, turn] each, facing the table; and whether it is a board
+ * table. The SVG plan and Studio (fit.js) seat it the same. */
+export function tableChairs(w, d) {
+  const n = Math.max(1, Math.floor((w - 0.2) / TABLE.pitch + 1e-9)), at = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i - (n - 1) / 2) * (w / n);
+    at.push([x, d / 2 + TABLE.out, 0], [x, -d / 2 - TABLE.out, Math.PI]);
+  }
+  if (d >= TABLE.ends - 1e-9) at.push([w / 2 + TABLE.out, 0, -Math.PI / 2], [-w / 2 - TABLE.out, 0, Math.PI / 2]);
+  return { at, board: w >= TABLE.board - 1e-9 };
+}
 
 /** An office chair facing -ahead: five spokes on castors, a gas lift, a seat, a back
  * and arms; ``exec``, wider, in leather, its back up to the head. */
@@ -1512,6 +1529,33 @@ const DRAW = {
     // visitors across it, facing its user
     const v = set.armchairs ? VISITOR.arm : VISITOR.side;
     for (const x of visitorsAt(set, w)) s.at(x, -d / 2 - VISITOR.gap - v.depth, Math.PI, () => (set.armchairs ? armchair(s, c) : sideChair(s)));
+  },
+  // a top on a steel frame (a board table's on wooden panels, a box for its cables in
+  // its middle) and its chairs round it (tableChairs)
+  MEETING(s, it, c) {
+    const { width: w, depth: d, height: h } = it;
+    const { at, board } = tableChairs(w, d);
+    const top = board ? 0.05 : 0.035, wood = rgb(c), dark = rgb(c, { dark: 0.3 });
+    s.in(FIN.wood, () => s.rbox([-w / 2, w / 2], [h - top, h], [-d / 2, d / 2], wood, board ? 0.012 : 0.006));
+    if (board) { // panels across it, inset from its ends (and one in the middle of the longest), a beam between them
+      const panels = w >= 4.5 ? [-0.36, 0, 0.36] : [-0.34, 0.34];
+      s.in(FIN.wood, () => {
+        for (const q of panels) s.rbox([q * w - 0.035, q * w + 0.035], [0, h - top], [-d * 0.3, d * 0.3], dark, 0.006);
+        s.rbox([-w * 0.36, w * 0.36], [h - top - 0.12, h - top], [-0.02, 0.02], dark, 0.004);
+      });
+    } else { // legs inset from its corners, rails between them under the top
+      const frame = rgb(POWDER), lx = w / 2 - 0.08, lz = d / 2 - 0.08;
+      s.in(FIN.dark, () => {
+        for (const x of [-lx, lx]) for (const z of [-lz, lz]) s.box([x - 0.025, x + 0.025], [0, h - top], [z - 0.025, z + 0.025], frame);
+        for (const z of [-lz, lz]) s.box([-lx, lx], [h - top - 0.06, h - top], [z - 0.012, z + 0.012], frame);
+        for (const x of [-lx, lx]) s.box([x - 0.012, x + 0.012], [h - top - 0.06, h - top], [-lz, lz], frame);
+      });
+    }
+    if (w >= 1.8) { // its cables' box, set in the top
+      s.in(FIN.metal, () => s.box([-0.16, 0.16], [h - 0.002, h + 0.004], [-0.06, 0.06], rgb(STEEL), false));
+      s.box([-0.14, 0.14], [h + 0.004, h + 0.005], [-0.045, 0.045], rgb("#1b1c1f"), false);
+    }
+    for (const [x, z, a] of at) s.at(x, z, a, () => officeChair(s, board));
   },
   // a base on short feet, a back and arms, and its cushions
   SOFA(s, it, c) {
@@ -1720,10 +1764,15 @@ function placedLines(list) {
 
 /** What an item takes in its own frame, as DRAW draws it: [across0, ahead0, across1,
  * ahead1, top] (metres from its middle and its bottom): its footprint and height, and
- * for a desk its chair and what goes with its grade. */
+ * for a desk its chair and what goes with its grade; for a meeting table its chairs. */
 export function itemExtent(it) {
-  const w = it.width, d = it.depth;
-  if (it.type.split("-")[0] !== "DESK") return [-w / 2, -d / 2, w / 2, d / 2, it.height];
+  const w = it.width, d = it.depth, kind = it.type.split("-")[0];
+  if (kind === "MEETING") {
+    const { board } = tableChairs(w, d), reach = TABLE.out + CHAIR.reach;
+    const ends = d >= TABLE.ends - 1e-9 ? reach : 0;
+    return [-w / 2 - ends, -d / 2 - reach, w / 2 + ends, d / 2 + reach, Math.max(it.height, board ? 1.22 : 1.0)];
+  }
+  if (kind !== "DESK") return [-w / 2, -d / 2, w / 2, d / 2, it.height];
   const set = DESK_SETS[it.grade] ?? DESK_SETS.junior;
   const v = set.armchairs ? VISITOR.arm : VISITOR.side, xs = visitorsAt(set, w);
   const side = Math.max(w / 2, CHAIR.reach, ...xs.map((x) => Math.abs(x) + v.half));

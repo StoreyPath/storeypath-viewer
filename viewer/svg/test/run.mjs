@@ -432,6 +432,27 @@ inChrome("a desk is drawn with what goes with its grade: visitors' chairs, a ret
   truly(older.items.every((i) => i.grade === null), "an older package's desks are plain");
 });
 
+inChrome("a meeting table is drawn with its chairs round it, as many as its size seats; a board table's high-backed", async (page) => {
+  const plan = floorFromPackage(hq, `${HQ}-F00`), first = plan.items.find((i) => i.mount === "floor");
+  const sizes = [[4, 1.2, 1.2], [6, 1.8, 0.9], [8, 2.4, 1.2], [12, 3.6, 1.4], [14, 4.2, 1.4], [16, 4.8, 1.5], [3, 1.6, 0.6]];
+  plan.items = sizes.map(([seats, w, d], i) => ({ ...first, id: `T${seats}`, type: `MEETING-TABLE-${seats}`, name: `${seats} seats`,
+    width: w, depth: d, grade: null, at: [first.at[0], first.at[1] + 4 * i] }));
+  await page.run((p) => window.fresh({}, p), plan);
+  const got = await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-item-table")].map((g) => {
+    const box = (r) => ["x", "y", "width", "height"].map((k) => +r.getAttribute(k));
+    const [tx, ty, tw, th] = box(g.querySelector(".sp-item-body"));
+    const chairs = [...g.querySelectorAll(".sp-item-chair:not(.sp-item-back)")].map(box);
+    return [g.dataset.spItem, {
+      chairs: chairs.length, backs: g.querySelectorAll(".sp-item-back").length,
+      clear: chairs.every(([x, y, w, h]) => x >= tx + tw - 1e-6 || x + w <= tx + 1e-6 || y >= ty + th - 1e-6 || y + h <= ty + 1e-6),
+      high: chairs.every(([, , w, h]) => Math.min(w, h) >= 0.6) }];
+  })));
+  // (a 1.6 by 0.6 table: two along each side, none at its narrow ends)
+  const want = Object.fromEntries(sizes.map(([seats, w]) => [`T${seats}`, { chairs: seats === 3 ? 4 : seats, backs: seats === 3 ? 4 : seats,
+    clear: true, high: w >= 3.6 }]));
+  equal(got, want, "by size");
+});
+
 inChrome("a wayfinding kiosk: its screen along its front, and the way it faces", async (page) => {
   const plan = floorFromPackage(hq, `${HQ}-F00`);
   const kiosk = plan.items.find((i) => i.type === "KIOSK");
