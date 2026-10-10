@@ -118,6 +118,29 @@
           "title": "Color",
           "type": "string"
         },
+        "shape": {
+          "anyOf": [
+            {
+              "enum": [
+                "desk",
+                "meeting_table",
+                "sofa",
+                "screen",
+                "copier",
+                "bed",
+                "kiosk",
+                "access_point",
+                "box"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shape"
+        },
         "workplaces": {
           "default": 0,
           "maximum": 100,
@@ -145,29 +168,6 @@
           ],
           "default": null,
           "title": "Grade"
-        },
-        "shape": {
-          "anyOf": [
-            {
-              "enum": [
-                "desk",
-                "meeting_table",
-                "sofa",
-                "screen",
-                "copier",
-                "bed",
-                "kiosk",
-                "access_point",
-                "box"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Shape"
         },
         "fields": {
           "items": {
