@@ -795,8 +795,8 @@ const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,
   window.still = async (world, most = 200) => {
     let was = null;
     for (let i = 0; i < most; i++) {
-      const now = world.camera.quaternion.toArray();
-      if (was && now.every((v, k) => Math.abs(v - was[k]) < 1e-7)) return i;
+      const now = [...world.camera.quaternion.toArray(), ...world.camera.position.toArray()]; // turned and moved
+      if (was && now.every((v, k) => Math.abs(v - was[k]) < 1e-6)) return i;
       was = now;
       await window.frames(1);
     }
@@ -1127,7 +1127,7 @@ for (const name of ["campus", "campus-world", "campus-hq", "campus-hq-2"]) {
       world.setFloor(floor.id);
       const desk = world.package.itemsOn(floor.id).find((i) => i.properties.type === "DESK-DIRECTOR");
       world.select(desk.id); // the view goes to it
-      await new Promise((r) => setTimeout(r, 1500));
+      await window.still(world); // (its flight over: by frames, not the clock)
       const lit = world.scene.getObjectByName("highlight");
       lit.geometry.computeBoundingBox();
       const { x, z } = world.toLocal(desk.properties.display_point);
@@ -1559,7 +1559,7 @@ const openFloor = (pkg, over = null) => page.run(async (pkg, over) => {
   world.setFloor(floor);
   if (over) {
     world.select(world.package.unitsOn(floor).find((u) => u.properties.number === over).id);
-    await new Promise((r) => setTimeout(r, 1200));
+    await window.still(world); // (its flight over: by frames, not the clock)
     world.select(null, { go: false });
   }
   await window.frames(3);
@@ -1602,7 +1602,7 @@ test("pointAt: the room, the item and the wall in the way, in the building's own
     // seen from over it, the oblique view of a whole floor: the near wall in the way
     const desk = world.package.itemsOn(floor).find((i) => i.properties.type === "DESK-MANAGER");
     world.select(desk.id);
-    await new Promise((r) => setTimeout(r, 1200));
+    await window.still(world); // the camera's flight over: by frames, not the clock (slow on CI)
     world.select(null, { go: false });
     const d = world.worldPoint([desk.properties.local.x_m, desk.properties.local.y_m]);
     const atDesk = world.pointAt(...screen(d.x, elevation + desk.properties.height_m, d.z));
@@ -2074,7 +2074,7 @@ test("painting: a wall aimed at says so, and which room is on its side; a floor,
     world.setMode("dollhouse");
     // a click on its floor, from above, Alt held: the pick says so
     world.select(office.id);
-    await new Promise((res) => setTimeout(res, 1200));
+    await window.still(world); // (its flight over: by frames, not the clock)
     world.select(null, { go: false });
     const p = world.camera.position.clone().set(o.x, world.package.get(floor).properties.elevation, o.z).project(world.camera);
     const box = world.renderer.domElement.getBoundingClientRect();
