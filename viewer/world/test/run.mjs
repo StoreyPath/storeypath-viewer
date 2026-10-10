@@ -855,6 +855,16 @@ const server = await serve(root, { "/page.html": PAGE, "/simple-office.storeypat
   "/campus-hq-2.storeypath": file("campus-hq-2.storeypath"), "/campus-hq-doors.storeypath": doubleDoors,
   "/jszip.min.js": readFileSync(join(root, "../vendor/jszip.min.js")) });
 const page = await launch({ webgl: true });
+// Input that must arrive together (a double-click, a double tap, a finger's first move) is
+// sent at once, each command not waiting for the one before's answer: on CI, drawn in
+// software, an answer can take longer than a double-click, or than a long press.
+const together = (...calls) => Promise.all(calls.map((call) => call()));
+const doubleClick = (x, y) => together(
+  () => page.mouse("mouseMoved", x, y),
+  () => page.mouse("mousePressed", x, y, { down: true }),
+  () => page.mouse("mouseReleased", x, y),
+  () => page.mouse("mousePressed", x, y, { down: true, params: { clickCount: 2 } }),
+  () => page.mouse("mouseReleased", x, y, { params: { clickCount: 2 } }));
 await page.open(`${server.url}/page.html`, 900, 600);
 await page.run(async () => {
   for (let i = 0; i < 100 && !window.ready; i++) await new Promise((r) => setTimeout(r, 50));
@@ -2581,8 +2591,7 @@ test("walking, a double-click on the floor glides there, frame by frame; at a wa
     window.glideHeard = true;
     return { to, at: window.screenOf(world, to[0], world.package.get(r.floor).properties.elevation, to[1]) };
   }, r);
-  await page.click(...target.at);
-  await page.click(...target.at);
+  await doubleClick(...target.at);
   const went = await page.run(async (to) => {
     const done = await window.glided(window.world);
     const p = window.world.player;
@@ -2609,8 +2618,7 @@ test("walking, a double-click on the floor glides there, frame by frame; at a wa
     const y = world.package.get(r.floor).properties.elevation + 0.6;
     return { at: window.screenOf(world, best.at[0], y, best.at[1]), d: best.d };
   }, r);
-  await page.click(...wall.at);
-  await page.click(...wall.at);
+  await doubleClick(...wall.at);
   const stopped = await page.run(async (r) => {
     const done = await window.glided(window.world);
     const p = window.world.player, plan = window.world.plan(r.floor);
@@ -2624,8 +2632,7 @@ test("walking, a double-click on the floor glides there, frame by frame; at a wa
   // the same wall again, there already: refused, said by the pointer for a moment
   await page.run(() => { window.glides = []; });
   await new Promise((res) => setTimeout(res, 500)); // (not a double-click with the last)
-  await page.click(...wall.at);
-  await page.click(...wall.at);
+  await doubleClick(...wall.at);
   const refused = await page.run(async () => {
     await window.frames(2);
     const hint = document.querySelector("#w .sp3d-door-hint");
@@ -2653,8 +2660,7 @@ test("walking, a double-click on the floor seen through a shut door: its first c
     return { id: door.id, to, from: [m[0] - n[0] * 1.5, m[1] - n[1] * 1.5], n, at, aimed: world.pointAt(...at) };
   }, floor);
   await new Promise((res) => setTimeout(res, 500)); // (not a double-click with an earlier click)
-  await page.click(...a.at);
-  await page.click(...a.at);
+  await doubleClick(...a.at);
   const through = await page.run(async (a) => {
     const done = await window.glided(window.world);
     const p = window.world.player;
@@ -2669,8 +2675,10 @@ test("walking on a touch screen: a finger dragged looks round, a tap acts, a dou
   const r = await beforeADesk();
   truly(r, "a desk to stand before");
   const before = await page.run(() => ({ ...window.angles(window.world), k: (window.world.camera.fov * Math.PI) / 180 / 600 }));
-  await page.touch("touchStart", [[300, 300]]);
-  for (let i = 1; i <= 9; i++) await page.touch("touchMove", [[300 + i * 10, 300]]);
+  // the finger down and its first move (past the few pixels a tap may move) together: else,
+  // on CI, a long press before it moved
+  await together(() => page.touch("touchStart", [[300, 300]]), () => page.touch("touchMove", [[320, 300]]));
+  for (let i = 3; i <= 9; i++) await page.touch("touchMove", [[300 + i * 10, 300]]);
   await page.touch("touchEnd", []);
   const turned = await page.run(async () => {
     await window.still(window.world);
@@ -2706,13 +2714,13 @@ test("walking on a touch screen: a finger dragged looks round, a tap acts, a dou
     const world = window.world, p = world.player, l = Math.hypot(p.dx, p.dz);
     const to = [p.x + (p.dx / l) * 1.0, p.z + (p.dz / l) * 1.0];
     window.glides = [];
+    if (!window.glideHeard) world.addEventListener("glide", (e) => window.glides.push(e.detail)); // (this test alone too)
+    window.glideHeard = true;
     return { to, at: window.screenOf(world, to[0], world.package.get(r.floor).properties.elevation, to[1]) };
   }, r);
   await new Promise((res) => setTimeout(res, 500));
-  await page.touch("touchStart", [floorAt.at]);
-  await page.touch("touchEnd", []);
-  await page.touch("touchStart", [[floorAt.at[0] + 6, floorAt.at[1] + 4]]);
-  await page.touch("touchEnd", []);
+  await together(() => page.touch("touchStart", [floorAt.at]), () => page.touch("touchEnd", []),
+    () => page.touch("touchStart", [[floorAt.at[0] + 6, floorAt.at[1] + 4]]), () => page.touch("touchEnd", []));
   const glided = await page.run(async (to) => {
     const done = await window.glided(window.world);
     const p = window.world.player;
