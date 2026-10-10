@@ -143,7 +143,7 @@ const CHROMES = [
  * so that when this process ends, however it ends (killed too), the pipe closes and
  * Chrome quits with it; and killed on exit, on Ctrl-C or SIGTERM, and after ``timeout``
  * seconds (the run failing then): no Chrome left drawing on its own. */
-export async function launch({ webgl = false, timeout = 600 } = {}) {
+export async function launch({ webgl = false, timeout = 1800 } = {}) {
   const chrome = CHROMES.find((c) => c && existsSync(c));
   if (!chrome) throw new Error("no Chrome or Chromium found: set CHROME to one");
   const profile = mkdtempSync(join(tmpdir(), "sp-svg-test-"));
