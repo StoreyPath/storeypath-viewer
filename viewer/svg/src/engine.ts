@@ -30,6 +30,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const ARROW_PX = 72; // without motion: a route's arrows this far apart on the screen
 const CORNER_PX = 14; // a route's corners rounded this much on the screen
 const LINE_CLEAR = 9; // a label this far from a route's line (half its width with its halo)
+const VIEW_EDGE = 6; // a route's tags kept this far in from the view's edges
 const RIDES: Record<string, string> = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ramp: "Ramp" };
 const AROUND: readonly (readonly [number, number])[] = [[1, 0], [-1, 0], [0.7071, -0.7071], [-0.7071, -0.7071], [0.7071, 0.7071],
   [-0.7071, 0.7071], [0, -1], [0, 1]]; // where a route's marker may be set off its point, in order
@@ -435,8 +436,9 @@ export class FloorPlanEngine extends EventTarget {
   /** Draw a way (as route() in navigation.js finds it, or any PlanRoute) over the floor
    * shown: its line, drawn in and flowing the way it goes (`animate`), a "you are here"
    * dot at its start, a pin and a card at its end with its room lit, and a badge where it
-   * changes floor ("Up to Floor 2": a click shows that floor). Kept when another floor
-   * is shown: its legs on that floor are drawn then. Null: none. */
+   * changes floor ("Up to Floor 2": a click shows that floor); their tags never cut off by
+   * the view's edge. Kept when another floor is shown: its legs on that floor are drawn
+   * then. Null: none. */
   showRoute(route: PlanRoute | null, options: ShowRouteOptions = {}): void {
     this.endPlay("stopped");
     this.stepNow = null;
@@ -1097,20 +1099,34 @@ export class FloorPlanEngine extends EventTarget {
     const covered = (b: Box): number => [...labels, ...taken].reduce((sum, o) =>
       sum + Math.max(0, Math.min(b[2], o[2]) - Math.max(b[0], o[0])) * Math.max(0, Math.min(b[3], o[3]) - Math.max(b[1], o[1])), 0)
       + (line && crosses(line, [b[0] + LINE_CLEAR - 2, b[1] + LINE_CLEAR - 2, b[2] - LINE_CLEAR + 2, b[3] - LINE_CLEAR + 2]) ? 2400 : 0);
-    /** Where a mark goes about its point s: tried in turn (offsets), the one covering
-     * the fewest labels and marks, nearest first; ``boxOf(at)`` the box it takes there. */
-    const spot = (s: XY, offsets: XY[], boxOf: (at: XY) => Box, cost = 4, order = false): XY => {
+    // the view, a few pixels in from its edges: how much of a box is out of it (square pixels)
+    const { w: vw, h: vh } = this.size;
+    const out = (b: Box): number => (vw && vh ? (b[2] - b[0]) * (b[3] - b[1])
+      - Math.max(0, Math.min(b[2], vw - VIEW_EDGE) - Math.max(b[0], VIEW_EDGE)) * Math.max(0, Math.min(b[3], vh - VIEW_EDGE) - Math.max(b[1], VIEW_EDGE)) : 0);
+    /** Where a mark goes about its point s: tried in turn (offsets; each, with ``fit``, moved
+     * as it must be first), one where it is seen whole first, then the one covering the
+     * fewest labels and marks, nearest first; ``boxOf(at)`` the box it takes there. */
+    const spot = (s: XY, offsets: XY[], boxOf: (at: XY) => Box, cost = 4, order = false, fit = (at: XY): XY => at): XY => {
       let best: { at: XY; box: Box; score: number } | null = null;
       for (const [i, o] of offsets.entries()) {
-        const at: XY = [s[0] + o[0], s[1] + o[1]];
+        const at = fit([s[0] + o[0], s[1] + o[1]]);
         const box = boxOf(at);
         // a pixel further costs as much as `cost` square pixels of a label covered (or, in
-        // order, each place after the first as much as 60 pixels further)
-        const score = covered(box) + (order ? i * 60 : Math.hypot(o[0], o[1])) * cost;
+        // order, each place after the first as much as 60 pixels further); cut off by the
+        // view's edge, more than any of that
+        const cut = out(box);
+        const score = covered(box) + (order ? i * 60 : Math.hypot(o[0], o[1])) * cost + (cut > 0.5 ? 1e6 + cut : 0);
         if (!best || score < best.score - 1e-9) best = { at, box, score };
       }
       taken.push(best!.box);
       return best!.at;
+    };
+    /** A tag ``w`` wide (its left middle at a point) never cut off by the view's edge: when
+     * any of it is in the view, all of it, moved in from the edge (by what it names, or as
+     * near as it can be when that is at the edge or past it). */
+    const whole = (w: number, h = 24) => (at: XY): XY => {
+      if (!vw || !vh || at[0] + w <= 0 || at[0] >= vw || at[1] + h / 2 <= 0 || at[1] - h / 2 >= vh) return at;
+      return [Math.max(VIEW_EDGE, Math.min(vw - VIEW_EDGE - w, at[0])), Math.max(VIEW_EDGE + h / 2, Math.min(vh - VIEW_EDGE - h / 2, at[1]))];
     };
     const around = (radii: number[]): XY[] => radii.flatMap((r) => (r === 0 ? [[0, 0] as XY] : AROUND.map(([x, y]): XY => [x * r, y * r])));
     const place = (g: SVGGElement, p: XY): XY => {
@@ -1133,13 +1149,13 @@ export class FloorPlanEngine extends EventTarget {
     }
     if (v.start?.chip) { // its label over it, or beside it
       const { chip } = v.start, s = this.toScreen(v.start.p), w = chip.width;
-      const at = spot(s, [[-w / 2, -30], [17, 0], [-w - 17, 0], [-w / 2, 30]], (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 4, true);
+      const at = spot(s, [[-w / 2, -30], [17, 0], [-w - 17, 0], [-w / 2, 30]], (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 4, true, whole(w));
       chip.g.setAttribute("transform", `translate(${round(at[0] - s[0])},${round(at[1] - s[1])})`);
     }
     for (const c of v.changes) { // the tag beside its badge
       const s = this.toScreen(c.p), w = c.chip.width;
       const at = spot(s, [[19, 0], [-19 - w, 0], [-w / 2, -30], [-w / 2, 30], [19, -24], [-19 - w, -24], [19, 24], [-19 - w, 24]],
-        (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 1);
+        (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 1, false, whole(w));
       c.chip.g.setAttribute("transform", `translate(${round(at[0] - s[0])},${round(at[1] - s[1])})`);
       lead(c.leader, [0, 0]);
     }
@@ -1154,7 +1170,7 @@ export class FloorPlanEngine extends EventTarget {
       e.at.style.display = to[0] || to[1] ? "" : "none";
       if (e.card) {
         const w = e.card.width, head: XY = [pin[0], pin[1] - 20.5];
-        const at = spot(head, [[-w / 2, -30], [16, 0], [-16 - w, 0], [-w / 2, 44]], (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 4, true);
+        const at = spot(head, [[-w / 2, -30], [16, 0], [-16 - w, 0], [-w / 2, 44]], (a) => [a[0], a[1] - 12, a[0] + w, a[1] + 12], 4, true, whole(w));
         e.card.g.setAttribute("transform", `translate(${round(at[0] - s[0])},${round(at[1] - s[1])})`);
       }
     }

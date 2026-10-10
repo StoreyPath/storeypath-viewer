@@ -1114,6 +1114,64 @@ inChrome("playing without motion steps through the way, a step at a time", async
   equal([got.steps.slice(0, 2), got.walker], [[0, 1], false], "its steps in turn, no walker");
 });
 
+inChrome("the destination's card is never cut off by the view's edge: its pin by any edge or corner, as the way plays and when it ends, on a phone too", async (page) => {
+  await page.run((pkg) => (window.hq = pkg), hq);
+  // the card partly in the view and partly out of it (with ``whole``: not all in it), its
+  // box on the plan; or null
+  await page.run(() => {
+    window.cutOff = (whole = false) => {
+      const c = document.querySelector(".sp-route-card");
+      if (!c) return null;
+      const b = c.getBoundingClientRect(), o = window.engine.svg.getBoundingClientRect();
+      const meets = b.right > o.left && b.left < o.right && b.bottom > o.top && b.top < o.bottom;
+      const within = b.left >= o.left - 0.5 && b.top >= o.top - 0.5 && b.right <= o.right + 0.5 && b.bottom <= o.bottom + 0.5;
+      return (meets || whole) && !within ? [b.left - o.left, b.top - o.top, b.right - o.left, b.bottom - o.top].map(Math.round) : null;
+    };
+  });
+  await withWay(page, {}, { style: "wayfinding", animate: false });
+  const edges = await page.run(async () => {
+    const e = window.engine, end = window.way.legs.at(-1).points.at(-1);
+    e.setFloor(window.sp.floorFromPackage(window.hq, window.way.legs.at(-1).floor_id), { fit: false });
+    await window.frames(2);
+    const w = e.svg.clientWidth, h = e.svg.clientHeight, cut = [];
+    let seen = 0;
+    for (const [x, y] of [[w / 2, 3], [w / 2, h - 2], [3, h / 2], [w - 3, h / 2], [3, 3], [w - 3, 3], [3, h - 2], [w - 3, h - 2]]) {
+      const cam = e.camera(), [sx, sy] = e.toScreen(end);
+      e.setCamera({ ...cam, tx: cam.tx + x - sx, ty: cam.ty + y - sy });
+      await window.frames(1);
+      if (document.querySelector(".sp-route-card")) seen++;
+      const c = window.cutOff(true); // (its pin in the view: all of it)
+      if (c) cut.push({ pin: [Math.round(x), Math.round(y)], card: c });
+    }
+    return { seen, cut };
+  });
+  equal(edges, { seen: 8, cut: [] }, "its pin by each edge and corner: its card whole");
+  // played on a phone's screen, a frame at a time, and at its end
+  const plan = await page.run(() => [document.querySelector("#plan").style.width, document.querySelector("#plan").style.height]);
+  try {
+    await page.run(() => Object.assign(document.querySelector("#plan").style, { width: "360px", height: "640px" }));
+    await withWay(page, { motion: true }, { style: "wayfinding", animate: false, startLabel: "You are here" });
+    const played = await page.run(async () => {
+      const e = window.engine, cut = [];
+      let ended = false, frames = 0, cards = 0;
+      e.playRoute({ speed: 30 }).then(() => (ended = true));
+      for (; frames < 4000 && !ended; frames++) {
+        await window.frames(1);
+        if (document.querySelector(".sp-route-card")) cards++;
+        const c = window.cutOff();
+        if (c) cut.push({ frame: frames, card: c });
+      }
+      for (let i = 0; i < 200 && e.moving; i++) await window.frames(1); // (the arrival framed)
+      await window.frames(2);
+      return { ended, cards, cut: cut.slice(0, 4), end: window.cutOff(), shown: Boolean(document.querySelector(".sp-route-card")) };
+    });
+    truly(played.ended && played.cards > 0, `played to its end, its card seen: ${JSON.stringify(played)}`);
+    equal([played.cut, played.end, played.shown], [[], null, true], "never cut off as it played; whole at its end");
+  } finally {
+    await page.run((plan) => Object.assign(document.querySelector("#plan").style, { width: plan[0], height: plan[1] }), plan);
+  }
+});
+
 // ---- run ----------------------------------------------------------------------
 
 let failed = 0;
