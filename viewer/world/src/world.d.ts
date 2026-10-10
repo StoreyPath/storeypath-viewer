@@ -561,7 +561,8 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * down on it; a ring pulsing at its start, a pin over its end, its room lit, and their tags; seen through what
 	 * is in front of it. It rises in from its start (`animate`). Over the whole building the floors it does not
 	 * walk on fade back, those above it are left out, and on a way of several floors those but the one it is at
-	 * fade too; rooms' labels other than its own are not shown meanwhile. Null: none. With `fit`, the camera frames
+	 * fade too; rooms' labels other than its own are not shown meanwhile, and on a way of several floors its labels
+	 * and tags are those of the floor it is at (and its end's card, over it), none seen through it from another. Null: none. With `fit`, the camera frames
 	 * it; with `fly`, it goes along it, resolving when it is there. */
 	showRoute(route: Route | null, options?: WorldRouteOptions): Promise<void>;
 	/** Take the way away (and stop going along it). */

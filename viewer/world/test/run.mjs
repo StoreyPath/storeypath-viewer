@@ -1479,6 +1479,83 @@ test("while a way is shown, rooms' labels but its own are not; its tags say wher
   truly(after > 5, `taken away: the rooms' labels again (${after})`);
 });
 
+test("a way over several floors: rooms' labels and its tags on the floor it is at alone, none from a floor under it (shown through it), its end's card over it too; switched as the camera goes up the stairs", async () => {
+  // what is said (shown: where on the screen, and over what else, the renderer decides),
+  // and the floor each is on (a floor change's tag: the floor it leaves); the floor clear
+  // (the one the way is at), frame by frame
+  const look = (floors) => page.run(async (floors) => {
+    const world = window.wayWorld;
+    const levels = Object.fromEntries(world.package.floorsOf(world.building).map((f) => [f.id, f.properties.elevation]));
+    window.said = () => {
+      const out = [];
+      world.scene.traverse((o) => {
+        if (!o.isCSS2DObject) return;
+        for (let p = o; p; p = p.parent) if (!p.visible) return;
+        let floor = o.name.startsWith("route:tag:change:") ? floors[Number(o.name.split(":")[3])] : null;
+        for (let p = o; p && !floor; p = p.parent) if (p.name in levels) floor = p.name;
+        out.push({ what: o.name.startsWith("route:tag:") ? o.name.split(":")[2] : "room", floor, level: levels[floor] });
+      });
+      return out;
+    };
+    window.clear = () => floors.find((id) => !world.scene.getObjectByName(id).children.some((m) => m.userData.faded));
+    window.wrong = () => { // said under the floor clear, or over it but for its end
+      const at = window.clear(), level = levels[at];
+      return window.said().filter((s) => s.floor !== at && (s.level < level || s.what !== "end"));
+    };
+  }, floors);
+  const up = await withWay({ startLabel: "You are here", animate: false });
+  await look(up.floors);
+  const r = await page.run(async () => {
+    const world = window.wayWorld;
+    await window.frames(2);
+    const overview = { at: window.clear(), said: window.said().map((s) => s.what), wrong: window.wrong() };
+    let ended = false;
+    world.playRoute({ seconds: 6 }).then(() => (ended = true));
+    const wrong = [], ats = [];
+    let above = null;
+    for (let i = 0; i < 3000 && !ended; i++) {
+      await window.frames(1);
+      const at = window.clear();
+      if (ats.at(-1) !== at) ats.push(at);
+      wrong.push(...window.wrong().map((w) => ({ ...w, at, frame: i })));
+      if (!above && ats.length > 1) above = window.said().map((s) => s.what);
+    }
+    const n = window.wayNow.steps.length;
+    world.showStep(n - 1, { animate: false });
+    await window.frames(2);
+    const end = { said: window.said().map((s) => s.what), wrong: window.wrong() };
+    world.showStep(0, { animate: false });
+    await window.frames(2);
+    const start = { said: window.said().map((s) => s.what), wrong: window.wrong() };
+    return { overview, ended, ats, wrong: wrong.slice(0, 5), above, end, start };
+  });
+  const [ground, first] = up.floors;
+  truly(r.overview.at === ground && !r.overview.wrong.length && ["start", "change", "end"].every((w) => r.overview.said.includes(w)),
+    `at its start: its tags, nothing said off its floor but its end: ${JSON.stringify(r.overview)}`);
+  truly(r.ended && JSON.stringify(r.ats) === JSON.stringify([ground, first]), `the camera went up: ${JSON.stringify(r.ats)}`);
+  truly(r.wrong.length === 0, `nothing said off the floor it is at as it goes: ${JSON.stringify(r.wrong)}`);
+  truly(r.above && !r.above.includes("start") && !r.above.includes("change") && r.above.includes("end"),
+    `up the stairs: what was said below gone, its end's card: ${JSON.stringify(r.above)}`);
+  truly(!r.end.wrong.length && r.end.said.includes("end") && !r.end.said.includes("start"), `its last step: ${JSON.stringify(r.end)}`);
+  truly(!r.start.wrong.length && ["start", "change", "end"].every((w) => r.start.said.includes(w)), `its first step: ${JSON.stringify(r.start)}`);
+  // down the stairs: its end, under the floor it starts on, is not said until it is there
+  const down = await withWay({ startLabel: "You are here", animate: false }, { from: upstairs.to, to: upstairs.from, accessible: false });
+  await look(down.floors);
+  const d = await page.run(async () => {
+    const world = window.wayWorld;
+    await window.frames(2);
+    const overview = { said: window.said().map((s) => s.what), wrong: window.wrong() };
+    world.showStep(window.wayNow.steps.length - 1, { animate: false });
+    await window.frames(2);
+    const end = { said: window.said().map((s) => s.what), wrong: window.wrong() };
+    world.clearRoute();
+    return { overview, end };
+  });
+  truly(down.floors[0] !== down.floors.at(-1) && !d.overview.wrong.length && d.overview.said.includes("start") && !d.overview.said.includes("end"),
+    `going down, at its start: its end's card, under it, not said: ${JSON.stringify(d.overview)}`);
+  truly(!d.end.wrong.length && d.end.said.includes("end") && !d.end.said.includes("start"), `going down, its last step: ${JSON.stringify(d.end)}`);
+});
+
 test("over the whole building, floors a way does not walk on fade back; on one of several floors, the others but the one it is at; as drawn again after", async () => {
   const shown = await withWay();
   const r = await page.run((floors) => {
@@ -2980,6 +3057,28 @@ test("walking never asks for the mouse: no pointer lock; startWalking and stopWa
   });
   truly(r.walking.join() === "walk,true" && r.still.join() === "walk,true" && r.said.join() === "true,false", JSON.stringify(r));
   truly(r.locks === 0 && r.element === null, `the mouse asked for: ${r.locks} times`);
+});
+
+test("destroy gives the world's WebGL context back: twenty made and destroyed, a world still shown keeps drawing", async () => {
+  const r = await page.run(async () => {
+    const box = document.body.appendChild(document.createElement("div"));
+    box.style.cssText = "width:300px;height:200px";
+    try {
+      const kept = window.world ??= new window.sp.StoreyPathWorld("#w");
+      const gl = kept.renderer.getContext();
+      let lost = null;
+      for (let i = 0; i < 20 && lost === null; i++) {
+        const w = new window.sp.StoreyPathWorld(box);
+        await window.frames(1);
+        w.destroy();
+        if (gl.isContextLost()) lost = i + 1; // (a page has some 16: the browser took the oldest)
+      }
+      return { lost, left: box.children.length };
+    } finally {
+      box.remove();
+    }
+  });
+  truly(r.lost === null && r.left === 0, `the world shown kept its context: ${JSON.stringify(r)}`);
 });
 
 test("destroy empties the container", async () => {

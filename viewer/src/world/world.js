@@ -1532,6 +1532,7 @@ export class StoreyPathWorld extends EventTarget {
       const label = tag(`${ride ? `${ride} ${up ? "up" : "down"}` : up ? "Up" : "Down"} to ${nameOf(b.floor.id)}`, null, "change", css,
         up ? "↑" : "↓");
       label.name = `route:tag:change:${i}`;
+      label.userData.floor = a.floor; // (said at the column's foot: the floor it leaves)
       this.#buildingGroup.add(label);
       shown.tags.push(label);
       const height = Math.abs(b.y - a.y);
@@ -1565,6 +1566,7 @@ export class StoreyPathWorld extends EventTarget {
         const t = tag(startLabel, null, "start", css);
         t.position.set(0, 1.25, 0);
         t.name = "route:tag:start";
+        t.userData.floor = first.floor;
         g.add(t);
         shown.tags.push(t);
       }
@@ -1605,6 +1607,7 @@ export class StoreyPathWorld extends EventTarget {
         const t = tag(title, rest.length ? rest.join(" · ") : where, "end", css);
         t.position.set(0, 2.35, 0);
         t.name = "route:tag:end";
+        t.userData.floor = last.floor;
         g.add(t);
         shown.tags.push(t);
         if (room) shown.off.add(room.id);
@@ -1643,7 +1646,6 @@ export class StoreyPathWorld extends EventTarget {
       const f = p >= 1 ? 1 : Math.max(0, Math.min(1, (metres - k.offset) / (k.length || 1)));
       for (const m of k.materials) m.uniforms.uReveal.value = f;
       k.arrow.visible = f >= 1 && k.mesh.visible;
-      k.label.visible = f >= 1 && k.mesh.visible;
     }
     if (shown.end) {
       const there = p >= 1 || metres >= shown.total - 0.3;
@@ -1653,9 +1655,36 @@ export class StoreyPathWorld extends EventTarget {
       }
       shown.end.group.visible = Boolean(shown.end.shown);
       if (shown.room) shown.room.lit.visible = shown.room.edge.visible = Boolean(shown.end.shown);
-      for (const t of shown.tags) if (t.name === "route:tag:end") t.visible = Boolean(shown.end.shown);
     }
+    this.#showTags();
     this.#labelsMoved = true;
+  }
+
+  /** The way's tags shown where they may be: its start's; a floor change's with its column,
+   * once the way is drawn in up to it; its end's once it is there; each only where what is
+   * said on its floor shows (#saysOn). */
+  #showTags() {
+    const shown = this.#route;
+    if (!shown) return;
+    for (const t of shown.tags) {
+      const link = shown.links.find((k) => k.label === t), end = t.name === "route:tag:end";
+      const own = link ? link.mesh.visible && (link.materials[0]?.uniforms.uReveal.value ?? 1) >= 1
+        : end ? Boolean(shown.end?.shown) : true;
+      const on = own && this.#saysOn(t.userData.floor, end);
+      if (t.visible !== on) this.#labelsMoved = true; // (the tags placed again)
+      t.visible = on;
+    }
+  }
+
+  /** On a way over several floors (the whole building shown), whether what is said on
+   * floor ``f`` shows, rooms' labels and the way's tags: on the floor the way is at alone,
+   * the one clear (said on a floor under it, it would show through it as if on it; over it,
+   * crowd the view of it), but for its ``end`` (its card, or its room's label), over that
+   * floor too: where it goes, seen through the floors faded over the one it is at. */
+  #saysOn(f, end = false) {
+    const way = this.#mode !== "walk" && !this.#floor ? this.#route : null;
+    const at = way?.multi ? way.legs[way.active]?.floor : null;
+    return !at || !f || f === at || (end && f.elevation > at.elevation);
   }
 
   /** A frame of the way's animation: chevrons and bands flowing, its start's rings
@@ -2018,8 +2047,8 @@ export class StoreyPathWorld extends EventTarget {
       link.label.position.copy(a).add(new THREE.Vector3(0, 0.9, 0));
       const revealed = (link.materials[0]?.uniforms.uReveal.value ?? 1) >= 1;
       link.arrow.visible = link.mesh.visible && revealed;
-      link.label.visible = link.mesh.visible && revealed;
     }
+    this.#showTags();
   }
 
   /** Where the walker is: x, z (local meters), heading (radians) and floor. */
@@ -2045,6 +2074,9 @@ export class StoreyPathWorld extends EventTarget {
     this.#sun.shadow.map?.dispose();
     this.#scene.environment?.dispose();
     this.#renderer.dispose();
+    // its WebGL context given back now, not when collected: a page has some 16 at most, and
+    // past that the browser takes the oldest from a world still shown
+    this.#renderer.forceContextLoss();
     this.#element.replaceChildren();
   }
 
@@ -2358,7 +2390,8 @@ export class StoreyPathWorld extends EventTarget {
       for (const m of f.pieces) m.visible = seen(m.userData);
       for (const s of f.spaces) {
         const visible = this.#o.showHidden || !s.tucked;
-        s.labelOn = visible && this.#o.labels && !walking && (keepLabels ? keepLabels.has(s.id) : !this.#floor ? f === this.#topShown() : true);
+        s.labelOn = visible && this.#o.labels && !walking && (keepLabels ? keepLabels.has(s.id) && this.#saysOn(f, s.id === this.#route.room?.id)
+          : !this.#floor ? f === this.#topShown() : true);
         s.label.visible = s.labelOn; // (and, each frame, only where there is room for it: #placeLabels)
       }
       const furnished = items && shown && !faded.has(f) && (!walking || f === wf) && f.items.length > 0;
