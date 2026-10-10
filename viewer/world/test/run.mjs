@@ -2895,14 +2895,23 @@ test("mark: a room's floor, its walls' faces towards it, or an item, lightly; th
     const walls = mark();
     world.mark({ item: r.desk });
     const item = mark();
+    // the item moved a metre (its floor's items given again): its mark with it
+    const given = world.package.itemsOn(r.floor).map((i) => ({ id: i.id, type: i.properties.type, x: i.properties.local.x_m + (i.id === r.desk ? 1 : 0),
+      y: i.properties.local.y_m, rotation: i.properties.local.rotation_deg }));
+    world.setFloorItems(r.floor, given);
+    const moved = mark();
+    world.setFloorItems(r.floor, given.map((g) => (g.id === r.desk ? { ...g, x: g.x - 1 } : g)));
     world.mark(null);
     await window.frames(2);
-    return { floor, walls, item, gone: mark(), ringBefore, ringWith, ringAfter: ring(), elevation: world.package.get(r.floor).properties.elevation };
+    return { floor, walls, item, moved, gone: mark(), ringBefore, ringWith, ringAfter: ring(), elevation: world.package.get(r.floor).properties.elevation };
   }, r);
   truly(got.floor?.parent === r.floor && got.floor.tris >= 2 && got.floor.parts === 2 && Math.abs(got.floor.box[1] - got.elevation - 0.025) < 0.01,
     `the floor, its edge drawn: ${JSON.stringify(got.floor)}`);
   truly(got.walls?.tris >= 8 && got.walls.box[4] - got.walls.box[1] > 2, `the walls: ${JSON.stringify(got.walls)}`);
   truly(got.item?.tris >= 12 && got.gone === null, `the item, then none: ${JSON.stringify(got)}`);
+  const shift = Math.hypot((got.moved.box[0] + got.moved.box[3]) / 2 - (got.item.box[0] + got.item.box[3]) / 2,
+    (got.moved.box[2] + got.moved.box[5]) / 2 - (got.item.box[2] + got.item.box[5]) / 2);
+  truly(Math.abs(shift - 1) < 0.05, `the item moved a metre, its mark ${shift.toFixed(3)} m`);
   truly(got.ringBefore && !got.ringWith && got.ringAfter, `the ring: ${JSON.stringify(got)}`);
   await page.run(() => window.away(window.world));
 });

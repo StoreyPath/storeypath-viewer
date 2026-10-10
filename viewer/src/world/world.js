@@ -552,7 +552,7 @@ export class StoreyPathWorld extends EventTarget {
     const old = this.#floors.get(id), floor = this.#pkg?.get(id);
     if (!old || !floor) return;
     if (this.#ghost?.parent === old.group) this.#ghost = null; // goes with it
-    if (this.#mark?.parent === old.group) this.#mark = null;
+    // (the mark, in the floor taken away: made again on the one built, #remark)
     if (this.#lit?.parent === old.group) this.#lit = null;
     const route = this.#route;
     if (route) this.clearRoute(); // drawn again over the floor built again
@@ -569,7 +569,21 @@ export class StoreyPathWorld extends EventTarget {
     this.#buildingGroup.add(built.group);
     this.#applyVisibility();
     this.#relight();
+    this.#remark();
     if (route) this.showRoute(route.route, { ...route.options, animate: false });
+  }
+
+  /** The mark made again where what it marks is now (an item moved or turned, a floor
+   * built again), or taken away when it is gone. */
+  #remark() {
+    const key = this.#mark?.userData.key;
+    if (!key) return;
+    if (this.#mark.parent) {
+      this.#mark.removeFromParent();
+      this.#mark.traverse((o) => o.geometry?.dispose());
+    }
+    this.#mark = null;
+    this.mark(JSON.parse(key));
   }
 
   /** The highlight made again where what is selected is now (it may have moved), or
@@ -855,6 +869,7 @@ export class StoreyPathWorld extends EventTarget {
     this.#furnish(f);
     this.#applyVisibility();
     this.#relight();
+    this.#remark();
     return true;
   }
 
@@ -947,6 +962,7 @@ export class StoreyPathWorld extends EventTarget {
         polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       edge: new THREE.MeshBasicMaterial({ color: 0x3d7bff, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false,
         side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
+      item: new THREE.MeshBasicMaterial({ color: 0x3d7bff, transparent: true, opacity: 0.16, depthWrite: false, toneMapped: false }),
     };
     const group = new THREE.Group();
     const add = (geometry, look, order) => {
@@ -961,7 +977,7 @@ export class StoreyPathWorld extends EventTarget {
       const found = this.#findItem(target.item);
       if (found) {
         floor = found.floor;
-        add(itemBox(found.floor.plan, found.item), this.#markLook.fill, 4);
+        add(itemBox(found.floor.plan, found.item), this.#markLook.item, 4);
       }
     } else if (target.floor) {
       // the floor, tinted, its edge drawn: seen whatever it is finished in
