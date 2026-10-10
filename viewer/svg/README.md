@@ -49,7 +49,8 @@ folder: `npm run build && python3 -m http.server`, and open `/example/`).
   label point, which is inside it whatever its shape.
 - **Items** (format 0.6: furniture and equipment) over the spaces and under the
   walls and labels, as Studio draws them: the footprint in its type's colour, its
-  front edge darker, and a mark of its kind: a desk's chair (and, by its type's
+  front edge darker, and a mark of its kind (its type's shape, format 0.9.1, else its
+  code's first part: `DESK-MANAGER` is a desk): a desk's chair (and, by its type's
   grade, visitors' chairs, a return, a cabinet behind a high-backed chair), a
   meeting table's chairs round it (as many as its size seats), a sofa's seat, the way a TV faces, a photocopier's lid, a kiosk's screen and the
   way it faces; an access point a small circle with a wifi mark; anything on the

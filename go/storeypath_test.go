@@ -208,6 +208,55 @@ func TestItemsAndTheirCatalogue(t *testing.T) {
 	}
 }
 
+func TestA091CatalogueSaysHowEachTypeIsDrawn(t *testing.T) {
+	// 0.9.1 adds a type's shape: how it is drawn, whatever its code says. A reader of 0.9
+	// reads it; a shape a later version adds is kept as written; a package of 0.9.0 has none.
+	edits := []func(string, []byte) []byte{
+		editJSON(FileManifest, func(doc map[string]any) { doc["format_version"] = "0.9.1" }),
+		editJSON(FileCatalogue, func(doc map[string]any) {
+			for _, ty := range doc["types"].([]any) {
+				switch m := ty.(map[string]any); m["code"] {
+				case "DESK-MANAGER":
+					m["shape"] = "box"
+				case "SOFA":
+					m["shape"] = "hammock" // (a later version's)
+				case "COPIER":
+					m["shape"] = nil
+				}
+			}
+		}),
+	}
+	p := rewriteFrom(t, "campus-hq.storeypath", func(name string, data []byte) []byte {
+		for _, edit := range edits {
+			data = edit(name, data)
+		}
+		return data
+	})
+	if problems := p.Validate(); len(problems) > 0 {
+		t.Fatalf("a 0.9.1 package with shapes: %v", problems)
+	}
+	shape := func(code string) string {
+		if ty := p.ItemType(code); ty == nil {
+			return "(no type)"
+		} else if ty.Shape == nil {
+			return "(none)"
+		} else {
+			return *ty.Shape
+		}
+	}
+	if got := [...]string{shape("DESK-MANAGER"), shape("SOFA"), shape("COPIER"), shape("TV")}; got != [...]string{"box", "hammock", "(none)", "(none)"} {
+		t.Errorf("shapes: %v", got)
+	}
+	for _, ty := range open(t, "campus-hq.storeypath").Catalogue.Types {
+		if ty.Shape != nil {
+			t.Errorf("a 0.9.0 package's %s has a shape: %s", ty.Code, *ty.Shape)
+		}
+	}
+	if len(ItemShapes) != 9 || !slices.Contains(ItemShapes, "meeting_table") || !slices.Contains(ItemShapes, "box") {
+		t.Errorf("the shapes: %v", ItemShapes)
+	}
+}
+
 func TestTheCatalogueFindsATypeByItsCode(t *testing.T) {
 	// Validate looks up every item's type: by going through the types, a catalogue
 	// of n types and n items took n² steps.
@@ -906,7 +955,7 @@ func TestAPackageHoldsOneBuilding(t *testing.T) {
 	// package of 0.6 held the whole campus.
 	for _, name := range []string{"campus-hq.storeypath", "campus-annex.storeypath", "campus-hq-2.storeypath", "campus-annex-2.storeypath"} {
 		p := open(t, name)
-		if p.Manifest.FormatVersion != FormatVersion || p.Manifest.Scope == nil || len(p.Manifest.Scope.Buildings) != 1 ||
+		if minor(p.Manifest.FormatVersion) != minor(FormatVersion) || p.Manifest.Scope == nil || len(p.Manifest.Scope.Buildings) != 1 ||
 			len(p.Buildings) != 1 || p.Buildings[0].ID != p.Manifest.Scope.Buildings[0] {
 			t.Errorf("%s: format %s, scope %v, %d buildings", name, p.Manifest.FormatVersion, p.Manifest.Scope, len(p.Buildings))
 		}

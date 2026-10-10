@@ -55,8 +55,9 @@ export interface PlanDrawing {
 export interface PlanItem {
   /** The item's ID (a StoreyPath item ID, or the system's own). */
   id: string;
-  /** Its type's code (DESK-MANAGER, COPIER, ACCESS-POINT, …): its first part says how
-   * it is drawn (DESK, SOFA, TV, COPIER, ACCESS, BED); others by how they are mounted. */
+  /** Its type's code (DESK-MANAGER, COPIER, ACCESS-POINT, …): without a shape, its first
+   * part says how it is drawn (DESK, MEETING, SOFA, TV, COPIER, ACCESS, BED, KIOSK); others
+   * by how they are mounted. */
   type?: string;
   /** furniture, equipment or appliance. */
   category?: string;
@@ -76,6 +77,10 @@ export interface PlanItem {
   /** Who a desk is for (its type's grade: president, c_level, director, manager,
    * section_head, senior, junior): drawn with what goes with it, as Studio draws it. */
   grade?: string | null;
+  /** How it is drawn, its type's shape (format 0.9.1): desk, meeting_table, sofa, screen,
+   * copier, bed, kiosk, access_point or box; null (or one this viewer does not know): by its
+   * type's code. */
+  shape?: string | null;
 }
 
 export interface FloorPlan {

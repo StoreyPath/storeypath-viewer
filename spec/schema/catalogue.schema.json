@@ -146,6 +146,29 @@
           "default": null,
           "title": "Grade"
         },
+        "shape": {
+          "anyOf": [
+            {
+              "enum": [
+                "desk",
+                "meeting_table",
+                "sofa",
+                "screen",
+                "copier",
+                "bed",
+                "kiosk",
+                "access_point",
+                "box"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shape"
+        },
         "fields": {
           "items": {
             "$ref": "#/$defs/ItemField"

@@ -453,6 +453,26 @@ inChrome("a meeting table is drawn with its chairs round it, as many as its size
   equal(got, want, "by size");
 });
 
+inChrome("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or one not known, its code does", async (page) => {
+  const shaped = readPackage(repack(join(conformance, "packages/campus-hq.storeypath"), (files) => {
+    files.get("manifest.json").format_version = "0.9.1";
+    for (const t of files.get("catalogue.json").types) if (t.code === "DESK-DIRECTOR") t.shape = "box";
+  }));
+  const plan = floorFromPackage(shaped, `${HQ}-F00`);
+  equal(plan.items.find((i) => i.type === "DESK-DIRECTOR").shape, "box", "a 0.9.1 package: the type's shape on the plan");
+  equal(floorFromPackage(hq, `${HQ}-F00`).items.every((i) => i.shape === null), true, "a 0.9.0 package's: none");
+  const first = plan.items.find((i) => i.mount === "floor");
+  const kinds = [["WORKSTATION-A", "desk", 1.4, 0.7], ["CONF-10", "meeting_table", 3.0, 1.2], ["DESK-MANAGER", "box", 1.8, 0.9],
+    ["SOFA", "hammock", 2.0, 0.9], ["LOCKER-TALL", null, 0.6, 0.5]];
+  plan.items = kinds.map(([type, shape, w, d], i) => ({ ...first, id: `S${i}`, type, shape, width: w, depth: d, grade: null,
+    at: [first.at[0], first.at[1] + 4 * i] }));
+  await page.run((p) => window.fresh({}, p), plan);
+  const got = await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-items [data-sp-item]")].map((g) => [g.dataset.spItem,
+    [[...g.classList].find((c) => c.startsWith("sp-item-")), g.querySelectorAll(".sp-item-chair:not(.sp-item-back)").length]])));
+  equal(got, { S0: ["sp-item-desk", 1], S1: ["sp-item-table", 10], S2: ["sp-item-plain", 0], S3: ["sp-item-sofa", 0],
+    S4: ["sp-item-plain", 0] }, "by its shape, else by its code");
+});
+
 inChrome("a wayfinding kiosk: its screen along its front, and the way it faces", async (page) => {
   const plan = floorFromPackage(hq, `${HQ}-F00`);
   const kiosk = plan.items.find((i) => i.type === "KIOSK");

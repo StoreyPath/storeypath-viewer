@@ -1136,11 +1136,12 @@ export function itemPoint(it, across, ahead) {
 
 /** An item as the world plans it, from its properties as a package gives them (or
  * null when they do not say where it is): where it stands ([x, n], local metres), the
- * way its front faces (fx, fn), its size, how high its bottom is, its colour and the
- * grade of a desk. Where it stands in its building (format 0.7: ``local``, its middle
- * and its turn counter-clockwise from the drawing's -y) is put on the map by the
- * building's ``placement``, as Studio put its walls there; older packages give its
- * point and heading on the map. ``type``: its catalogue entry (colour, grade). */
+ * way its front faces (fx, fn), its size, how high its bottom is, its colour, the grade
+ * of a desk and its type's shape (format 0.9.1: how it is drawn). Where it stands in its
+ * building (format 0.7: ``local``, its middle and its turn counter-clockwise from the
+ * drawing's -y) is put on the map by the building's ``placement``, as Studio put its
+ * walls there; older packages give its point and heading on the map. ``type``: its
+ * catalogue entry (colour, grade, shape). */
 export function planItem(id, p, { origin, placement, wallHeight, type }) {
   const own = p.local && placement ? p.local : null;
   if (!own && !p.display_point) return null;
@@ -1148,11 +1149,12 @@ export function planItem(id, p, { origin, placement, wallHeight, type }) {
   // the drawing's +y faces the placement's bearing, so its -y the opposite way
   const heading = own ? (placement.bearing || 0) + 180 - (own.rotation_deg || 0) : p.heading ?? 0;
   const h = (heading * Math.PI) / 180;
-  const { color, grade } = type ?? {};
+  const { color, grade, shape } = type ?? {};
   const it = { id, type: p.type, mount: p.mount ?? "floor", x, n, fx: Math.sin(h), fn: Math.cos(h),
     width: p.width_m || 1, depth: p.depth_m || 0.6, height: p.height_m || 0.75,
     color: typeof color === "string" && COLOR.test(color) ? color : ITEM_COLOR,
-    grade: typeof grade === "string" && grade in DESK_SETS ? grade : null };
+    grade: typeof grade === "string" && grade in DESK_SETS ? grade : null,
+    shape: typeof shape === "string" ? shape : null };
   it.y = it.mount === "ceiling" ? wallHeight - it.height - 0.01 : p.elevation_m ?? (it.mount === "wall" ? WALL_ITEM : 0);
   return it;
 }
@@ -1651,6 +1653,21 @@ const DRAW = {
 DRAW.SCREEN = DRAW.TV;
 DRAW.PRINTER = DRAW.COPIER;
 
+/** The shapes a type may say it is drawn as (catalogue.json `shape`, format 0.9.1), and
+ * the kind of DRAW each is; "box" the plain box (drawPlain). The SVG plan and Studio know
+ * the same names. */
+export const SHAPES = { desk: "DESK", meeting_table: "MEETING", sofa: "SOFA", screen: "TV", copier: "COPIER", bed: "BED",
+  kiosk: "KIOSK", access_point: "ACCESS", box: "plain" };
+
+/** How an item is drawn: as its type's shape, when this viewer knows it; else by its type
+ * code's first part (DESK-MANAGER is a desk, as before 0.9.1); else as a plain box
+ * ("plain": a disc on the ceiling when round enough). */
+export function kindOf(it) {
+  if (typeof it.shape === "string" && Object.hasOwn(SHAPES, it.shape)) return SHAPES[it.shape];
+  const part = String(it.type ?? "").split("-")[0];
+  return Object.hasOwn(DRAW, part) ? part : "plain";
+}
+
 /** Anything else: a box; on the ceiling, a disc when it is round enough. */
 function drawPlain(s, it, c) {
   if (it.mount === "ceiling" && Math.abs(it.width - it.depth) < 0.1 * Math.max(it.width, it.depth)) return DRAW.ACCESS(s, it, c);
@@ -1663,10 +1680,10 @@ function visitorsAt(set, w) {
   return set.visitors === 1 ? [0] : set.visitors === 2 ? [-1, 1].map((q) => q * Math.max(vw / 2 + 0.08, Math.min(w / 4, 0.62))) : [];
 }
 
-/** An item's template (Shapes.done), made once for its kind and size: ``form``
+/** An item's template (Shapes.done), made once for its kind (kindOf) and size: ``form``
  * "detailed" (as DRAW draws it) or "light" (a box). */
 function template(cache, it, form) {
-  const kind = form === "light" ? "light" : DRAW[it.type.split("-")[0]] ? it.type.split("-")[0] : "plain";
+  const kind = form === "light" ? "light" : kindOf(it);
   const key = [kind, it.width, it.depth, it.height, it.color, it.grade, kind === "plain" ? it.mount : ""].join("|");
   let t = cache.get(key);
   if (!t) {
@@ -1766,7 +1783,7 @@ function placedLines(list) {
  * ahead1, top] (metres from its middle and its bottom): its footprint and height, and
  * for a desk its chair and what goes with its grade; for a meeting table its chairs. */
 export function itemExtent(it) {
-  const w = it.width, d = it.depth, kind = it.type.split("-")[0];
+  const w = it.width, d = it.depth, kind = kindOf(it);
   if (kind === "MEETING") {
     const { board } = tableChairs(w, d), reach = TABLE.out + CHAIR.reach;
     const ends = d >= TABLE.ends - 1e-9 ? reach : 0;

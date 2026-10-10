@@ -109,6 +109,10 @@ export interface ItemField {
 	owner: 'storeypath' | 'system';
 }
 
+/** How a type of item is drawn (catalogue.json `shape`, format 0.9.1); a later version may add
+ * more, drawn as if a type had none. */
+export type ItemShape = 'desk' | 'meeting_table' | 'sofa' | 'screen' | 'copier' | 'bed' | 'kiosk' | 'access_point' | 'box';
+
 /** A type of item (catalogue.json). */
 export interface ItemType {
 	code: string;
@@ -123,6 +127,12 @@ export interface ItemType {
 	elevation: number | null;
 	/** #rrggbb */
 	color: string;
+	/** How many people work at one (a desk: 1), and who a desk is for (format 0.7). */
+	workplaces?: number;
+	grade?: string | null;
+	/** How it is drawn (format 0.9.1); absent or null: by its code's first part (DESK-MANAGER as
+	 * a desk), else as a box. */
+	shape?: ItemShape | null;
 	fields: ItemField[];
 	retired: boolean;
 }
@@ -422,6 +432,8 @@ export interface GivenItem {
 	/** #rrggbb */
 	color?: string;
 	grade?: string | null;
+	/** How it is drawn (format 0.9.1); null: by its code. */
+	shape?: ItemShape | null;
 }
 
 /** A floor's plan in local metres (x east, z south), for a minimap. */

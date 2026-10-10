@@ -49,7 +49,7 @@ export interface PackageLike {
   openings: Feature<OpeningProps>[];
   /** Furniture and equipment (format 0.6; placed in their building, 0.7), and the catalogue of their types. */
   items?: Feature<ItemProps>[];
-  catalogue?: { types: { code: string; color?: string; grade?: string | null }[] } | null;
+  catalogue?: { types: { code: string; color?: string; grade?: string | null; shape?: string | null }[] } | null;
   /** The building's walking network (navigation.json, format 0.8), or null: route() finds the way on it. */
   navigation?: Navigation | null;
 }
@@ -121,6 +121,8 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     .map((t) => [t.code, t.color]));
   const grades = new Map((pkg.catalogue?.types ?? []).filter((t) => typeof t.grade === "string" && GRADES.has(t.grade))
     .map((t) => [t.code, t.grade]));
+  // how each type is drawn (format 0.9.1), as its catalogue says
+  const shapes = new Map((pkg.catalogue?.types ?? []).filter((t) => typeof t.shape === "string").map((t) => [t.code, t.shape]));
   const items: PlanItem[] = [];
   for (const f of pkg.items ?? []) {
     const p = f.properties;
@@ -137,7 +139,7 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     }
     items.push({ id: f.id, type: p.type, category: p.category ?? "furniture", name: p.name ?? null, mount: p.mount ?? "floor",
       at, front, width: p.width_m || 1, depth: p.depth_m || 0.6, color: colors.get(p.type) ?? ITEM_COLOR,
-      grade: grades.get(p.type) ?? null });
+      grade: grades.get(p.type) ?? null, shape: shapes.get(p.type) ?? null });
   }
   return {
     id: floorId,

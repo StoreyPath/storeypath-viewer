@@ -28,7 +28,7 @@ register(`data:text/javascript,${encodeURIComponent(`
     return path ? { url: ${JSON.stringify(vendor)} + path, shortCircuit: true } : next(specifier, context);
   }`)}`);
 const { FORMAT_VERSION, loadPackage } = await import("../../src/package.js");
-const { BUILDER, buildItems, buildPieces, ceilingPanels, groupByFinish, inside, itemExtent, originOf, planFloor, roomFinder,
+const { BUILDER, buildItems, buildPieces, ceilingPanels, groupByFinish, inside, itemExtent, kindOf, originOf, planFloor, roomFinder,
   setItems, tableChairs, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
@@ -338,6 +338,37 @@ test("a meeting table is built with its chairs round it, as many as its size sea
   truly(JSON.stringify(got) === JSON.stringify(want), `by size: ${JSON.stringify(got)}`);
   const narrow = tableChairs(1.6, 0.6).at;
   truly(narrow.length === 4 && narrow.every(([x]) => Math.abs(x) < 0.8), `a narrow table has none at its ends: ${JSON.stringify(narrow)}`);
+});
+
+test("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or one not known, its code does; a box is a box", async () => {
+  const drawn = (type, shape, w, d) => {
+    const it = { id: "T", type, mount: "floor", x: 0, n: 0, fx: 0, fn: 1, width: w, depth: d, height: 0.75, color: "#a8845e", grade: null,
+      shape, y: 0 };
+    const g = buildItems({ elevation: 0, items: [it] }).find((p) => p.name === "items").geometry;
+    return { kind: kindOf(it), vertices: g.getAttribute("position").count, extent: itemExtent(it).map((v) => Math.round(v * 1000) / 1000) };
+  };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const desk = drawn("WORKSTATION-A", "desk", 1.4, 0.7), junior = drawn("DESK-JUNIOR", null, 1.4, 0.7);
+  truly(desk.kind === "DESK" && same(desk, junior), `a workstation shaped as a desk, drawn as one: ${JSON.stringify([desk, junior])}`);
+  const conf = drawn("CONF-10", "meeting_table", 3.0, 1.2), meeting = drawn("MEETING-TABLE-X", null, 3.0, 1.2);
+  truly(conf.kind === "MEETING" && same(conf, meeting) && tableChairs(3.0, 1.2).at.length === 10,
+    `a conference table shaped as a meeting table, its ten chairs round it: ${JSON.stringify([conf, meeting])}`);
+  const box = drawn("DESK-MANAGER", "box", 1.8, 0.9);
+  truly(box.kind === "plain" && box.vertices === 8 && same(box.extent, [-0.9, -0.45, 0.9, 0.45, 0.75]), `a desk shaped as a box: ${JSON.stringify(box)}`);
+  const unknown = drawn("SOFA", "hammock", 2, 0.9), sofa = drawn("SOFA", null, 2, 0.9);
+  truly(sofa.kind === "SOFA" && same(unknown, sofa), `a shape not known: by its code: ${JSON.stringify([unknown, sofa])}`);
+  truly(drawn("LOCKER-TALL", null, 0.6, 0.5).kind === "plain" && kindOf({ type: "X", shape: "constructor" }) === "plain"
+    && kindOf({ type: "TOSTRING" }) === "plain", "a code it does not know, and no shape: a box");
+  // a 0.9.1 package: the floor's items have their types' shapes; a 0.9.0 package's, none
+  const f0 = (pkg) => planFloor(pkg, pkg.floorsOf(HQ).find((f) => f.id.endsWith("-F00")), originOf(pkg, HQ));
+  const shaped = await loadPackage(repack(join(packages, "campus-hq.storeypath"), (files) => {
+    files.get("manifest.json").format_version = "0.9.1";
+    for (const t of files.get("catalogue.json").types) if (t.code === "DESK-DIRECTOR") t.shape = "box";
+  }));
+  const director = f0(shaped).items.find((i) => i.type === "DESK-DIRECTOR");
+  const plain = f0(await loadPackage(readFileSync(join(packages, "campus-hq.storeypath"))));
+  truly(director?.shape === "box" && kindOf(director) === "plain" && plain.items.every((i) => i.shape === null),
+    `the package's shapes: ${director?.shape}, ${plain.items.map((i) => i.shape)}`);
 });
 
 test("a wayfinding kiosk: a plinth, a post and a head, its screen ahead, as tall as its type, seen in the cutaway", async () => {
@@ -1782,6 +1813,33 @@ test("pick says what a click is on; cancelled, nothing is chosen", async () => {
     && cancelled.selected === null,
     `cancelled: ${JSON.stringify(cancelled)}`);
   truly(chosen === at.id, `then chosen: ${chosen}, want ${at.id}`);
+});
+
+test("setFloorItems: an item given a shape (0.9.1) is drawn as it, whatever its type's code; given none, as its type says", async () => {
+  const floor = await openFloor("/campus-hq.storeypath");
+  const r = await page.run(async (floor) => {
+    const world = window.world;
+    const one = world.package.itemsOn(floor).find((i) => i.properties.type.startsWith("DESK-"));
+    const at = { x: one.properties.local.x_m, y: one.properties.local.y_m, rotation: one.properties.local.rotation_deg };
+    // the vertices drawn for the floor's first item, over its items' meshes
+    const drawn = () => {
+      let n = 0;
+      world.scene.getObjectByName(floor).traverse((m) => {
+        const k = m.name.startsWith("items") ? m.geometry?.getAttribute("_item") : null;
+        for (let i = 0; k && i < k.count; i++) if (k.getX(i) === 0) n++;
+      });
+      return n;
+    };
+    const given = async (g) => {
+      world.setFloorItems(floor, [{ id: one.id, ...at, ...g }]);
+      await window.frames();
+      return drawn();
+    };
+    return { desk: await given({ type: one.properties.type }), box: await given({ type: one.properties.type, shape: "box" }),
+      none: await given({ type: one.properties.type, shape: null }), locker: await given({ type: "LOCKER-TALL" }),
+      lockerAsDesk: await given({ type: "LOCKER-TALL", shape: "desk" }) };
+  }, floor);
+  truly(r.box === 8 && r.locker === 8 && r.desk > 100 && r.none === r.desk && r.lockerAsDesk > 100, `drawn: ${JSON.stringify(r)}`);
 });
 
 test("setFloorItems replaces one floor's items and builds nothing else again; select finds them where they are", async () => {

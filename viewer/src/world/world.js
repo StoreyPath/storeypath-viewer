@@ -858,8 +858,9 @@ export class StoreyPathWorld extends EventTarget {
   /** Replace one floor's furniture and equipment, building nothing else again: ``items``,
    * each { id, type, x, y, rotation } in the building's own frame (metres of its drawings;
    * rotation: degrees counter-clockwise, its front its own -y, as Studio keeps them), with
-   * ``width``, ``depth``, ``height`` (m), ``mount``, ``elevation``, ``color`` and ``grade``
-   * where they are not its type's in the package's catalogue. They are drawn again the next
+   * ``width``, ``depth``, ``height`` (m), ``mount``, ``elevation``, ``color``, ``grade`` and
+   * ``shape`` (how it is drawn, format 0.9.1; null: by its code) where they are not its
+   * type's in the package's catalogue. They are drawn again the next
    * frame (in milliseconds, for thousands); the walker bumps into them at once. Needs the
    * building's placement (format 0.7). Whether the floor is built. */
   setFloorItems(floorId, items) {
@@ -898,7 +899,7 @@ export class StoreyPathWorld extends EventTarget {
       width_m: g.width ?? t?.width, depth_m: g.depth ?? t?.depth, height_m: g.height ?? t?.height,
       elevation_m: g.elevation !== undefined ? g.elevation : t?.elevation ?? null };
     return planItem(g.id, p, { origin: this.#origin, placement: this.#placement(), wallHeight: f.plan.wallHeight,
-      type: { color: g.color ?? t?.color, grade: g.grade ?? t?.grade } });
+      type: { color: g.color ?? t?.color, grade: g.grade ?? t?.grade, shape: g.shape !== undefined ? g.shape : t?.shape } });
   }
 
   /** Show where an item would go (placed, or carried): see-through over its floor, green,

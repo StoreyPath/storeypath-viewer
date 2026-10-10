@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.9
+# StoreyPath package format — version 0.9.1
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -282,11 +282,28 @@ Like every ID, an item's is never issued again once it is retired.
 kept for good and never given to another type (a type no longer used is `retired`),
 English and Arabic names, a `category` (furniture, equipment, appliance), a size, how
 it is mounted (`floor`, `wall`, `ceiling`), a colour (`#rrggbb`), `workplaces` (how many people work
-at one: a desk, 1; 0 for most else) and `grade` (who a desk is for, 0.7), and its `fields`. Each field
+at one: a desk, 1; 0 for most else), `grade` (who a desk is for, 0.7), `shape` (how it is
+drawn, 0.9.1: Shapes, below), and its `fields`. Each field
 says who enters it: `owner: "storeypath"` (what is physical: a colour, a size, a
 model) or `"system"` (the system that manages the asset: an access point's network).
 A reader keeps the `system` fields itself, by the item's ID; the package never
-carries them. The catalogue is the organization's: the same for every project.
+carries them. The catalogue is the organization's: the same for every project. A
+package's `catalogue.json` holds every type its items use, each once (a retired one too,
+while an item has it), or, exported so, the whole catalogue (0.9.1; before, always the
+whole). A type a package does not hold is not removed: a reader keeping types adds new
+ones and updates those it has, and takes none away.
+
+**Shapes (0.9.1).** A type's `shape` says how its items are drawn, whatever its code:
+`desk` (a desk with its chair, and what goes with its `grade`), `meeting_table` (a table
+with as many chairs round it as its size seats), `sofa`, `screen` (a TV or a display on a
+wall), `copier`, `bed`, `kiosk`, `access_point` (a disc under the ceiling), or `box` (a
+box of its size). Absent or null, a type is drawn by its code's first part, as before
+0.9.1: `DESK`, `MEETING`, `SOFA`, `TV` or `SCREEN`, `COPIER` or `PRINTER`, `ACCESS`, `BED`,
+`KIOSK`; any other code as a box (on the ceiling, a disc when it is about as wide as it is
+deep). A shape a reader does not know (a later version's) is drawn as if the type had
+none. Its size, colour and grade are the type's whatever its shape. The shape says only
+how a type looks: what it is stays with its code (a wayfinding kiosk is a `KIOSK` type,
+below, whatever its shape).
 
 **Kiosks.** An item whose type is `KIOSK`, or `KIOSK-` and more (`KIOSK-WALL`), is
 where a wayfinding kiosk stands: a screen where people type their employee number
@@ -758,6 +775,15 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.9.0
+
+- `catalogue.json`: a type's `shape` (Shapes): how its items are drawn, whatever its
+  code; absent or null, by its code's first part as before.
+- `catalogue.json` holds every type the package's items use, or the whole catalogue;
+  before, always the whole. A reader keeping types removes none a package does not hold.
+- A patch: a reader of 0.9 reads a 0.9.1 package (Versioning), drawing each type by its
+  code as before.
 
 ## Changes from 0.8
 

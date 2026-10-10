@@ -281,11 +281,20 @@ type ItemType struct {
 	Color     string   `json:"color"` // #rrggbb
 	// Workplaces: how many people work at one (a desk: 1); counted into the
 	// capacity of the room it stands in. Grade: who a desk is for (format 0.7).
-	Workplaces int         `json:"workplaces"`
-	Grade      *string     `json:"grade"`
-	Fields     []ItemField `json:"fields"`
-	Retired    bool        `json:"retired"`
+	Workplaces int     `json:"workplaces"`
+	Grade      *string `json:"grade"`
+	// Shape is how it is drawn (format 0.9.1), one of ItemShapes; nil: by its code's
+	// first part (DESK-MANAGER as a desk), else as a box. A shape a later version adds
+	// is kept as it is written (a viewer that does not know it draws by the code).
+	Shape   *string     `json:"shape"`
+	Fields  []ItemField `json:"fields"`
+	Retired bool        `json:"retired"`
 }
+
+// ItemShapes are the shapes an item type may be drawn as (catalogue.json, format 0.9.1).
+// The shape says only how it is drawn; what a type is stays with its code (a KIOSK is a
+// wayfinding kiosk whatever its shape).
+var ItemShapes = []string{"desk", "meeting_table", "sofa", "screen", "copier", "bed", "kiosk", "access_point", "box"}
 
 // ItemField is a detail the items of a type carry, and who enters it.
 type ItemField struct {

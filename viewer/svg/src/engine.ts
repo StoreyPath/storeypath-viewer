@@ -152,8 +152,10 @@ export interface SelectDetail {
   item: PlanItem | null;
 }
 
-/** How an item is drawn, by its type code's first part (DESK-MANAGER is a desk);
- * others by how they are mounted. */
+/** How an item is drawn: by its type's shape (format 0.9.1), else by its type code's
+ * first part (DESK-MANAGER is a desk); others by how they are mounted. */
+const ITEM_SHAPES: Record<string, string> = { desk: "desk", meeting_table: "table", sofa: "sofa", screen: "tv", copier: "copier",
+  bed: "bed", kiosk: "kiosk", access_point: "ap", box: "plain" };
 const ITEM_KINDS: Record<string, string> = { DESK: "desk", MEETING: "table", SOFA: "sofa", TV: "tv", SCREEN: "tv", COPIER: "copier",
   PRINTER: "copier", ACCESS: "ap", BED: "bed", KIOSK: "kiosk" };
 /** What goes with a desk, by the grade it is for: visitors' chairs across it
@@ -183,8 +185,12 @@ function tableChairs(w: number, d: number): { at: [number, number, XY][]; board:
   if (d >= 0.8 - 1e-9) at.push([w / 2, 0, [1, 0]], [-w / 2, 0, [-1, 0]]);
   return { at, board: w >= 3.6 - 1e-9 };
 }
-const itemKind = (it: PlanItem): string =>
-  ITEM_KINDS[(it.type ?? "").split("-")[0]!] ?? (it.mount === "ceiling" ? "round" : "plain");
+const itemKind = (it: PlanItem): string => {
+  const own = (table: Record<string, string>, key: string | null | undefined): string | undefined =>
+    key && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+  const kind = own(ITEM_SHAPES, it.shape) ?? own(ITEM_KINDS, (it.type ?? "").split("-")[0]) ?? "plain";
+  return kind === "plain" && it.mount === "ceiling" ? "round" : kind;
+};
 const fine = (v: number): number => Math.round(v * 1e4) / 1e4;
 
 const svg = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}): SVGElementTagNameMap[K] => {
