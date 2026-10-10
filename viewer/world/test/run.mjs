@@ -2691,8 +2691,7 @@ test("walking on a touch screen: a finger dragged looks round, a tap acts, a dou
     const world = window.world, d = r.d, top = world.package.get(r.floor).properties.elevation + 0.45;
     return window.screenOf(world, d[0], top, d[1]);
   }, r);
-  await page.touch("touchStart", [at]);
-  await page.touch("touchEnd", []);
+  await together(() => page.touch("touchStart", [at]), () => page.touch("touchEnd", [])); // (a tap, not a long press, on CI too)
   const tapped = await page.run(async () => {
     await window.frames(1);
     return window.world.selected;
