@@ -71,18 +71,33 @@ its own build and tests.
 
 ## Finding the way
 
+<p align="center">
+  <img src="docs/images/route.webp" width="100%" alt="The plan's wayfinding look: the way draws itself in from You are here at the reception's kiosk to the stairs, a badge says Up to Floor 2; Play walks a dot along it, then Floor 2 fades in and the dot goes down the corridor to OFFICE 213, its pin and card">
+</p>
+
 Every package carries its building's walking network (`navigation.json`): its doors and
 openings, a point in each room, the lifts and stairs on each floor, its entrances and
 kiosks. `route(pkg, from, to, { accessible })` finds the quickest way between any two of
-them, or the one without stairs, with its line on each floor and steps ready to show; the
-3D world and the plan draw it (`showRoute`). The Go module finds the same way, and
+them, or the one without stairs, with its line on each floor and steps ready to show. Both
+viewers draw it (`showRoute`) as the best indoor maps do. On the plan, in its calm
+`wayfinding` look, light or dark: a line that draws itself in and flows the way it goes,
+*You are here* at its start, a round badge where it changes floor (*Up to Floor 2*: a click
+shows that floor), a pin and a card on the room it ends in; `playRoute()` walks a dot along
+it, floor by floor. In 3D: a glowing ribbon over each floor, a column through the stairs or
+the lift, the same marks; `flyRoute()` takes the camera along it. Both step through it
+(`showStep`). The Go module finds the same way, and
 [spec/conformance/routes.json](spec/conformance) holds ways every reader must agree on.
-<!-- route pictures: to take once the wayfinding redesign has landed (Studio's docs/media/capture.mjs) -->
+
+![The same way in the 3D world: a glowing ribbon from You are here through the reception to the stairs, up to Floor 2 and along the corridor to OFFICE 213, the floors it does not use faded back](docs/images/route-3d.webp)
 
 ```js
 import { route } from "./storeypath-viewer/src/navigation.js";
-const way = route(pkg, "7K2Q-XM9F-4DP", "CAMP05-CAMPUS-MAIN-F02-0127", { accessible: true }); // from a kiosk
-world.showRoute(way, { fly: true });
+const way = route(pkg, "6VY9-YE7X-YGR", "CAMP05-CAMPUS-MAIN-F02-0134"); // the reception's kiosk to OFFICE 213
+plan.showRoute(way, { style: "wayfinding", fit: true, startLabel: "You are here",
+  floorPlan: (id) => floorFromPackage(pkg, id) });   // the plan shows each floor of it itself
+await plan.playRoute();                               // a dot walks it, floor by floor
+world.showRoute(way, { fit: true, startLabel: "You are here" });
+await world.flyRoute();                               // the camera along it, up the stairs
 ```
 
 ## The Go reader
