@@ -659,6 +659,15 @@ test("a piece drawn a finish at a time: its triangles ordered by finish, in grou
 const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,#v{width:900px;height:600px}</style>
 <div id="w"></div><div id="v"></div>
 <script src="/jszip.min.js"></script>
+<script>
+  // walking never takes the mouse: any ask for it is counted (and none should be)
+  window.locks = 0;
+  const lock = Element.prototype.requestPointerLock;
+  Element.prototype.requestPointerLock = function (...args) {
+    window.locks++;
+    return lock?.apply(this, args);
+  };
+</script>
 <script type="module">
   import * as sp from "/dist/world.js";
   // every world made here, so that none draws between tests (drawn in software, an idle
@@ -740,16 +749,14 @@ const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,
     }
     return null;
   };
-  /** Walking on floor: stand at (x, z), looking at (tx, tz). */
-  window.standAt = async (world, floor, [x, z], [tx, tz]) => {
+  /** Walking on floor: stand at (x, z), looking at (tx, tz) (and pitch radians up; down, below 0). */
+  window.standAt = async (world, floor, [x, z], [tx, tz], pitch = 0) => {
     const heading = Math.atan2(-(tx - x), -(tz - z));
     if (world.mode !== "walk" || world.walkFloor !== floor) {
       world.setMode("dollhouse");
       world.setMode("walk", { at: { x, z }, floor, heading });
-    } else {
-      world.camera.position.set(x, world.camera.position.y, z);
-      world.camera.rotation.set(0, heading, 0, "YXZ");
-    }
+    } else world.camera.position.set(x, world.camera.position.y, z);
+    world.camera.rotation.set(pitch, heading, 0, "YXZ");
     await window.frames(2);
   };
   /** Walk ahead until far metres on, or stopped (a few frames without going on); how far
@@ -769,6 +776,42 @@ const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,
     }
     window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
     return gone();
+  };
+  /** A point of the world (local metres; y up) on the screen: client pixels. */
+  window.screenOf = (world, x, y, z) => {
+    world.camera.updateMatrixWorld();
+    const p = world.camera.position.clone().set(x, y, z).project(world.camera);
+    const box = world.renderer.domElement.getBoundingClientRect();
+    return [box.left + ((p.x + 1) / 2) * box.width, box.top + ((1 - p.y) / 2) * box.height];
+  };
+  /** The way the view looks: its yaw and pitch (radians). */
+  window.angles = (world) => {
+    const q = world.camera.quaternion;
+    const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
+    const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (q.w * q.x - q.y * q.z))));
+    return { yaw, pitch };
+  };
+  /** Frames until the view stops turning (an eased drag, a fling); how many it took. */
+  window.still = async (world, most = 200) => {
+    let was = null;
+    for (let i = 0; i < most; i++) {
+      const now = world.camera.quaternion.toArray();
+      if (was && now.every((v, k) => Math.abs(v - was[k]) < 1e-7)) return i;
+      was = now;
+      await window.frames(1);
+    }
+    return most;
+  };
+  /** The pointer gone from the view (as when it leaves it). */
+  window.away = (world) => world.renderer.domElement.dispatchEvent(new PointerEvent("pointerleave"));
+  /** Frames until a glide is over (what glide said last), or none was under way. */
+  window.glided = async (world, most = 400) => {
+    for (let i = 0; i < most; i++) {
+      const last = window.glides?.at(-1);
+      if (last && last.state !== "going") return { ...last, frames: i };
+      await window.frames(1);
+    }
+    return { state: "timeout", frames: most };
   };
   /** Frames until a door of a floor is still; how many it was seen swinging. */
   window.settled = async (world, floor, id) => {
@@ -1533,7 +1576,7 @@ test("a point of the building's own frame goes into the world and back, as its i
   truly(r.placements !== null || (r.old[0] === null && r.old[1] === null), `no placement, no frame: ${JSON.stringify(r.old)}`);
 });
 
-test("pointAt: the room, the item and the wall in the way, in the building's own frame; walking, at the crosshair", async () => {
+test("pointAt: the room, the item and the wall in the way, in the building's own frame; given no point, at the middle of the view", async () => {
   const floor = await openFloor("/campus-hq.storeypath", "005");
   const r = await page.run(async (floor) => {
     const world = window.world;
@@ -2082,63 +2125,76 @@ test("an open leaf is not in the walker's way: it walks right through where one 
   truly(r.gone > 1.75 && r.events === 0, `walked ${r.gone.toFixed(2)} m of 1.8 through ${r.id}'s leaf`);
 });
 
-test("E or a click at a door within reach shuts it, swinging, and opens it again; out of reach, or in the dollhouse view, nothing", async () => {
+test("E at the door ahead, or a click on the door under the pointer, shuts it, swinging, and opens it again; its hint by the pointer; out of reach, or in the dollhouse view, nothing", async () => {
   const floor = await doorFloor();
   const r = await page.run(async (floor) => {
     const world = window.world;
+    window.away(world);
     const door = window.doorWithRoom(world, floor);
     const { m, n } = door;
-    // 1.2 m before it, on the side its leaf does not open to, looking at its middle
+    // 1.2 m before it, on the side its leaf does not open to, looking at its middle (the pointer not on the view)
     await window.standAt(world, floor, [m[0] - n[0] * 1.2, m[1] - n[1] * 1.2], m);
     window.aims = [];
     world.addEventListener("dooraim", (e) => window.aims.push(e.detail));
     await window.frames(2);
-    window.state = { door, aimed: world.aimedDoor, hint: document.querySelector("#w .sp3d-door-hint")?.textContent,
+    window.state = { door, aimed: world.aimedDoor, hint: document.querySelector("#w .sp3d-door-hint").style.display,
       marked: document.querySelector("#w").classList.contains("sp3d-door-aim") };
     return window.state;
   }, floor);
-  truly(r.aimed?.id === r.door.id && r.aimed.open && r.hint === "Close door (E)" && r.marked, `aimed: ${JSON.stringify(r)}`);
+  // the door ahead: E works it; no hint (none is by the pointer)
+  truly(r.aimed?.id === r.door.id && r.aimed.open && r.aimed.under === false && r.hint === "none" && !r.marked, `ahead: ${JSON.stringify(r)}`);
   await page.key("e", "KeyE", 69);
   const shut = await page.run(async (floor) => {
     const world = window.world, id = window.state.door.id;
     const asked = world.doorOpen(id), moving = await window.settled(world, floor, id);
     const d = world.plan(floor).doors.find((x) => x.id === id);
     await window.frames(2);
-    return { asked, moving, off: window.offSpan(d), open: d.open, events: window.doorEvents.slice(), hint: document.querySelector("#w .sp3d-door-hint").textContent,
-      aims: window.aims.slice() };
+    return { asked, moving, off: window.offSpan(d), open: d.open, events: window.doorEvents.slice(), aims: window.aims.slice() };
   }, floor);
   truly(shut.asked === false && shut.open === false && shut.off < 0.07, `shut: ${JSON.stringify(shut)}`);
   truly(shut.moving >= 3, `seen swinging over ${shut.moving} frames`); // half a second, a tenth a frame at most
   truly(JSON.stringify(shut.events) === JSON.stringify([{ id: r.door.id, open: false, floor }]), JSON.stringify(shut.events));
-  truly(shut.hint === "Open door (E)" && shut.aims.at(-1)?.open === false, `the hint: ${shut.hint} ${JSON.stringify(shut.aims)}`);
-  // a click, with the mouse taken (walking): opened again, the pick saying which door
+  truly(shut.aims.at(-1)?.id === r.door.id && shut.aims.at(-1)?.open === false, `said shut: ${JSON.stringify(shut.aims)}`);
+  // the pointer on its leaf, shut across the middle of the view: the door under it, its hint by the pointer
+  await page.mouse("mouseMoved", 450, 330);
+  const under = await page.run(async () => {
+    const world = window.world;
+    await window.frames(2);
+    const hint = document.querySelector("#w .sp3d-door-hint");
+    return { aimed: world.aimedDoor, hint: hint.style.display !== "none" ? hint.textContent : null, left: parseFloat(hint.style.left),
+      top: parseFloat(hint.style.top), marked: document.querySelector("#w").classList.contains("sp3d-door-aim"),
+      cursor: world.renderer.domElement.style.cursor, hovered: world.hovered?.door ?? null };
+  });
+  truly(under.aimed?.id === r.door.id && under.aimed.under && under.hint === "Open door (E)" && under.marked && under.cursor === "pointer"
+    && under.hovered?.id === r.door.id && under.hovered.open === false, `under the pointer: ${JSON.stringify(under)}`);
+  truly(Math.abs(under.left - 464) < 2 && Math.abs(under.top - 348) < 2, `the hint by the pointer: ${under.left}, ${under.top}`);
+  // a click on it (the mouse never taken): opened again, the pick saying which door, nothing chosen
   await page.run(() => {
     window.picks = [];
     window.world.addEventListener("pick", (e) => window.picks.push(e.detail));
-    window.world.renderer.domElement.addEventListener("click", () => window.world.startWalking(), { once: true });
   });
-  await page.click(450, 300); // takes the mouse
-  const locked = await page.run(async () => {
-    for (let i = 0; i < 50 && !window.world.walking; i++) await window.frames(1);
-    return window.world.walking;
-  });
-  truly(locked, "the mouse taken");
-  await page.click(450, 300);
+  await page.click(450, 330);
   const clicked = await page.run(async (floor) => {
     const world = window.world, id = window.state.door.id;
     const asked = world.doorOpen(id), moving = await window.settled(world, floor, id);
     const d = world.plan(floor).doors.find((x) => x.id === id);
-    world.stopWalking();
     return { asked, moving, leaves: d.leaves, drawn: window.state.door.leaves, picks: window.picks.map((p) => p.door), selected: world.selected,
-      events: window.doorEvents.length };
+      events: window.doorEvents.length, locked: document.pointerLockElement !== null };
   }, floor);
   const near = (a, b) => a.flat(2).every((v, i) => Math.abs(v - b.flat(2)[i]) < 1e-4);
-  truly(clicked.asked === true && clicked.moving >= 3 && near(clicked.leaves, clicked.drawn) && clicked.events === 2,
+  truly(clicked.asked === true && clicked.moving >= 3 && near(clicked.leaves, clicked.drawn) && clicked.events === 2 && !clicked.locked,
     `opened again, as drawn: ${JSON.stringify(clicked)}`);
   truly(JSON.stringify(clicked.picks) === JSON.stringify([r.door.id]) && clicked.selected === null, `the pick: ${JSON.stringify(clicked)}`);
+  // open, it is looked through: the pointer there is on what is beyond it, not on the door
+  const through = await page.run(async () => {
+    await window.frames(2);
+    return { aimed: window.world.aimedDoor, hint: document.querySelector("#w .sp3d-door-hint").style.display };
+  });
+  truly(through.aimed?.id === r.door.id && through.aimed.under === false && through.hint === "none", `open, looked through: ${JSON.stringify(through)}`);
   // out of reach (its middle 2.5 m off), or in the dollhouse view: E does nothing to it
   const far = await page.run(async (floor) => {
     const world = window.world, { m, n } = window.state.door;
+    window.away(world);
     await window.standAt(world, floor, [m[0] - n[0] * 2.5, m[1] - n[1] * 2.5], m);
     return { aimed: world.aimedDoor };
   }, floor);
@@ -2345,6 +2401,513 @@ test("no door swinging, nothing to do a frame: the leaves not written again, the
   truly(r.moving.shadows >= r.swung && r.moving.written >= r.swung && r.swung >= 3, `swinging: ${JSON.stringify(r)}`);
 });
 
+// ---- walking with the mouse free: a drag looks, a click acts where the pointer is ------------
+
+/** The walker on campus-hq's ground floor with its items, standing in a room before one of
+ * them (a desk the room's middle is at least 1.4 m from), looking at it; the pointer gone.
+ * The desk, its room, where it is on the screen, and where the walker stands. */
+const beforeADesk = () => page.run(async () => {
+  const world = (window.world ??= new window.sp.StoreyPathWorld("#w"));
+  world.setMode("dollhouse");
+  world.setDraggable(false);
+  world.setDoors("auto");
+  if (world.package?.project.id !== "campus-hq" || !world.package.itemsOn(world.package.floorsOf(world.building)[0].id).length) {
+    await world.open("/campus-hq.storeypath");
+  }
+  world.setItems(true);
+  const floor = world.package.floorsOf(world.building)[0].id, pkg = world.package;
+  const desks = pkg.itemsOn(floor).filter((i) => i.properties.type.startsWith("DESK") && i.properties.space_id);
+  const elevation = pkg.get(floor).properties.elevation, eye = 1.6;
+  for (const desk of desks) {
+    const space = pkg.get(desk.properties.space_id);
+    const o = world.toLocal(space.properties.display_point);
+    const d = world.worldPoint([desk.properties.local.x_m, desk.properties.local.y_m]);
+    const far = Math.hypot(d.x - o.x, d.z - o.z);
+    if (far < 2 || far > 3.2) continue;
+    // looking down between the desk and the floor a metre ahead: both on the screen
+    const top = desk.properties.height_m * 0.6;
+    const pitch = -(Math.atan2(eye - top, far) + Math.atan2(eye, 1)) / 2;
+    window.away(world);
+    await window.standAt(world, floor, [o.x, o.z], [d.x, d.z], pitch);
+    world.select(null, { go: false });
+    await window.frames(2);
+    const at = window.screenOf(world, d.x, elevation + top, d.z);
+    const p = world.pointAt(...at);
+    if (p?.item !== desk.id) continue; // (another item in the way: the next desk)
+    // a point of its floor a metre ahead, towards it
+    const ahead = [o.x + ((d.x - o.x) / far) * 1, o.z + ((d.z - o.z) / far) * 1];
+    const mid = window.screenOf(world, ahead[0], elevation, ahead[1]);
+    const q = world.pointAt(...mid);
+    if (q?.item || q?.space !== space.id) continue;
+    return { floor, desk: desk.id, room: space.id, at, mid, ahead, stand: [o.x, o.z], d: [d.x, d.z], pitch };
+  }
+  return null;
+});
+
+test("walking, a drag looks round (the scene held under the pointer, eased); a click does not turn the view; looking up and down stops short", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  const before = await page.run(() => ({ ...window.angles(window.world), k: (window.world.camera.fov * Math.PI) / 180 / 600 }));
+  // dragged 120 px right: the view turns left by what keeps the scene under the pointer
+  await page.drag([300, 200], [420, 200], 12);
+  const turned = await page.run(async () => {
+    const frames = await window.still(window.world);
+    return { ...window.angles(window.world), frames, picks: window.world.selected, locked: document.pointerLockElement !== null };
+  });
+  const want = 120 * before.k;
+  const dyaw = turned.yaw - before.yaw;
+  truly(dyaw > want * 0.95 && dyaw < want + 1.2 && Math.abs(turned.pitch - before.pitch) < 0.01, `turned ${dyaw.toFixed(4)} rad, want ${want.toFixed(4)}`);
+  truly(turned.frames >= 1 && turned.picks === null && !turned.locked, `eased over frames, nothing chosen: ${JSON.stringify(turned)}`);
+  // a click (a press that moves 3 px: still a click) does not turn it
+  await page.mouse("mouseMoved", 500, 500);
+  await page.mouse("mousePressed", 500, 500, { down: true });
+  await page.mouse("mouseMoved", 503, 500, { down: true });
+  await page.mouse("mouseReleased", 503, 500);
+  const clicked = await page.run(async () => {
+    await window.still(window.world);
+    return window.angles(window.world);
+  });
+  truly(Math.abs(clicked.yaw - turned.yaw) < 1e-6 && Math.abs(clicked.pitch - turned.pitch) < 1e-6, `a click turned it: ${JSON.stringify(clicked)}`);
+  // dragged far down: it looks up, short of straight up
+  await page.drag([450, 50], [450, 590], 6);
+  await page.drag([450, 50], [450, 590], 6);
+  await page.drag([450, 50], [450, 590], 6);
+  const up = await page.run(async () => {
+    await window.still(window.world);
+    return window.angles(window.world);
+  });
+  truly(up.pitch > 1.3 && up.pitch <= 1.4501, `looking up: ${up.pitch}`);
+  await page.drag([450, 590], [450, 50], 6);
+  await page.drag([450, 590], [450, 50], 6);
+  await page.drag([450, 590], [450, 50], 6);
+  await page.drag([450, 590], [450, 50], 6);
+  await page.drag([450, 590], [450, 50], 6);
+  await page.drag([450, 590], [450, 50], 6);
+  const down = await page.run(async () => {
+    await window.still(window.world);
+    return window.angles(window.world);
+  });
+  truly(down.pitch < -1.3 && down.pitch >= -1.4501, `looking down: ${down.pitch}`);
+});
+
+test("walking, a click acts where the pointer is: an item there chosen, the floor's room chosen, a wall said with the room on its side (Alt with it)", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  await page.run(() => {
+    window.picks = [];
+    window.world.addEventListener("pick", (e) => window.picks.push(e.detail));
+  });
+  await page.click(...r.at);
+  const item = await page.run(async () => {
+    await window.frames(1);
+    return { selected: window.world.selected, pick: window.picks.at(-1) };
+  });
+  truly(item.selected === r.desk && item.pick.item === r.desk && item.pick.floor === r.floor && item.pick.door === null
+    && Math.abs(item.pick.clientX - r.at[0]) < 1, `the desk: ${JSON.stringify(item)}`);
+  await page.click(...r.mid);
+  const room = await page.run(async () => {
+    await window.frames(1);
+    return { selected: window.world.selected, pick: window.picks.at(-1) };
+  });
+  truly(room.selected === r.room && room.pick.space === r.room && !room.pick.item && !room.pick.wall, `the room: ${JSON.stringify(room)}`);
+  // turned to the wall nearest it, level: the wall at the pointer, the room on its side (cancelled: a page paints it)
+  const wall = await page.run(async (r) => {
+    const world = window.world, plan = world.plan(r.floor), [x, z] = r.stand;
+    let best = null;
+    for (const [x1, z1, x2, z2] of plan.obstacles) {
+      const ex = x2 - x1, ez = z2 - z1, t = Math.max(0, Math.min(1, ((x - x1) * ex + (z - z1) * ez) / (ex * ex + ez * ez || 1e-9)));
+      const px = x1 + t * ex, pz = z1 + t * ez, d = Math.hypot(px - x, pz - z);
+      if (d > 0.5 && (!best || d < best.d)) best = { d, at: [px, pz] };
+    }
+    world.select(null, { go: false });
+    await window.standAt(world, r.floor, r.stand, best.at);
+    window.cancel = (e) => e.preventDefault();
+    world.addEventListener("pick", window.cancel);
+    const y = world.package.get(r.floor).properties.elevation + 1.3;
+    return { at: window.screenOf(world, best.at[0], y, best.at[1]), was: world.pointAt(...window.screenOf(world, best.at[0], y, best.at[1])) };
+  }, r);
+  truly(wall.was?.wall, `a wall there: ${JSON.stringify(wall.was)}`);
+  await page.click(...wall.at, { altKey: true });
+  const painted = await page.run(async () => {
+    await window.frames(1);
+    window.world.removeEventListener("pick", window.cancel);
+    return { selected: window.world.selected, pick: window.picks.at(-1) };
+  });
+  truly(painted.pick.wall === true && painted.pick.room === r.room && painted.pick.altKey === true && painted.selected === null,
+    `the wall: ${JSON.stringify(painted)}`);
+});
+
+test("walking, what is under the pointer is said as it changes (hover): an item, the floor and its room (a ring on it); nothing once the pointer is gone (a door: E, above)", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  await page.run(() => {
+    window.hovers = [];
+    window.world.addEventListener("hover", (e) => window.hovers.push(e.detail));
+  });
+  const seen = async () => page.run(async () => {
+    await window.frames(2);
+    const ring = window.world.scene.getObjectByName("walk-ring");
+    return { last: window.hovers.at(-1), n: window.hovers.length, hovered: window.world.hovered, ring: Boolean(ring?.visible),
+      cursor: window.world.renderer.domElement.style.cursor };
+  });
+  await page.mouse("mouseMoved", ...r.at);
+  const onItem = await seen();
+  truly(onItem.last?.item === r.desk && onItem.hovered?.item === r.desk && !onItem.ring && onItem.cursor === "pointer", `on the desk: ${JSON.stringify(onItem)}`);
+  await page.mouse("mouseMoved", ...r.mid);
+  const onFloor = await seen();
+  truly(onFloor.last?.space === r.room && !onFloor.last.item && !onFloor.last.wall && onFloor.ring && onFloor.cursor === "",
+    `on the floor: ${JSON.stringify(onFloor)}`);
+  // moved a little on the same floor: nothing new said
+  await page.mouse("mouseMoved", r.mid[0] + 2, r.mid[1] + 1);
+  const same = await seen();
+  truly(same.n === onFloor.n, `the same room, said again: ${same.n} ${onFloor.n}`);
+  await page.run(() => window.away(window.world));
+  const gone = await seen();
+  truly(gone.last === null && gone.hovered === null && !gone.ring, `the pointer gone: ${JSON.stringify(gone)}`);
+});
+
+test("walking, a double-click on the floor glides there, frame by frame; at a wall it stops before it; something in the way at once: refused", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  // the floor a metre ahead, between the walker and the desk
+  const target = await page.run(async (r) => {
+    const world = window.world, [x, z] = r.stand, [dx, dz] = r.d, l = Math.hypot(dx - x, dz - z);
+    const to = [x + ((dx - x) / l) * 0.9, z + ((dz - z) / l) * 0.9];
+    window.glides = [];
+    if (!window.glideHeard) world.addEventListener("glide", (e) => window.glides.push(e.detail));
+    window.glideHeard = true;
+    return { to, at: window.screenOf(world, to[0], world.package.get(r.floor).properties.elevation, to[1]) };
+  }, r);
+  await page.click(...target.at);
+  await page.click(...target.at);
+  const went = await page.run(async (to) => {
+    const done = await window.glided(window.world);
+    const p = window.world.player;
+    return { done, off: Math.hypot(p.x - to[0], p.z - to[1]), glides: window.glides.map((g) => g.state) };
+  }, target.to);
+  truly(went.glides[0] === "going" && went.done.state === "there" && went.off < 0.05 && went.done.frames >= 3,
+    `glided: ${JSON.stringify(went)}`);
+  // at a wall: stopped before it, the walker's reach from it
+  const wall = await page.run(async (r) => {
+    const world = window.world, plan = world.plan(r.floor), p = world.player;
+    let best = null;
+    for (const [x1, z1, x2, z2] of plan.obstacles) {
+      const ex = x2 - x1, ez = z2 - z1, t = Math.max(0.2, Math.min(0.8, ((p.x - x1) * ex + (p.z - z1) * ez) / (ex * ex + ez * ez || 1e-9)));
+      const px = x1 + t * ex, pz = z1 + t * ez, d = Math.hypot(px - p.x, pz - p.z);
+      if (d > 1 && d < 4 && (!best || d < best.d)) best = { d, at: [px, pz] };
+    }
+    await window.standAt(world, r.floor, [p.x, p.z], best.at, -0.45);
+    window.glides = [];
+    const y = world.package.get(r.floor).properties.elevation + 0.6;
+    return { at: window.screenOf(world, best.at[0], y, best.at[1]), d: best.d };
+  }, r);
+  await page.click(...wall.at);
+  await page.click(...wall.at);
+  const stopped = await page.run(async (r) => {
+    const done = await window.glided(window.world);
+    const p = window.world.player, plan = window.world.plan(r.floor);
+    const near = Math.min(...plan.obstacles.map(([x1, z1, x2, z2]) => {
+      const ex = x2 - x1, ez = z2 - z1, t = Math.max(0, Math.min(1, ((p.x - x1) * ex + (p.z - z1) * ez) / (ex * ex + ez * ez || 1e-9)));
+      return Math.hypot(x1 + t * ex - p.x, z1 + t * ez - p.z);
+    }));
+    return { done, near };
+  }, r);
+  truly(stopped.done.state === "there" && stopped.near >= 0.2 && stopped.near < 0.4, `at the wall: ${JSON.stringify(stopped)} (it was ${wall.d.toFixed(2)} m off)`);
+  // the same wall again, there already: refused, said by the pointer for a moment
+  await page.run(() => { window.glides = []; });
+  await new Promise((res) => setTimeout(res, 500)); // (not a double-click with the last)
+  await page.click(...wall.at);
+  await page.click(...wall.at);
+  const refused = await page.run(async () => {
+    await window.frames(2);
+    const hint = document.querySelector("#w .sp3d-door-hint");
+    return { glides: window.glides.map((g) => g.state), hint: hint.style.display !== "none" ? hint.textContent : null };
+  });
+  truly(refused.glides.join() === "refused" && refused.hint === "Something is in the way", `refused: ${JSON.stringify(refused)}`);
+});
+
+test("walking, a double-click on the floor seen through a shut door: its first click opens the door, its second glides through", async () => {
+  const floor = await doorFloor();
+  const a = await page.run(async (floor) => {
+    const world = window.world;
+    world.setDoors("manual"); // (not opened by walking into it: by the click)
+    window.away(world);
+    const door = window.doorWithRoom(world, floor);
+    world.setDoorOpen(door.id, false, { instant: true });
+    window.doorEvents.length = 0;
+    const { m, n } = door;
+    await window.standAt(world, floor, [m[0] - n[0] * 1.5, m[1] - n[1] * 1.5], m, -0.35);
+    window.glides = [];
+    if (!window.glideHeard) world.addEventListener("glide", (e) => window.glides.push(e.detail));
+    window.glideHeard = true;
+    const to = [m[0] + n[0] * 1.2, m[1] + n[1] * 1.2];
+    const at = window.screenOf(world, to[0], world.package.get(floor).properties.elevation, to[1]);
+    return { id: door.id, to, from: [m[0] - n[0] * 1.5, m[1] - n[1] * 1.5], n, at, aimed: world.pointAt(...at) };
+  }, floor);
+  await new Promise((res) => setTimeout(res, 500)); // (not a double-click with an earlier click)
+  await page.click(...a.at);
+  await page.click(...a.at);
+  const through = await page.run(async (a) => {
+    const done = await window.glided(window.world);
+    const p = window.world.player;
+    return { done, gone: (p.x - a.from[0]) * a.n[0] + (p.z - a.from[1]) * a.n[1], events: window.doorEvents.slice() };
+  }, a);
+  truly(through.events.length === 1 && through.events[0].id === a.id && through.events[0].open === true, `opened by the first click: ${JSON.stringify(through)}`);
+  truly(through.done.state === "there" && through.gone > 2.6, `through the door: ${JSON.stringify(through)}`);
+  await page.run(() => window.world.setDoors("auto"));
+});
+
+test("walking on a touch screen: a finger dragged looks round, a tap acts, a double tap glides, two fingers do neither", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  const before = await page.run(() => ({ ...window.angles(window.world), k: (window.world.camera.fov * Math.PI) / 180 / 600 }));
+  await page.touch("touchStart", [[300, 300]]);
+  for (let i = 1; i <= 9; i++) await page.touch("touchMove", [[300 + i * 10, 300]]);
+  await page.touch("touchEnd", []);
+  const turned = await page.run(async () => {
+    await window.still(window.world);
+    return { ...window.angles(window.world), selected: window.world.selected };
+  });
+  const dyaw = turned.yaw - before.yaw, want = 90 * before.k;
+  truly(dyaw > want * 0.95 && dyaw < want + 1.2 && turned.selected === null, `a finger turned it ${dyaw.toFixed(4)}, want ${want.toFixed(4)}`);
+  // a tap on the desk (where it is now): chosen
+  const at = await page.run((r) => {
+    const world = window.world, d = r.d, top = world.package.get(r.floor).properties.elevation + 0.45;
+    return window.screenOf(world, d[0], top, d[1]);
+  }, r);
+  await page.touch("touchStart", [at]);
+  await page.touch("touchEnd", []);
+  const tapped = await page.run(async () => {
+    await window.frames(1);
+    return window.world.selected;
+  });
+  truly(tapped === r.desk, `a tap on the desk: ${tapped}`);
+  // two fingers: neither a look nor a tap
+  const two = await page.run(() => ({ ...window.angles(window.world), selected: window.world.selected }));
+  await page.run(() => window.world.select(null, { go: false }));
+  await page.touch("touchStart", [[300, 300], [500, 300]]);
+  for (let i = 1; i <= 6; i++) await page.touch("touchMove", [[300 - i * 12, 300], [500 + i * 12, 300]]);
+  await page.touch("touchEnd", []);
+  const pinched = await page.run(async () => {
+    await window.still(window.world);
+    return { ...window.angles(window.world), selected: window.world.selected };
+  });
+  truly(Math.abs(pinched.yaw - two.yaw) < 1e-6 && pinched.selected === null, `two fingers: ${JSON.stringify(pinched)}`);
+  // a double tap on the floor: glided there
+  const floorAt = await page.run((r) => {
+    const world = window.world, p = world.player, l = Math.hypot(p.dx, p.dz);
+    const to = [p.x + (p.dx / l) * 1.0, p.z + (p.dz / l) * 1.0];
+    window.glides = [];
+    return { to, at: window.screenOf(world, to[0], world.package.get(r.floor).properties.elevation, to[1]) };
+  }, r);
+  await new Promise((res) => setTimeout(res, 500));
+  await page.touch("touchStart", [floorAt.at]);
+  await page.touch("touchEnd", []);
+  await page.touch("touchStart", [[floorAt.at[0] + 6, floorAt.at[1] + 4]]);
+  await page.touch("touchEnd", []);
+  const glided = await page.run(async (to) => {
+    const done = await window.glided(window.world);
+    const p = window.world.player;
+    return { done, off: Math.hypot(p.x - to[0], p.z - to[1]) };
+  }, floorAt.to);
+  truly(glided.done.state === "there" && glided.off < 0.15, `a double tap glided: ${JSON.stringify(glided)}`);
+});
+
+test("walking, a right-click (or a long press) says menu with what is there; a right-drag looks and says none; so does the dollhouse view's right-click", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  await page.run(() => {
+    window.menus = [];
+    if (!window.menuHeard) window.world.addEventListener("menu", (e) => window.menus.push(e.detail));
+    window.menuHeard = true;
+  });
+  const right = (type, x, y, buttons) => page.send("Input.dispatchMouseEvent", { type, x, y, button: "right", buttons, clickCount: 1 });
+  await page.mouse("mouseMoved", ...r.at);
+  await right("mousePressed", ...r.at, 2);
+  await right("mouseReleased", ...r.at, 0);
+  const said = await page.run(async () => {
+    await window.frames(1);
+    return { menus: window.menus.slice(), angles: window.angles(window.world), selected: window.world.selected };
+  });
+  truly(said.menus.length === 1 && said.menus[0].item === r.desk && Math.abs(said.menus[0].clientX - r.at[0]) < 1 && said.selected === null,
+    `a right-click on the desk: ${JSON.stringify(said)}`);
+  await right("mousePressed", 400, 300, 2);
+  for (let i = 1; i <= 6; i++) await right("mouseMoved", 400 - i * 10, 300, 2);
+  await right("mouseReleased", 340, 300, 0);
+  const dragged = await page.run(async () => {
+    await window.still(window.world);
+    return { menus: window.menus.length, angles: window.angles(window.world) };
+  });
+  truly(dragged.menus === 1 && dragged.angles.yaw < said.angles.yaw - 0.05, `a right-drag looked: ${JSON.stringify(dragged)} ${JSON.stringify(said.angles)}`);
+  // a long press of a finger
+  await page.touch("touchStart", [r.mid]);
+  await page.run(() => new Promise((res) => setTimeout(res, 800)));
+  await page.touch("touchEnd", []);
+  const held = await page.run(async () => {
+    await window.frames(1);
+    return { menus: window.menus.slice(1), selected: window.world.selected };
+  });
+  truly(held.menus.length === 1 && held.menus[0].space === r.room && held.menus[0].pointerType === "touch" && held.selected === null,
+    `a long press: ${JSON.stringify(held)}`);
+  // the dollhouse view: a right-click says menu; a right-drag (moving the view) does not
+  const dollhouse = await page.run(async () => {
+    window.world.setMode("dollhouse");
+    window.menus = [];
+    await window.frames(2);
+    return true;
+  });
+  truly(dollhouse, "the dollhouse view");
+  await right("mousePressed", 450, 300, 2);
+  await right("mouseReleased", 450, 300, 0);
+  await right("mousePressed", 450, 300, 2);
+  for (let i = 1; i <= 4; i++) await right("mouseMoved", 450 + i * 12, 300, 2);
+  await right("mouseReleased", 498, 300, 0);
+  const orbit = await page.run(async () => {
+    await window.frames(1);
+    return window.menus.length;
+  });
+  truly(orbit === 1, `the dollhouse view's menus: ${orbit}`);
+});
+
+test("walking, the item chosen is carried by a drag (itemdrag…), the view held; a drag elsewhere, or on an item not chosen, looks", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  await page.run((r) => {
+    const world = window.world;
+    window.dragged = [];
+    if (!window.dragHeard) for (const type of ["itemdragstart", "itemdrag", "itemdragend"]) world.addEventListener(type, (e) => window.dragged.push({ type, ...e.detail }));
+    window.dragHeard = true;
+    world.setDraggable(true);
+    world.select(r.desk, { go: false });
+  }, r);
+  const before = await page.run(() => window.angles(window.world));
+  await page.drag(r.at, [r.at[0] + 60, r.at[1] + 30], 8);
+  const carried = await page.run(async () => {
+    await window.still(window.world);
+    const e = window.dragged.map((d) => d.type);
+    return { e, first: window.dragged[0], last: window.dragged.at(-1), angles: window.angles(window.world) };
+  });
+  truly(carried.e[0] === "itemdragstart" && carried.e.at(-1) === "itemdragend" && carried.e.filter((t) => t === "itemdrag").length >= 4
+    && carried.first.id === r.desk && Math.abs(carried.angles.yaw - before.yaw) < 1e-6, `carried: ${JSON.stringify(carried)}`);
+  // nothing chosen: the same drag looks
+  await page.run(() => {
+    window.dragged = [];
+    window.world.select(null, { go: false });
+  });
+  await page.drag(r.at, [r.at[0] + 60, r.at[1]], 8);
+  const looked = await page.run(async () => {
+    await window.still(window.world);
+    const n = window.dragged.length;
+    window.world.setDraggable(false);
+    return { n, angles: window.angles(window.world) };
+  });
+  truly(looked.n === 0 && looked.angles.yaw > before.yaw + 0.05, `not chosen, it looks: ${JSON.stringify(looked)}`);
+});
+
+test("walking, the wheel steps on (back, towards you); a pinch (Ctrl and the wheel) zooms nothing and moves nothing", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  const from = await page.run(() => ({ ...window.world.player, fov: window.world.camera.fov }));
+  await page.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 450, y: 300, deltaX: 0, deltaY: -100 });
+  const on = await page.run(async (from) => {
+    for (let i = 0; i < 60; i++) await window.frames(1);
+    const p = window.world.player;
+    return (p.x - from.x) * from.dx + (p.z - from.z) * from.dz;
+  }, from);
+  truly(on > 0.5 && on < 0.85, `a step on: ${on.toFixed(3)} m`);
+  await page.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 450, y: 300, deltaX: 0, deltaY: -300, modifiers: 2 });
+  const pinched = await page.run(async (from) => {
+    const was = window.world.player;
+    for (let i = 0; i < 20; i++) await window.frames(1);
+    const p = window.world.player;
+    return { moved: Math.hypot(p.x - was.x, p.z - was.z), fov: window.world.camera.fov, want: from.fov };
+  }, from);
+  truly(pinched.moved < 1e-6 && pinched.fov === pinched.want, `a pinch: ${JSON.stringify(pinched)}`);
+});
+
+test("walking, the walker's keys are not those typed in a field, nor in a dialog, nor those the page took first; let go of when the window is left", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  const moved = await page.run(async () => {
+    const world = window.world, from = world.player;
+    const gone = () => Math.hypot(world.player.x - from.x, world.player.z - from.z);
+    const field = document.body.appendChild(Object.assign(document.createElement("input"), { id: "typed" }));
+    field.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW", key: "w", bubbles: true }));
+    await window.frames(6);
+    const typed = gone();
+    field.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW", key: "w", bubbles: true }));
+    field.remove();
+    const took = (e) => e.preventDefault();
+    document.addEventListener("keydown", took);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowUp", key: "ArrowUp", bubbles: true, cancelable: true }));
+    await window.frames(6);
+    const taken = gone();
+    document.removeEventListener("keydown", took);
+    document.body.dispatchEvent(new KeyboardEvent("keyup", { code: "ArrowUp", key: "ArrowUp", bubbles: true }));
+    // held, then the window left: let go of
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyW", key: "w" }));
+    await window.frames(3);
+    window.dispatchEvent(new Event("blur"));
+    const at = gone();
+    await window.frames(6);
+    return { typed, taken, held: at, after: gone() };
+  });
+  truly(moved.typed < 1e-6 && moved.taken < 1e-6, `keys not the walker's moved it: ${JSON.stringify(moved)}`);
+  truly(moved.held > 0 && Math.abs(moved.after - moved.held) < 1e-6, `the window left, it stopped: ${JSON.stringify(moved)}`);
+});
+
+test("mark: a room's floor, its walls' faces towards it, or an item, lightly; the ring under the pointer not with it; null: nothing", async () => {
+  const r = await beforeADesk();
+  truly(r, "a desk to stand before");
+  await page.mouse("mouseMoved", ...r.mid);
+  const got = await page.run(async (r) => {
+    const world = window.world;
+    const mark = () => {
+      const m = world.scene.getObjectByName("mark");
+      if (!m) return null;
+      const pos = m.geometry.getAttribute("position");
+      m.geometry.computeBoundingBox();
+      return { parent: m.parent.name, tris: (m.geometry.index ? m.geometry.index.count : pos.count) / 3, box: m.geometry.boundingBox.min.toArray().concat(m.geometry.boundingBox.max.toArray()) };
+    };
+    const ring = () => Boolean(world.scene.getObjectByName("walk-ring")?.visible);
+    await window.frames(2);
+    const ringBefore = ring();
+    world.mark({ floor: r.room });
+    await window.frames(2);
+    const floor = mark(), ringWith = ring();
+    world.mark({ walls: r.room });
+    const walls = mark();
+    world.mark({ item: r.desk });
+    const item = mark();
+    world.mark(null);
+    await window.frames(2);
+    return { floor, walls, item, gone: mark(), ringBefore, ringWith, ringAfter: ring(), elevation: world.package.get(r.floor).properties.elevation };
+  }, r);
+  truly(got.floor?.parent === r.floor && got.floor.tris >= 2 && Math.abs(got.floor.box[1] - got.elevation - 0.025) < 0.01, `the floor: ${JSON.stringify(got.floor)}`);
+  truly(got.walls?.tris >= 8 && got.walls.box[4] - got.walls.box[1] > 2, `the walls: ${JSON.stringify(got.walls)}`);
+  truly(got.item?.tris >= 12 && got.gone === null, `the item, then none: ${JSON.stringify(got)}`);
+  truly(got.ringBefore && !got.ringWith && got.ringAfter, `the ring: ${JSON.stringify(got)}`);
+  await page.run(() => window.away(window.world));
+});
+
+test("walking never asks for the mouse: no pointer lock; startWalking and stopWalking still there, the walk view and nothing", async () => {
+  const r = await page.run(async () => {
+    const world = window.world;
+    world.setMode("dollhouse");
+    const said = [];
+    world.addEventListener("walklock", (e) => said.push(e.detail.locked));
+    world.startWalking();
+    const walking = [world.mode, world.walking];
+    world.stopWalking();
+    await window.frames(2);
+    const still = [world.mode, world.walking];
+    world.setMode("dollhouse");
+    return { walking, still, said, locks: window.locks, element: document.pointerLockElement };
+  });
+  truly(r.walking.join() === "walk,true" && r.still.join() === "walk,true" && r.said.join() === "true,false", JSON.stringify(r));
+  truly(r.locks === 0 && r.element === null, `the mouse asked for: ${r.locks} times`);
+});
+
 test("destroy empties the container", async () => {
   const left = await page.run(() => {
     window.world.destroy();
@@ -2354,7 +2917,9 @@ test("destroy empties the container", async () => {
 });
 
 let failed = 0;
-for (const t of tests) {
+// ONLY=<words>: only the tests whose names have them (the others' state is not needed by any)
+const only = process.env.ONLY?.toLowerCase();
+for (const t of tests.filter((x) => !only || x.name.toLowerCase().includes(only))) {
   try {
     await page.run(() => window.idle?.(false));
     await t.fn();
@@ -2372,5 +2937,5 @@ if (page.errors.length) {
 }
 page.close();
 server.close();
-console.log(failed ? `${failed} failed` : `all ${tests.length} passed`);
+console.log(failed ? `${failed} failed` : `all ${only ? tests.filter((x) => x.name.toLowerCase().includes(only)).length : tests.length} passed`);
 process.exit(failed ? 1 : 0);

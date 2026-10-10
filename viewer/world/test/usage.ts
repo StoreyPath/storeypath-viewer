@@ -38,8 +38,9 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 	const officeWalls: string = FINISHES.defaults.wall['office'] ?? FINISHES.exterior;
 	world.addEventListener('pick', (e) => {
 		const p: WorldPoint = e.detail;
-		const door: string | null = e.detail.door; // walking, a door within reach: it opens or shuts
+		const door: string | null = e.detail.door; // walking, a door within reach under the pointer: it opens or shuts
 		if (door) return;
+		console.log(e.detail.clientX, e.detail.clientY, e.detail.pointerType);
 		if (p.wall && p.room) world.updateSpace(p.room, { wall_finish: officeWalls });
 		else if (p.space && navy) world.updateSpace(p.space, { floor_finish: navy.code });
 		const shown: string = floorFinish(office?.properties ?? null);
@@ -61,11 +62,28 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 	console.log(back, world.worldPoint([0, 0])?.x, world.target.x, world.paused, world.draggable);
 	world.updateSpace(office?.id ?? '', { name: 'Board room', type: 'meeting_room' });
 	world.setMode('walk', { at: world.target, heading: 0 });
-	// doors: opened and shut by the walker (a click or E at one, or walking into it) or here
+	// walking, the mouse is never taken: a drag looks, a click acts at the pointer, a double-click glides there
+	world.lookSensitivity = 1.25;
+	world.addEventListener('hover', (e) => {
+		const now: (WorldPoint & { door: { id: string; open: boolean } | null }) | null = e.detail;
+		if (!now) return world.mark(null);
+		if (now.wall && now.room) world.mark({ walls: now.room });
+		else if (now.item) world.mark({ item: now.item });
+		else world.mark(now.space ? { floor: now.space } : null);
+		console.log(now.door?.open ?? 'no door', world.hovered?.space);
+	});
+	world.addEventListener('menu', (e) => console.log('menu at', e.detail.clientX, e.detail.clientY, e.detail.item ?? e.detail.space, e.detail.door));
+	world.addEventListener('glide', (e) => {
+		const state: 'going' | 'there' | 'stopped' | 'refused' = e.detail.state;
+		console.log(state, e.detail.x, e.detail.z);
+	});
+	// doors: opened and shut by the walker (a click on one, E, or walking into it) or here
 	const mode: DoorMode = world.doors === 'auto' ? 'manual' : 'auto';
 	world.setDoors(mode);
 	world.addEventListener('doorchange', (e) => console.log(e.detail.id, e.detail.open ? 'opened' : 'shut', e.detail.floor));
-	world.addEventListener('dooraim', (e) => console.log(e.detail.id ?? 'no door', e.detail.open));
+	world.addEventListener('dooraim', (e) => console.log(e.detail.id ?? 'no door', e.detail.open, e.detail.under ? 'under the pointer' : 'ahead'));
+	const used: { id: string; open: boolean } | null = world.useDoor();
+	console.log(used?.id, world.aimedDoor?.under);
 	const doors: WorldDoor[] = floor ? world.plan(floor)?.doors ?? [] : [];
 	const first = doors[0];
 	if (first) {
@@ -73,7 +91,6 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 		const open: boolean | null = world.toggleDoor(first.id);
 		console.log(had, open, world.doorOpen(first.id), first.leaves[0]?.[1], world.aimedDoor?.open);
 	}
-	world.stopWalking();
 	world.setMode('dollhouse', { back: true });
 	world.pause();
 	world.resume();
