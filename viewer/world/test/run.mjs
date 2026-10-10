@@ -2865,9 +2865,17 @@ test("mark: a room's floor, its walls' faces towards it, or an item, lightly; th
     const mark = () => {
       const m = world.scene.getObjectByName("mark");
       if (!m) return null;
-      const pos = m.geometry.getAttribute("position");
-      m.geometry.computeBoundingBox();
-      return { parent: m.parent.name, tris: (m.geometry.index ? m.geometry.index.count : pos.count) / 3, box: m.geometry.boundingBox.min.toArray().concat(m.geometry.boundingBox.max.toArray()) };
+      let tris = 0;
+      const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      m.traverse((o) => {
+        if (!o.isMesh) return;
+        const pos = o.geometry.getAttribute("position");
+        tris += (o.geometry.index ? o.geometry.index.count : pos.count) / 3;
+        for (let i = 0; i < pos.count; i++) {
+          [pos.getX(i), pos.getY(i), pos.getZ(i)].forEach((v, k) => { lo[k] = Math.min(lo[k], v); hi[k] = Math.max(hi[k], v); });
+        }
+      });
+      return { parent: m.parent.name, tris, box: [...lo, ...hi], parts: m.children.length };
     };
     const ring = () => Boolean(world.scene.getObjectByName("walk-ring")?.visible);
     await window.frames(2);
@@ -2883,7 +2891,8 @@ test("mark: a room's floor, its walls' faces towards it, or an item, lightly; th
     await window.frames(2);
     return { floor, walls, item, gone: mark(), ringBefore, ringWith, ringAfter: ring(), elevation: world.package.get(r.floor).properties.elevation };
   }, r);
-  truly(got.floor?.parent === r.floor && got.floor.tris >= 2 && Math.abs(got.floor.box[1] - got.elevation - 0.025) < 0.01, `the floor: ${JSON.stringify(got.floor)}`);
+  truly(got.floor?.parent === r.floor && got.floor.tris >= 2 && got.floor.parts === 2 && Math.abs(got.floor.box[1] - got.elevation - 0.025) < 0.01,
+    `the floor, its edge drawn: ${JSON.stringify(got.floor)}`);
   truly(got.walls?.tris >= 8 && got.walls.box[4] - got.walls.box[1] > 2, `the walls: ${JSON.stringify(got.walls)}`);
   truly(got.item?.tris >= 12 && got.gone === null, `the item, then none: ${JSON.stringify(got)}`);
   truly(got.ringBefore && !got.ringWith && got.ringAfter, `the ring: ${JSON.stringify(got)}`);

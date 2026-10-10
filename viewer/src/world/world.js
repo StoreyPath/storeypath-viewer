@@ -938,31 +938,54 @@ export class StoreyPathWorld extends EventTarget {
     this.#aimFrom = null; // (walking: the ring under the pointer, not with a mark)
     if (this.#mark) {
       this.#mark.removeFromParent();
-      this.#mark.geometry.dispose();
+      this.#mark.traverse((o) => o.geometry?.dispose());
       this.#mark = null;
     }
     if (!target) return;
-    let floor = null, geometry = null;
+    this.#markLook ??= {
+      fill: new THREE.MeshBasicMaterial({ color: 0x3d7bff, transparent: true, opacity: 0.26, depthWrite: false, toneMapped: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      edge: new THREE.MeshBasicMaterial({ color: 0x3d7bff, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false,
+        side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
+    };
+    const group = new THREE.Group();
+    const add = (geometry, look, order) => {
+      if (!geometry) return;
+      const mesh = new THREE.Mesh(geometry, look);
+      mesh.renderOrder = order;
+      mesh.raycast = () => {};
+      group.add(mesh);
+    };
+    let floor = null;
     if (target.item) {
       const found = this.#findItem(target.item);
-      if (found) [floor, geometry] = [found.floor, itemBox(found.floor.plan, found.item)];
+      if (found) {
+        floor = found.floor;
+        add(itemBox(found.floor.plan, found.item), this.#markLook.fill, 4);
+      }
     } else if (target.floor) {
+      // the floor, tinted, its edge drawn: seen whatever it is finished in
       const found = this.#findSpace(target.floor);
-      if (found) [floor, geometry] = [found.floor, flat(found.space.rings, found.floor.elevation + 0.025)];
+      if (found) {
+        floor = found.floor;
+        const y = found.floor.elevation + 0.025;
+        add(flat(found.space.rings, y), this.#markLook.fill, 4);
+        const edges = found.space.rings.map((rings) => ribbon(rings[0].map(([x, n]) => [x, -n]).concat([[rings[0][0][0], -rings[0][0][1]]]), y + 0.004, 0.07));
+        add(edges.length > 1 ? mergeGeometries(edges) : edges[0], this.#markLook.edge, 5);
+        if (edges.length > 1) for (const e of edges) e.dispose();
+      }
     } else if (target.walls) {
       const found = this.#findSpace(target.walls);
-      if (found) [floor, geometry] = [found.floor, this.#wallFaces(found.floor, found.space.space ?? found.space.id)];
+      if (found) {
+        floor = found.floor;
+        add(this.#wallFaces(found.floor, found.space.space ?? found.space.id), this.#markLook.fill, 4);
+      }
     }
-    if (!geometry) return;
-    this.#markLook ??= new THREE.MeshBasicMaterial({ color: 0x4d8dff, transparent: true, opacity: 0.3, depthWrite: false,
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    const mesh = new THREE.Mesh(geometry, this.#markLook);
-    mesh.name = "mark";
-    mesh.renderOrder = 4;
-    mesh.userData.key = key;
-    mesh.raycast = () => {};
-    floor.group.add(mesh);
-    this.#mark = mesh;
+    if (!floor || !group.children.length) return;
+    group.name = "mark";
+    group.userData.key = key;
+    floor.group.add(group);
+    this.#mark = group;
   }
 
   #markLook = null;
@@ -974,7 +997,7 @@ export class StoreyPathWorld extends EventTarget {
     if (index < 0) return null;
     const out = [];
     for (const mesh of f.pieces) {
-      if (mesh.userData.material !== "wall") continue;
+      if (mesh.userData.material !== "wall" || !mesh.visible) continue; // (the walls shown: full, or cut low)
       const g = mesh.geometry, room = g.getAttribute("_room"), pos = g.getAttribute("position"), nor = g.getAttribute("normal");
       if (!room || !pos) continue;
       const idx = g.index, n = idx ? idx.count : pos.count;
