@@ -288,7 +288,7 @@
 
 /* dark, as Studio's plan: walls dark between the rooms, light labels */
 @media (prefers-color-scheme: dark) {
-  .sp-plan:not(.sp-theme-light) {
+  .sp-plan:where(:not(.sp-theme-light)) { /* (as specific as .sp-plan alone: a page's rule for it still wins) */
     --sp-outline: #34343a;
     --sp-unit-stroke: rgba(255, 255, 255, 0.22);
     --sp-zone-stroke: rgba(255, 255, 255, 0.35);
@@ -315,7 +315,7 @@
     --sp-route-chip-sub: #9aa0aa;
     --sp-route-shadow: rgba(0, 0, 0, 0.5);
   }
-  .sp-plan.sp-style-wayfinding:not(.sp-theme-light) {
+  .sp-plan.sp-style-wayfinding:where(:not(.sp-theme-light)) {
     --sp-outline: #1e2024;
     --sp-fill-opacity: 0.12;
     --sp-unit-stroke: rgba(255, 255, 255, 0.075);
