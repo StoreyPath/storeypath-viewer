@@ -2752,8 +2752,8 @@ export class StoreyPathWorld extends EventTarget {
    * click, as placing an item there), else what was clicked is chosen; a right-click says
    * ``menu``. Walking (the walker tells a click from a drag that looks): a click at the
    * pointer says ``pick`` too, else the door there within reach is opened or shut (the pick
-   * says which: ``door``) or what is there chosen; a double-click (a double tap) glides to
-   * the floor there; a right-click (a long press) says ``menu``. A press on an item that
+   * says which: ``door``) or what is there chosen (a room, once the click is not a
+   * double-click's first); a double-click (a double tap) glides to the floor there; a right-click (a long press) says ``menu``. A press on an item that
    * moves, where items may be carried (setDraggable; walking, the item chosen): the item
    * dragged. */
   #pointerPicking() {
@@ -2847,16 +2847,22 @@ export class StoreyPathWorld extends EventTarget {
     const pick = new CustomEvent("pick", { cancelable: true, detail: { ...(p ?? NOWHERE), door: under?.door.id ?? null, button,
       altKey, shiftKey, clientX, clientY, pointerType } });
     this.dispatchEvent(pick);
+    clearTimeout(this.#choosing);
     if (pick.defaultPrevented) return;
     if (under) this.#setDoor(f, under.door, !under.door.open); // opened or shut, not chosen
-    else this.select(p?.item ?? p?.space ?? null, { go: false });
+    else if (p?.item) this.select(p.item, { go: false });
+    // the floor's room: once it is not the first click of a double-click (which goes there)
+    else this.#choosing = setTimeout(() => this.#mode === "walk" && this.select(p?.space ?? null, { go: false }), LOOK.double * 1000);
   }
+
+  #choosing = 0; // walking: a room to be chosen, unless the click was a double-click's first
 
   /** Walking: a double-click (a double tap) glides to the floor there, as far as nothing is
    * in the way; refused (said by the pointer for a moment, and ``glide``) when something is
    * at once, or nothing of the walker's floor is there. */
   #walkGlide({ clientX, clientY }) {
     if (this.#mode !== "walk") return;
+    clearTimeout(this.#choosing); // (its first click chose nothing: it goes there)
     const p = this.pointAt(clientX, clientY);
     const to = p && p.floor === this.#walkFloor ? this.#walker.glideTo(p.x, p.z) : null;
     if (to) return;

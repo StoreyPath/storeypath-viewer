@@ -228,7 +228,7 @@ world stays usable.
 | look round | drag with the left or right button, or one finger: the scene stays under the pointer, eased a little, and turns on a moment when let go of while moving (not with reduced motion); up and down stop short of straight up |
 | move | <kbd>W A S D</kbd> or the arrow keys, <kbd>Shift</kbd> to run; the wheel a step on or back (a pinch zooms nothing) |
 | go there | double-click (or double-tap) the floor: the walker glides there along a straight line, stopping before a wall or anything in the way (a key stops it); refused with a word by the pointer when something is in the way at once |
-| act | a click (a press that moves less than 4 px; a finger's, 10) at the pointer: `pick` says what is there, and unless the page takes it, a door within reach opens or shuts, else what is there is chosen; a right-click or a long press says `menu` |
+| act | a click (a press that moves less than 4 px; a finger's, 10) at the pointer: `pick` says what is there, and unless the page takes it, a door within reach opens or shuts, else what is there is chosen (a floor's room a moment later, when the click is not the first of a double-click: that only goes there); a right-click or a long press says `menu` |
 | see | what is under the pointer is said as it changes (`hover`); a ring on the floor shows where a double-click would go, the pointer is a hand over what a click acts on, and the door hint is by the pointer |
 
 Walls and windows stop you, and shut doors; doorways and open doors don't. Floor

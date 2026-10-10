@@ -2505,11 +2505,14 @@ test("walking, a click acts where the pointer is: an item there chosen, the floo
   truly(item.selected === r.desk && item.pick.item === r.desk && item.pick.floor === r.floor && item.pick.door === null
     && Math.abs(item.pick.clientX - r.at[0]) < 1, `the desk: ${JSON.stringify(item)}`);
   await page.click(...r.mid);
-  const room = await page.run(async () => {
-    await window.frames(1);
-    return { selected: window.world.selected, pick: window.picks.at(-1) };
-  });
-  truly(room.selected === r.room && room.pick.space === r.room && !room.pick.item && !room.pick.wall, `the room: ${JSON.stringify(room)}`);
+  const room = await page.run(async (room) => {
+    // (a room is chosen once the click is not a double-click's first: a moment later)
+    const first = window.world.selected;
+    for (let i = 0; i < 400 && window.world.selected !== room; i++) await window.frames(1);
+    return { first, selected: window.world.selected, pick: window.picks.at(-1) };
+  }, r.room);
+  truly(room.first !== r.room && room.selected === r.room && room.pick.space === r.room && !room.pick.item && !room.pick.wall,
+    `the room, a moment later: ${JSON.stringify(room)}`);
   // turned to the wall nearest it, level: the wall at the pointer, the room on its side (cancelled: a page paints it)
   const wall = await page.run(async (r) => {
     const world = window.world, plan = world.plan(r.floor), [x, z] = r.stand;
@@ -2587,6 +2590,11 @@ test("walking, a double-click on the floor glides there, frame by frame; at a wa
   }, target.to);
   truly(went.glides[0] === "going" && went.done.state === "there" && went.off < 0.05 && went.done.frames >= 3,
     `glided: ${JSON.stringify(went)}`);
+  const chose = await page.run(async () => {
+    await new Promise((res) => setTimeout(res, 600)); // (past when a single click would have chosen it)
+    return window.world.selected;
+  });
+  truly(chose === null, `a double-click chose ${chose}: it only goes there`);
   // at a wall: stopped before it, the walker's reach from it
   const wall = await page.run(async (r) => {
     const world = window.world, plan = world.plan(r.floor), p = world.player;

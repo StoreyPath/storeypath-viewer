@@ -302,7 +302,8 @@ export interface WorldEvents {
 	/** A click (a press that does not move a few pixels; a tap) at a point of the view, in either view: what is
 	 * there, and walking, the door within reach there (`door`: under the pointer; an open door is looked through,
 	 * its leaf is on it). Cancelable: unless a listener calls preventDefault, what was clicked is chosen (walking,
-	 * on a door: the door opened or shut). */
+	 * on a door: the door opened or shut; on a floor, its room a moment later, unless the click is a double-click's
+	 * first, which goes there). */
 	pick: WorldPoint & { door: string | null; button: number; altKey: boolean; shiftKey: boolean; clientX: number; clientY: number;
 		pointerType: string };
 	/** A right-click (a press of the right button that does not move: a right-drag looks or moves the view), or
