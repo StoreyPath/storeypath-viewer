@@ -402,8 +402,8 @@ inChrome("draws the items over the spaces and under the labels, each with a mark
       ap: [ap.classList.contains("sp-item-overhead"), ap.querySelectorAll("path").length, /scale\(1,-1\)/.test(ap.getAttribute("transform"))],
       fronts: count(".sp-item-front"), buttons: count('.sp-items [role="button"][tabindex="0"]'),
       fill: getComputedStyle(document.querySelector(".sp-item-copier .sp-item-body")).fill,
-      labelsLast: [...document.querySelector(".sp-plan").children].indexOf(document.querySelector(".sp-labels"))
-        > [...document.querySelector(".sp-plan").children].indexOf(document.querySelector(".sp-world")) };
+      labelsLast: [...document.querySelector(".sp-plan-box").children].indexOf(document.querySelector(".sp-labels").ownerSVGElement)
+        > [...document.querySelector(".sp-plan-box").children].indexOf(document.querySelector(".sp-world").ownerSVGElement) };
   });
   equal(got.layers.indexOf("sp-items"), got.layers.indexOf("sp-containers") + 1, "over the spaces");
   truly(got.layers.indexOf("sp-items") < got.layers.indexOf("sp-walls") && got.labelsLast, `under the walls and labels: ${got.layers}`);
@@ -824,14 +824,17 @@ inChrome("a way is under the labels, its line as wide at any zoom, styled by the
   const got = await page.run((way) => {
     window.engine.showRoute(way, { fit: true });
     const svg = window.engine.svg;
-    const order = [...svg.children].map((c) => c.getAttribute("class"));
+    // the plan's <svg>, then a layer each over it: the way's line, its marks, the labels
+    const order = [...svg.parentElement.children].map((c) => c.firstElementChild?.getAttribute("class"));
     const world = [...document.querySelector(".sp-world").children].map((c) => c.getAttribute("class"));
     const line = document.querySelector(".sp-route-line");
     const before = getComputedStyle(line).strokeWidth;
     window.engine.zoomBy(3);
     const after = getComputedStyle(line).strokeWidth;
-    svg.style.setProperty("--sp-route", "rgb(1, 2, 3)");
+    // the host's rule for .sp-plan: the plan's <svg> and the layers over it alike
+    const rule = document.head.appendChild(Object.assign(document.createElement("style"), { textContent: "#plan .sp-plan { --sp-route: rgb(1, 2, 3); }" }));
     const styled = [getComputedStyle(line).stroke, getComputedStyle(document.querySelector(".sp-route-start-dot")).fill];
+    rule.remove();
     return { order, world, before, after, styled };
   }, way);
   truly(got.order.indexOf("sp-world") < got.order.indexOf("sp-route") && got.order.indexOf("sp-route") < got.order.indexOf("sp-route-marks")
@@ -1006,7 +1009,7 @@ inChrome("showStep frames each step on its floor and says so; without floorPlan 
   const shots = [];
   for (let i = 0; i < way.steps.length; i++) {
     await page.run((i) => window.engine.showStep(i), i);
-    shots.push(await page.run(() => ({ floor: window.engine.svg.querySelector("[data-sp-route-start]") ? "start" : "end",
+    shots.push(await page.run(() => ({ floor: document.querySelector("[data-sp-route-start]") ? "start" : "end",
       step: window.engine.routeStep, attr: window.engine.svg.dataset.spRouteStep, cam: window.engine.camera() })));
   }
   const events = await page.run(() => window.events.filter(([t]) => t === "routestep").map(([, d]) => [d.index, d.leg, d.step.kind]));
@@ -1021,6 +1024,9 @@ inChrome("showStep frames each step on its floor and says so; without floorPlan 
   });
   await page.run((n) => window.engine.showStep(n - 1), way.steps.length);
   equal(await page.run(() => Boolean(document.querySelector("[data-sp-route-end]"))), true, "the page showed its floor");
+  // the layers: the plan and each layer over it a layer of its own (drawn again alone)
+  const layers = await page.run(() => [...window.engine.svg.parentElement.children].map((c) => getComputedStyle(c).willChange));
+  equal(layers, ["transform", "transform", "transform", "transform"], "each a layer of its own");
 });
 
 inChrome("playing: a walker goes along the way floor by floor, the floor cross-faded, saying how far it has got; paused, played on, ended", async (page) => {

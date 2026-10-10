@@ -1426,13 +1426,13 @@ export class StoreyPathWorld extends EventTarget {
     for (const g of [shown.start?.group, shown.end?.group, ...shown.links.map((l) => l.arrow)]) {
       if (!g) continue;
       g.getWorldPosition(v);
-      const k = Math.min(3.2, Math.max(1, v.distanceTo(cam) / 26));
+      const k = Math.min(2.4, Math.max(1, v.distanceTo(cam) / 38));
       g.scale.set(k, k, k);
     }
     if (shown.start) {
       shown.start.pulses.forEach((ring, k) => {
         const phase = moving ? (t / 2.2 + k * 0.5) % 1 : 0.35;
-        const s = 0.75 + phase * 1.9;
+        const s = 0.62 + phase * 1.15;
         ring.scale.set(s, 1, s);
         ring.material.opacity = moving ? 0.5 * (1 - phase) ** 1.6 : 0.3 * (1 - k);
       });
@@ -1445,7 +1445,7 @@ export class StoreyPathWorld extends EventTarget {
       const bob = moving ? Math.sin(t * 2.4) * 0.09 : 0;
       e.pin.position.y = 0.32 + fall + bob;
       const phase = moving ? (t / 2.6) % 1 : 0.4;
-      const s = 0.55 + phase * 1.5;
+      const s = 0.5 + phase * 1.2;
       e.halo.scale.set(s, 1, s);
       e.halo.material.opacity = d * (moving ? 0.55 * (1 - phase) ** 1.4 : 0.35);
     }

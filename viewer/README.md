@@ -76,8 +76,9 @@ install `three` and `jszip` alongside it.
 | `setXray(on)`, `setCutaway(on)`, `setLabels(on)`, `setShowHidden(on)`, `setExplode(m)` | |
 | `setItems(on)` | furniture and equipment: `true`, `false`, or `null` (shown when one floor is) |
 | `plan(floorId)` | a floor's walls, rooms, items, obstacles and doors (each `{ id, open, moving, span, leaves }`: where its leaves are now) in local meters, for drawing a minimap |
-| `showRoute(route, { fly, color, casing, arrow, start, end })` | draw a way (`route()`, below): an edged ribbon over each floor it walks on, through the lift or stairs between them, its start and end marked, in the page's colours (CSS colours; by default the plan viewer's); with `fly`, the camera goes along it |
-| `flyRoute({ seconds })` | take the camera along the way shown, the floors it is not on faded meanwhile (a promise); `clearRoute()` takes it away; `route` is the way shown |
+| `showRoute(route, { fit, fly, animate, startLabel, endLabel, floorName, color, casing, arrow, start, end })` | draw a way (`route()`, below; [finding the way](#finding-the-way)): a softly glowing ribbon over each floor it walks on, chevrons flowing along it, a glowing column with an arrow through each lift or stairs, a pulsing ring at its start and a pin over its end (its room lit), rising in from its start (`animate`); the floors it does not use fade back; with `fit` the camera frames it, with `fly` it goes along it |
+| `showStep(i)`, `showLeg(i)`, `routeStep` | frame a step of the way (or a leg), its floor clear and its other legs faded; `routestep` says so |
+| `flyRoute({ seconds })`, `playRoute({ seconds, restart })`, `pauseRoute()`, `stopRoute()`, `routePlay` | take the camera along the way shown (a promise): a smooth line just behind and above, slower at turns, riding each lift or stairs to the next floor, ending on the destination; at once with reduced motion; `routeprogress` and `routeplay` say how far; `clearRoute()` takes the way away; `route` is the way shown |
 | `reload(source, { floors })` | read the package again and build only `floors` again (default: all of the building shown), where they stand: the view, mode, floor shown, selection, walker and a way shown are kept |
 | `pause()`, `resume()` | stop drawing while the page hides the world (kept as it is), and draw again at once |
 | `setStyle("real" \| "model")`, `setQuality("auto" \| "high" \| "low")` | the look and the quality ([below](#looks-and-quality)): nothing is built again |
@@ -133,7 +134,9 @@ are of another export or another version of the builder (`BUILDER`: 5 since door
 swing), or the world was given other sizes, and builds the rest. Either way it looks
 the same, and its doors open and shut the same.
 
-Events: `load`, `buildingchange`, `floorchange`, `modechange`, `select`
+Events: `load`, `buildingchange`, `floorchange`, `modechange`, `routestep`
+(`{ index, step, leg, floor_id }`), `routeprogress` (`{ metres, total, fraction, leg,
+step, floor_id }`), `routeplay` (`{ state }`: playing, paused, ended, stopped), `select`
 (`{ id, feature }`), `roomchange` (`{ id, type, name, number, stairs }`),
 `walklock` (`{ locked }`), `pick` (a click on the dollhouse view, or walking with
 the mouse taken at the crosshair: what `pointAt` says is there, with `button`,
@@ -267,6 +270,27 @@ way.steps.map((s) => s.text);
 // ["Start at the kiosk in RECEPTION 017", "Walk 48 m along CORRIDOR to the lift",
 //  "Take the lift up to Floor 1", "Walk 24 m along CORRIDOR to OFFICE 112", "OFFICE 112 is on your left"]
 world.showRoute(way, { fly: true });
+```
+
+Both viewers draw it the same way, as the best indoor maps do, light or dark as the page
+is: in 2D a line that draws itself in over a second and then lets dots flow along it the
+way it goes, a "you are here" dot with a soft pulsing halo at its start, a pin dropping in
+at its end with a card naming the room and its floor (the room lit and pulsing once), and
+a round badge with the stairs' or lift's picture where it changes floor ("Up to Floor 2":
+a click shows that floor); in 3D the same marks, its line a glowing ribbon with chevrons
+and a glowing column through each lift or stairs. Both step through it (`showStep`) and
+play it (`playRoute`: a dot walks it floor by floor in 2D, the camera flies along it in
+3D), saying where they are (`routestep`, `routeprogress`, `routeplay`). Nothing moves
+when reduced motion is asked for. A kiosk's page:
+
+```js
+const names = Object.fromEntries(pkg.floors.map((f) => [f.id, f.properties.name]));
+plan.setFloor(floorFromPackage(pkg, way.legs[0].floor_id));
+plan.showRoute(way, { style: "wayfinding", fit: true, startLabel: "You are here", floorName: (id) => names[id],
+  floorPlan: (id) => floorFromPackage(pkg, id) });            // the engine shows other floors itself
+plan.addEventListener("routestep", (e) => highlight(e.detail.index));
+stepsList.onclick = (i) => plan.showStep(i);                 // its floor cross-faded to, the step framed
+playButton.onclick = () => plan.playRoute();                 // again after pauseRoute: on from there
 ```
 
 `route(pkg, from, to, { accessible })` answers the way: `nodes`, `legs` (the walking

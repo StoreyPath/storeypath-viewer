@@ -185,6 +185,11 @@ export class FloorPlanEngine extends EventTarget {
   private colors: Record<string, string>;
   private plan: FloorPlan | null = null;
   private readonly world: SVGGElement;
+  /** The plan and the layers over it, in one box: the plan's <svg>, then the way's line,
+   * its marks and the labels, each an <svg> of its own over it (so that what moves on one
+   * is drawn again alone: the way's flowing dots do not paint the whole plan again). */
+  private readonly box: HTMLDivElement;
+  private readonly overlays: SVGSVGElement[];
   private readonly layers: Record<"outline" | "units" | "containers" | "items" | "selection" | "walls" | "openings" | "route", SVGGElement>;
   private readonly routeMarks: SVGGElement;
   private readonly labelLayer: SVGGElement;
@@ -249,9 +254,21 @@ export class FloorPlanEngine extends EventTarget {
     this.routeMarks = svg("g", { class: "sp-route-marks" });
     this.labelLayer = svg("g", { class: "sp-labels", "aria-hidden": "true" });
     this.pinLayer = svg("g", { class: "sp-pin-layer" });
-    this.svg.append(this.world, this.routeLine, this.routeMarks, this.labelLayer, this.pinLayer);
+    this.svg.append(this.world);
+    const over = (cls: string, ...children: SVGElement[]): SVGSVGElement => {
+      const o = svg("svg", { class: `sp-plan sp-layer ${cls}` });
+      o.append(...children);
+      return o;
+    };
+    this.overlays = [over("sp-layer-route", this.routeLine), over("sp-layer-marks", this.routeMarks),
+      over("sp-layer-labels", this.labelLayer, this.pinLayer)];
+    this.overlays[0]!.setAttribute("aria-hidden", "true");
+    this.overlays[2]!.setAttribute("aria-hidden", "true");
+    this.box = document.createElement("div");
+    this.box.className = "sp-plan-box";
+    this.box.append(this.svg, ...this.overlays);
     this.looks();
-    element.append(this.svg);
+    element.append(this.box);
     this.bind();
     this.observer = new ResizeObserver(() => this.resized());
     this.observer.observe(this.svg);
@@ -588,7 +605,7 @@ export class FloorPlanEngine extends EventTarget {
     cancelAnimationFrame(this.frame);
     cancelAnimationFrame(this.loop);
     this.observer.disconnect();
-    this.svg.remove();
+    this.box.remove();
   }
 
   // ---- inside ----------------------------------------------------------------
@@ -780,11 +797,13 @@ export class FloorPlanEngine extends EventTarget {
   private looks(): void {
     const style = (this.routed && this.routed.options.style) || this.opts.style || "default";
     const theme = this.opts.theme ?? "auto";
-    const c = this.svg.classList;
-    c.toggle("sp-style-wayfinding", style === "wayfinding");
-    c.toggle("sp-theme-light", theme === "light");
-    c.toggle("sp-theme-dark", theme === "dark");
-    c.toggle("sp-still", !this.motion());
+    for (const el of [this.svg, ...this.overlays]) {
+      const c = el.classList;
+      c.toggle("sp-style-wayfinding", style === "wayfinding");
+      c.toggle("sp-theme-light", theme === "light");
+      c.toggle("sp-theme-dark", theme === "dark");
+      c.toggle("sp-still", !this.motion());
+    }
   }
 
   /** The unit (zone, or space with no zones) a point of the floor is in: the smallest. */
@@ -1298,13 +1317,14 @@ export class FloorPlanEngine extends EventTarget {
     const p = this.playing;
     if (!p) return;
     this.playing = null;
-    if (how === "ended" && this.routed?.route.steps?.length) {
+    this.placeWalker();
+    this.placeRoute();
+    if (how === "ended" && this.routed?.route.steps?.length) { // there: the arrival framed
       this.stepNow = this.routed.route.steps.length - 1;
       this.svg.setAttribute("data-sp-route-step", String(this.stepNow));
       this.emitStep();
+      if (!p.steps) this.frameStep(this.stepNow, true);
     }
-    this.placeWalker();
-    this.placeRoute();
     this.emitPlay(how);
     p.resolve();
   }
@@ -1344,13 +1364,14 @@ export class FloorPlanEngine extends EventTarget {
   /** The floor shown fades out over the next one (a copy of it, taken away after). */
   private crossfade(): void {
     if (!this.motion()) return;
-    for (const old of this.svg.querySelectorAll(":scope > .sp-fade")) old.remove();
+    const top = this.overlays[2]!;
+    for (const old of top.querySelectorAll(":scope > .sp-fade")) old.remove();
     const ghost = svg("g", { class: "sp-fade", "aria-hidden": "true" });
     for (const layer of [this.world, this.routeLine, this.routeMarks, this.labelLayer, this.pinLayer]) ghost.append(layer.cloneNode(true));
     for (const e of ghost.querySelectorAll("*")) {
       for (const a of [...e.attributes]) if (a.name.startsWith("data-sp") || a.name === "tabindex" || a.name === "role") e.removeAttribute(a.name);
     }
-    this.svg.append(ghost);
+    top.append(ghost);
     const done = (): void => ghost.remove();
     ghost.addEventListener("animationend", done);
     setTimeout(done, FADE_MS + 400);
@@ -1551,6 +1572,12 @@ export class FloorPlanEngine extends EventTarget {
     this.apply();
   }
 
+  private wheel(e: WheelEvent): void {
+    if (this.playing) this.playing.follow = false;
+    const speed = e.deltaMode === 1 ? 0.05 : 0.0018;
+    this.zoomBy(Math.exp(-e.deltaY * speed), this.local(e));
+  }
+
   private local(e: { clientX: number; clientY: number }): XY {
     const r = this.svg.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top];
@@ -1590,11 +1617,29 @@ export class FloorPlanEngine extends EventTarget {
 
   private bind(): void {
     const s = this.svg;
+    // the way's marks' layer: its floor-change badges are buttons
+    const marks = this.overlays[1]!;
+    let down: XY | null = null;
+    marks.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+    marks.addEventListener("pointerup", (e) => {
+      const at = down;
+      down = null;
+      if (at && Math.hypot(e.clientX - at[0], e.clientY - at[1]) < DRAG_PX) this.chooseFrom(e.target);
+    });
+    marks.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target instanceof Element && e.target.hasAttribute("data-sp-route-change")) {
+        e.preventDefault();
+        this.chooseFrom(e.target);
+      }
+    });
+    marks.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      this.wheel(e);
+    }, { passive: false });
     // the view taken in hand while a way plays: it no longer follows the walker
     const hands = (): void => {
       if (this.playing) this.playing.follow = false;
     };
-    s.addEventListener("wheel", hands, { passive: true });
     s.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 && e.pointerType === "mouse") return;
       this.pointers.set(e.pointerId, this.local(e));
@@ -1647,8 +1692,7 @@ export class FloorPlanEngine extends EventTarget {
     s.addEventListener("pointercancel", end);
     s.addEventListener("wheel", (e) => {
       e.preventDefault();
-      const speed = e.deltaMode === 1 ? 0.05 : 0.0018;
-      this.zoomBy(Math.exp(-e.deltaY * speed), this.local(e));
+      this.wheel(e);
     }, { passive: false });
     s.addEventListener("keydown", (e) => {
       const onSpace = e.target instanceof Element && (e.target.hasAttribute("data-sp-id") || e.target.hasAttribute("data-sp-item")

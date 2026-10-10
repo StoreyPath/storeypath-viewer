@@ -37,18 +37,30 @@ import { route, type Route } from "@storeypath/viewer-world";
 const pkg = await world.open(data);
 const way: Route | null = route(pkg, kioskItemId, officeId, { accessible: true });
 if (way) {
-  await world.showRoute(way);      // a ribbon over each floor of it, through the lift
-  await world.flyRoute({ seconds: 12 });
+  await world.showRoute(way, { fit: true, startLabel: "You are here" }); // it rises in, from its start
+  world.addEventListener("routestep", (e) => mark(e.detail.index));
+  await world.flyRoute();          // the camera along it, floor by floor
 }
 ```
 
-`showRoute(route, { fly, color, casing, arrow, start, end })` draws the way as an
-edged ribbon just over each floor it walks on, seen through what is in front of it,
-joined through the lift or stairs between floors, its start and end marked, in the
-page's colours (CSS colours, light or dark as the page is; by default the plan
-viewer's); the dollhouse view of the whole building leaves out the floors above it.
-`flyRoute({ seconds })` takes the camera along it, the floors it is not on faded
-meanwhile; `clearRoute()` takes it away; `route` is the way shown.
+`showRoute(route, { fit, fly, animate, startLabel, endLabel, floorName, color, casing,
+arrow, start, end })` draws the way: a softly glowing ribbon a little over each floor it
+walks on, chevrons flowing along it the way it goes; a glowing column through each lift
+or stairs, an arrow up or down on it, tagged "Stairs up to Floor 2"; a pulsing ring at
+its start ("You are here") and a pin over its end, its room tinted and outlined, its card
+naming it and its floor; seen through what is in front of it, its marks as big on the
+screen far off as near, its tags never on one another. It rises in from its start
+(`animate`; at once when reduced motion is asked for). While it is shown, rooms' labels
+but its own (the corridors it goes along) are not; over the whole building the floors
+it does not walk on fade back to a light shell, those above it are left out, and on a
+way of several floors those but the one it is at fade too, so it shows through them.
+`showStep(i)` and `showLeg(i)` frame a step or a leg, its floor clear and the way's other
+legs faded (`routestep`). `flyRoute({ seconds })` (and `playRoute`, `pauseRoute`,
+`stopRoute`, `routePlay`) takes the camera along it: a smooth line just behind and
+above, looking ahead, slower at turns, pausing at each lift or stairs and riding with
+the column to the next floor, ending on the destination (`routeprogress`, `routeplay`);
+`clearRoute()` takes it away; `route` is the way shown. Its colours are CSS colours (by
+default the plan viewer's).
 
 Walking, doors open and shut: <kbd>E</kbd> or a click at a door within 2 m of the
 crosshair swings it, a shut door stops the walker until walked into (with

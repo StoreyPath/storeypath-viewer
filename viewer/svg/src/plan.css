@@ -81,6 +81,15 @@
   --sp-item-stroke: rgba(40, 42, 50, 0.16);
 }
 
+/* the plan and the layers over it (the way's line, its marks, the labels): one box */
+.sp-plan-box { position: relative; width: 100%; height: 100%; overflow: hidden; }
+/* the plan a layer of its own too: a layer over it drawn again does not draw it again */
+.sp-plan-box > .sp-plan { will-change: transform; }
+.sp-plan.sp-layer {
+  position: absolute; inset: 0; background: transparent; pointer-events: none; cursor: auto; overflow: visible;
+  will-change: transform; /* a layer of its own: what moves on it is drawn again alone */
+}
+
 .sp-plan.sp-dragging { cursor: grabbing; }
 .sp-plan:focus-visible { box-shadow: inset 0 0 0 2px var(--sp-select); }
 
