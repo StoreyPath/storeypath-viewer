@@ -1393,6 +1393,7 @@ test("a way is drawn over each floor it walks on, through the lift between them,
 
 // what a way is drawn with, as the camera goes along it, and the floors round it
 const upstairs = routes.routes.find((c) => c.package === "campus-hq.storeypath" && !c.accessible && c.expect.changes[0]?.by === "stairs");
+const level = routes.routes.find((c) => c.package === "campus-hq.storeypath" && !c.expect.changes?.length && c.from !== c.to); // (on one floor: no rides)
 /** A world (#v) with campus-hq open, whole, cut away, and a way shown on it: ``options``
  * showRoute's; events of the way in window.events. */
 const withWay = (options = {}, c = upstairs) => page.run(async (options, c) => {
@@ -1635,21 +1636,25 @@ test("playing a way: the camera along it, saying how far and which step; paused,
   truly(JSON.stringify(r.plays) === JSON.stringify(["playing", "paused", "playing", "ended", "playing", "stopped"]) && r.after === null, `said: ${r.plays}`);
 });
 
-test("playing a way after a long frame (a slow or busy machine): its start said first, the tour not past it", async () => {
-  await withWay();
+test("playing a way after a long frame (a slow or busy machine): its start said first, the tour not past it; later long frames not slowed", async () => {
+  await withWay({}, level); // (one floor: the tour walks all along, nothing held)
   const r = await page.run(async () => {
-    const world = window.wayWorld;
+    const world = window.wayWorld, progress = () => window.events.filter(([t]) => t === "routeprogress").map(([, d]) => d.fraction);
+    const late = (ms) => { const until = performance.now() + ms; while (performance.now() < until); }; // (the page busy)
     window.events.length = 0;
     world.playRoute({ seconds: 6 });
-    const busy = performance.now() + 1200;
-    while (performance.now() < busy); // (the page busy: the first frame comes 1.2 s late)
+    late(1200); // its first frame comes 1.2 s late
     await window.frames(2);
-    const steps = window.events.filter(([t]) => t === "routestep").map(([, d]) => d.index);
-    const progress = window.events.filter(([t]) => t === "routeprogress").map(([, d]) => d.fraction);
+    const steps = window.events.filter(([t]) => t === "routestep").map(([, d]) => d.index), first = progress()[0];
+    const before = progress().at(-1);
+    late(2000); // and a later one
+    await window.frames(1);
+    const after = progress().at(-1);
     world.stopRoute();
-    return { steps, first: progress[0] };
+    return { steps, first, later: after - before };
   });
-  truly(r.steps[0] === 0 && r.first < 0.1, `its start first: ${JSON.stringify(r)}`);
+  // (a 6 s way on one floor, 4.4 s of it walking: 2 s of it some 0.4 of the way, 0.1 s some 0.02)
+  truly(r.steps[0] === 0 && r.first < 0.1 && r.later > 0.15, `its start first, then as long as each frame takes: ${JSON.stringify(r)}`);
 });
 
 test("a way's pin and start keep their size on the screen far off: scaled with the distance, never below their own", async () => {

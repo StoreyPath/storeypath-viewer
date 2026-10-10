@@ -1892,7 +1892,7 @@ export class StoreyPathWorld extends EventTarget {
     const tour = tourOf(legs.map((l) => ({ points: l.points, y: l.y + l.floor.group.position.y })), walk);
     let resolve;
     const promise = new Promise((r) => (resolve = r));
-    this.#tour = { tour, t: 0, legs, paused: false, resolve, promise, part: -1, look: null, step: -1, metres: 0, walking };
+    this.#tour = { tour, t: 0, legs, paused: false, resolve, promise, part: -1, look: null, step: -1, metres: 0, walking, moved: false };
     this.#flight = null;
     this.#emit("routeplay", { state: "playing" });
     if (!this.#motion()) { // no motion: there at once
@@ -1931,10 +1931,11 @@ export class StoreyPathWorld extends EventTarget {
   #tourFrame(dt) {
     const tour = this.#tour, shown = this.#route;
     if (tour.paused) return; // (the view is the page's meanwhile: it may be turned round)
-    // a tenth of a second at most a frame, as the way's rising in: after a long frame (the
-    // first, its shaders made; a slow or busy machine) it goes on from where it was, its
-    // start said, not past it
-    tour.t = Math.min(tour.tour.seconds, tour.t + Math.min(dt, 0.1));
+    // its first frame a tenth of a second at most: that one may come late (its shaders made,
+    // a slow or busy machine), and the tour starts at its start, said; after it, as long as
+    // each frame takes, so that it lasts as long on a slow machine as on any other
+    tour.t = Math.min(tour.tour.seconds, tour.t + (tour.moved ? dt : Math.min(dt, 0.1)));
+    tour.moved = true;
     const { parts } = tour.tour;
     let k = parts.findIndex((p) => tour.t < p.start + p.seconds);
     if (k < 0) k = parts.length - 1;
