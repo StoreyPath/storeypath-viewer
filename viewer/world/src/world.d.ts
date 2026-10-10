@@ -301,7 +301,10 @@ export interface WorldLook {
 export interface WorldEvents {
 	load: { package: StoreyPathPackage };
 	buildingchange: { id: string };
-	floorchange: { id: string | null };
+	/** A floor (`id`) or floors (`floors`, lowest first; null for all) asked for: setFloor, setFloors, a floor changed walking. */
+	floorchange: { id: string | null; floors: string[] | null };
+	/** The floors drawn changed (`shownFloors`): asked for, a way of several floors shown or taken away, walking. */
+	floorsshown: { floors: string[] };
 	modechange: { mode: WorldMode };
 	/** A space, zone or item chosen (by a click or `select`), or none. An item's feature has `kind: 'item'` (ItemProperties). */
 	select: { id: string | null; feature: Feature | null };
@@ -378,6 +381,11 @@ export interface WorldRouteOptions {
 	endLabel?: string | null;
 	/** A floor's name, for its tags (default: its name in the package). */
 	floorName?: (floorId: string) => string;
+	/** On a way of several floors with every floor asked for (setFloor(null)), the floors shown while it is: "walked"
+	 * (the default), those it walks on alone, a lift's or the stairs' column spanning the floors it goes past, which
+	 * are left out; "all", every floor, those it does not walk on faded back. Floors asked for (setFloor, setFloors)
+	 * show instead, the way drawn on them; taken away, what was asked for shows. */
+	floors?: "walked" | "all";
 	/** Its colours (CSS colours, as a page has them; by default the plan viewer's): its core, its rim (`casing`),
 	 * its chevrons (`arrow`), its start's, its end's. */
 	color?: string;
@@ -478,6 +486,15 @@ export declare class StoreyPathWorld extends EventTarget {
 	setBuilding(id: string): Promise<void>;
 	/** Show one floor, or all with null. */
 	setFloor(id: string | null): void;
+	/** Show some floors together, the others hidden (the ground floor and the third, say): their IDs; one, as
+	 * setFloor; null or none, all. Apart in the exploded view, X-rayed and cut away as all are; rooms' labels on the
+	 * top one of them. Walking stays on the walker's floor. With `fit`, the camera frames them. */
+	setFloors(ids: string[] | null, options?: { fit?: boolean }): void;
+	/** The floors asked for (setFloor, setFloors), lowest first; null for all. */
+	readonly floors: string[] | null;
+	/** The floors drawn now, lowest first: those asked for (every floor asked for: while a way of several floors is
+	 * shown, those it walks on, `floors: "walked"`); walking, the walker's and those under it. */
+	readonly shownFloors: string[];
 	/** Walking starts at the front door, or `at` (local metres; the nearest room's middle when in
 	 * none), on `floor`, facing `heading`; back to the dollhouse, round the whole building, or with
 	 * `back`, where the view was before walking. */

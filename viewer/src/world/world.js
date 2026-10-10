@@ -161,7 +161,9 @@ export class StoreyPathWorld extends EventTarget {
   #floors = new Map(); // floor id → built floor
   #baked = new Map(); // floor id → its pre-built 3D as read, or null to build it here
   #asked = 0; // the last building asked for
-  #floor = null; // the floor shown on its own, or null for all
+  #floor = null; // the floor shown on its own, or null for all (or the floors of #set)
+  #set = null; // the floors shown together (setFloors: two or more of them), else null
+  #shownWas = ""; // the floors drawn, as last said ("floorsshown")
   #mode = "dollhouse";
   #xray = false;
   #cutaway = false;
@@ -438,6 +440,12 @@ export class StoreyPathWorld extends EventTarget {
   get package() { return this.#pkg; }
   get building() { return this.#building; }
   get floor() { return this.#floor; }
+  /** The floors asked for (setFloor, setFloors): their IDs, lowest first; null for all. */
+  get floors() { return this.#floor ? [this.#floor] : this.#set ? this.#ordered(this.#set) : null; }
+  /** The floors drawn now, lowest first: those asked for (all of them: while a way of several
+   * floors is shown, those it walks on, showRoute ``floors``); walking, the walker's and those
+   * under it. */
+  get shownFloors() { return this.#ordered([...this.#floors.values()].filter((f) => f.group.visible).map((f) => f.id)); }
   get mode() { return this.#mode; }
   get selected() { return this.#selected; }
   get room() { return this.#room; }
@@ -479,7 +487,7 @@ export class StoreyPathWorld extends EventTarget {
   /** Build and show a building; with ``keep`` (the same building, read again), where it
    * was: the view, the floor shown, what is selected and the walker kept, and its frame. */
   #show(id, { keep = false } = {}) {
-    const was = keep ? { floor: this.#floor, selected: this.#selected, route: this.#route } : null;
+    const was = keep ? { floor: this.#floor, set: this.#set, selected: this.#selected, route: this.#route } : null;
     if (keep) this.clearRoute(); // drawn again on the floors built again
     if (this.#buildingGroup) {
       this.#scene.remove(this.#buildingGroup);
@@ -493,6 +501,7 @@ export class StoreyPathWorld extends EventTarget {
     this.#swinging.clear(); // (their doors: those of the floors built again are as asked at once)
     this.#aimFrom = null;
     this.#floor = null;
+    this.#set = null;
     this.#selected = null;
     this.#lit = null;
     this.#ghost = null;
@@ -501,9 +510,11 @@ export class StoreyPathWorld extends EventTarget {
     this.#scene.add(this.#buildingGroup);
     if (keep) {
       if (was.floor && this.#floors.has(was.floor)) this.#floor = was.floor;
+      const set = [...(was.set ?? [])].filter((f) => this.#floors.has(f));
+      if (set.length > 1) this.#set = new Set(set);
       if (this.#mode === "walk" && !this.#floors.has(this.#walkFloor)) {
         const p = this.#camera.position;
-        this.#walkTo(this.#floor || this.#floorList()[0]?.id, p.x, p.z);
+        this.#walkTo(this.#floor || this.floors?.[0] || this.#floorList()[0]?.id, p.x, p.z);
       }
       this.#applyVisibility();
       const found = was.selected ? this.#findSpace(was.selected) ?? this.#findItem(was.selected) : null;
@@ -599,12 +610,36 @@ export class StoreyPathWorld extends EventTarget {
   setFloor(id) {
     if (id && !this.#floors.has(id)) return;
     this.#floor = id;
+    this.#set = null;
     if (this.#mode === "walk" && id) {
       const p = this.#camera.position;
       this.#walkTo(id, p.x, p.z);
     }
     this.#applyVisibility();
-    this.#emit("floorchange", { id });
+    this.#emit("floorchange", { id, floors: this.floors });
+  }
+
+  /** Show some floors together, the others hidden (the ground floor and the third, say):
+   * their IDs; one, as setFloor; null or none, all. Apart in the exploded view, X-rayed and
+   * cut away as all are; labels on the top one of them. Walking stays on the walker's
+   * floor (they are shown again after it). A way shown meanwhile is drawn on them, the floors
+   * it does not walk on faded; null, its own again. With ``fit``, the camera frames them. */
+  setFloors(ids, { fit = false } = {}) {
+    const known = [...new Set((ids ?? []).filter((id) => this.#floors.has(id)))];
+    if (known.length <= 1) this.setFloor(known[0] ?? null);
+    else {
+      this.#floor = null;
+      this.#set = new Set(known);
+      this.#applyVisibility();
+      this.#emit("floorchange", { id: null, floors: this.floors });
+    }
+    if (fit) this.#frameShown(true);
+  }
+
+  /** Floors' IDs in the building's order, lowest first. */
+  #ordered(ids) {
+    const order = new Map(this.#floorList().map((f, i) => [f.id, i]));
+    return [...ids].filter((id) => order.has(id)).sort((a, b) => order.get(a) - order.get(b));
   }
 
   /** "dollhouse": orbit around the building; "walk": walk through it in the first person.
@@ -623,7 +658,7 @@ export class StoreyPathWorld extends EventTarget {
       this.#orbit.enableDamping = true;
       this.#orbitView = { position: this.#camera.position.clone(), target: this.#orbit.target.clone() };
       this.#flight = null;
-      const floorId = floor && this.#floors.has(floor) ? floor : this.#floor || this.#floorList()[0]?.id;
+      const floorId = floor && this.#floors.has(floor) ? floor : this.#floor || this.floors?.[0] || this.#floorList()[0]?.id;
       const start = at ? this.#standAt(floorId, at) : this.#startPoint(floorId);
       this.#orbit.enabled = false;
       this.#walker.enabled = true;
@@ -1126,7 +1161,7 @@ export class StoreyPathWorld extends EventTarget {
 
   /** Whether furniture and equipment are drawn now. */
   get items() {
-    return this.#o.items ?? this.#shownFloors() <= 1;
+    return this.#o.items ?? this.#shownCount() <= 1;
   }
 
   // ---- doors -------------------------------------------------------------------------
@@ -1391,6 +1426,7 @@ export class StoreyPathWorld extends EventTarget {
       if (this.#mode === "walk") this.#walkTo(found.floor.id, x, z);
       else {
         if (this.#floor && this.#floor !== found.floor.id) this.setFloor(found.floor.id);
+        else if (this.#set && !this.#set.has(found.floor.id)) this.setFloors([...this.#set, found.floor.id]); // (its floor shown with them)
         this.#flyTo({ x, z }, found.floor.elevation + this.#offset(found.floor), found.space?.size ?? 4);
       }
     }
@@ -1406,8 +1442,9 @@ export class StoreyPathWorld extends EventTarget {
     const p = this.#camera.position;
     this.#walkTo(next.id, p.x, p.z);
     this.#floor = next.id;
+    this.#set = null;
     this.#applyVisibility();
-    this.#emit("floorchange", { id: next.id });
+    this.#emit("floorchange", { id: next.id, floors: this.floors });
     return true;
   }
 
@@ -1467,7 +1504,7 @@ export class StoreyPathWorld extends EventTarget {
    * along it (flyRoute). Its
    * colours (CSS colours): `color`, `casing` (its rim), `arrow` (its chevrons), `start`,
    * `end`. Floors are named by `floorName` (default: their names in the package). */
-  showRoute(route, { fly = false, fit = false, animate = true, startLabel = null, endLabel, floorName, ...colours } = {}) {
+  showRoute(route, { fly = false, fit = false, animate = true, startLabel = null, endLabel, floorName, floors = "walked", ...colours } = {}) {
     this.clearRoute();
     const placement = this.#pkg?.manifest.placements?.[this.#building];
     if (!route || !placement || !route.legs?.some((leg) => this.#floors.has(leg.floor_id))) return Promise.resolve();
@@ -1487,9 +1524,9 @@ export class StoreyPathWorld extends EventTarget {
       css[key] = `#${c.getHexString()}`;
     }
     const nameOf = floorName ?? ((id) => this.#pkg.get(id)?.properties.name ?? id);
-    const shown = { route, options: { startLabel, endLabel, floorName, ...colours }, css, legs: [], links: [], objects: [],
+    const shown = { route, options: { startLabel, endLabel, floorName, floors, ...colours }, css, legs: [], links: [], objects: [],
       materials: [], tags: [], keep: new Set(), off: new Set(), start: null, end: null, active: 0, total: 0, clock: 0,
-      reveal: null, multi: new Set(route.legs.map((l) => l.floor_id)).size > 1 };
+      reveal: null, multi: new Set(route.legs.map((l) => l.floor_id)).size > 1, floors: floors === "all" ? "all" : "walked" };
     const keep = (m) => {
       shown.materials.push(m);
       return m;
@@ -1883,7 +1920,9 @@ export class StoreyPathWorld extends EventTarget {
     }
     if (this.#tour) this.#endTour("stopped");
     if (this.#mode === "walk") this.setMode("dollhouse");
-    if (this.#floor) this.setFloor(null);
+    // over the whole building (a floor on its own: all), or the floors chosen when they hold the
+    // way (with ``floors: "all"``: else those it walks on are shown anyway)
+    if (this.#floor || (shown.floors === "all" && this.#set && shown.legs.some((l) => !this.#set.has(l.floor.id)))) this.setFloor(null);
     const legs = shown.legs.filter((l) => l.smooth.length > 1 || l.points.length);
     if (!legs.length) return Promise.resolve();
     const walking = legs.reduce((sum, l) => sum + l.length, 0);
@@ -2360,32 +2399,41 @@ export class StoreyPathWorld extends EventTarget {
   }
 
   /** How many floors are shown: walking, the walker's (the floors under it are seen
-   * only through openings); otherwise one, or all. */
-  #shownFloors() {
-    return this.#mode === "walk" || this.#floor ? 1 : this.#floors.size;
+   * only through openings); otherwise one, those asked for together, or all. */
+  #shownCount() {
+    return this.#mode === "walk" || this.#floor ? 1 : this.#set ? this.#set.size : this.#floors.size;
+  }
+
+  /** Whether floor ``f`` is among those asked for (out of the walk view): the one shown on
+   * its own, those shown together, or every one. */
+  #askedFor(f) {
+    return this.#floor ? f.id === this.#floor : !this.#set || this.#set.has(f.id);
   }
 
   #applyVisibility() {
     const walking = this.#mode === "walk";
     const wf = walking ? this.#floors.get(this.#walkFloor) : null;
     // furniture and equipment: detailed on one floor, a box each on more
-    const one = this.#shownFloors() <= 1;
+    const one = this.#shownCount() <= 1;
     const items = this.#o.items ?? one;
     const form = one ? "detailed" : "light";
     // a way shown, over the whole building: the floors above the highest it goes to are left out
     const top = !walking && !this.#floor && this.#route
       ? Math.max(...this.#route.legs.map((l) => l.floor.ordinal)) : Infinity;
     // a way over the whole building: the floors it does not walk on faded back; on a way of
-    // several floors, those but the one it is at too (so that it shows through them)
+    // several floors, those but the one it is at too (so that it shows through them); and,
+    // all asked for, the floors it only goes past in a lift or up the stairs left out
+    // (showRoute ``floors``: some asked for, setFloors, those show)
     const way = !walking && !this.#floor ? this.#route : null;
     const onWay = way ? new Set(way.legs.map((l) => l.floor)) : null;
+    const walked = way?.multi && way.floors === "walked" && !this.#set ? onWay : null;
     const at = way?.multi ? way.legs[way.active]?.floor ?? null : null;
     const keepLabels = !walking && this.#route ? this.#route.keep : null;
     const faded = new Set();
     const s = STYLES[this.#style], q = QUALITY[this.#drawn];
     for (const f of this.#floors.values()) {
       // Walking: the floors up to yours, open to the sky. Dollhouse: one or all.
-      const shown = walking ? Boolean(wf) && f.ordinal <= wf.ordinal : (!this.#floor || f.id === this.#floor) && f.ordinal <= top;
+      const shown = walking ? Boolean(wf) && f.ordinal <= wf.ordinal : (walked ? walked.has(f) : this.#askedFor(f)) && f.ordinal <= top;
       f.group.visible = shown;
       if (shown && way && (!onWay.has(f) || (at && f !== at))) faded.add(f);
       f.group.position.y = this.#offset(f);
@@ -2416,6 +2464,11 @@ export class StoreyPathWorld extends EventTarget {
       }
     }
     this.#fadeFloors(faded);
+    const drawn = this.shownFloors.join(" ");
+    if (drawn !== this.#shownWas) { // (said once the rest is as it will be)
+      this.#shownWas = drawn;
+      queueMicrotask(() => this.#emit("floorsshown", { floors: this.shownFloors }));
+    }
     if (this.#lit) this.#lit.visible = this.#o.showHidden || !this.#lit.userData.space?.tucked;
     this.#labelsMoved = true;
     this.#placeRoute();
@@ -2459,9 +2512,10 @@ export class StoreyPathWorld extends EventTarget {
     }
   }
 
-  /** In the dollhouse view of all floors, labels show for the top floor only. */
+  /** In the dollhouse view of several floors (all, or those shown together), labels show
+   * for the top one only: a lower one's would show through it. */
   #topShown() {
-    const list = [...this.#floors.values()];
+    const list = [...this.#floors.values()].filter((f) => !this.#set || this.#set.has(f.id));
     return list.length ? list.reduce((a, b) => (b.ordinal > a.ordinal ? b : a)) : null;
   }
 
@@ -2556,7 +2610,21 @@ export class StoreyPathWorld extends EventTarget {
   // ---- camera ------------------------------------------------------------------------
 
   #frameBuilding(animate) {
-    const b = this.#bounds;
+    this.#frameBox(this.#bounds, animate);
+  }
+
+  /** The camera framing the floors shown (setFloors ``fit``), as the building is framed. */
+  #frameShown(animate) {
+    const box = new THREE.Box3();
+    for (const f of this.#floors.values()) {
+      if (!f.group.visible) continue;
+      f.group.updateMatrixWorld(true);
+      box.expandByObject(f.group);
+    }
+    this.#frameBox(box, animate);
+  }
+
+  #frameBox(b, animate) {
     if (b.isEmpty()) return;
     const centre = b.getCenter(new THREE.Vector3());
     const size = b.getSize(new THREE.Vector3());

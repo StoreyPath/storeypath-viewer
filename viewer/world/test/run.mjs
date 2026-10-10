@@ -1613,6 +1613,115 @@ test("over the whole building, floors a way does not walk on fade back; on one o
   truly(Object.values(r.cleared).every((f) => f.visible && !f.faded), `taken away: every floor as drawn: ${JSON.stringify(r.cleared)}`);
 });
 
+test("setFloors: some floors shown together, the others hidden, rooms' labels on the top one; one as setFloor, none all; said; a room on another floor chosen shown with them", async () => {
+  const r = await page.run(async () => {
+    window.wayWorld?.destroy();
+    const world = (window.wayWorld = new window.sp.StoreyPathWorld("#v"));
+    const pkg = await world.open("/campus-hq.storeypath");
+    const floors = pkg.floorsOf(world.building).map((f) => f.id); // (three)
+    const said = [];
+    world.addEventListener("floorchange", (e) => said.push(e.detail));
+    world.addEventListener("floorsshown", (e) => said.push({ shown: e.detail.floors }));
+    const state = async () => {
+      await Promise.resolve(); // ("floorsshown" is said once the rest is as it will be)
+      const labelled = new Set();
+      world.scene.traverse((o) => {
+        if (!o.isCSS2DObject || o.name.startsWith("route:")) return;
+        for (let p = o; p; p = p.parent) if (!p.visible) return;
+        for (let p = o; p; p = p.parent) if (floors.includes(p.name)) labelled.add(p.name);
+      });
+      return { visible: floors.filter((id) => world.scene.getObjectByName(id).visible), labelled: [...labelled], floor: world.floor,
+        floors: world.floors, shown: world.shownFloors };
+    };
+    const all = await state();
+    world.setFloors([floors[2], floors[0]]); // (in any order)
+    const two = await state();
+    world.setExplode(4);
+    const apart = floors.map((id) => world.scene.getObjectByName(id).position.y);
+    world.setExplode(0);
+    world.select(pkg.spacesOn(floors[1])[0].id, { go: false });
+    const kept = await state(); // (chosen, not gone to: the floors as they were)
+    world.select(pkg.spacesOn(floors[1])[0].id);
+    const chosen = await state();
+    world.setFloors([floors[1]]);
+    const one = await state();
+    world.setFloors(null);
+    const again = await state();
+    return { floors, all, two, apart, kept, chosen, one, again, said };
+  });
+  const [g, f1, f2] = r.floors;
+  truly(r.all.visible.length === 3 && r.all.floors === null && r.all.labelled.join() === f2, `all: ${JSON.stringify(r.all)}`);
+  truly(r.two.visible.join() === [g, f2].join() && r.two.floor === null && r.two.floors.join() === [g, f2].join()
+    && r.two.shown.join() === [g, f2].join() && r.two.labelled.join() === f2, `two together: ${JSON.stringify(r.two)}`);
+  truly(r.apart[2] - r.apart[0] > 7.9 && r.apart[0] === 0, `exploded apart as all are: ${r.apart}`);
+  truly(r.kept.visible.join() === [g, f2].join(), `a room chosen, not gone to: ${JSON.stringify(r.kept)}`);
+  truly(r.chosen.visible.length === 3 && r.chosen.floors.join() === [g, f1, f2].join(), `gone to, its floor with them: ${JSON.stringify(r.chosen)}`);
+  truly(r.one.floor === f1 && r.one.visible.join() === f1 && r.one.floors.join() === f1, `one: ${JSON.stringify(r.one)}`);
+  truly(r.again.floors === null && r.again.visible.length === 3, `all again: ${JSON.stringify(r.again)}`);
+  const changes = r.said.filter((e) => "id" in e), shown = r.said.filter((e) => e.shown).map((e) => e.shown.join());
+  truly(changes[0].id === null && changes[0].floors.join() === [g, f2].join() && changes.at(-1).floors === null
+    && shown.includes([g, f2].join()) && shown.at(-1) === [g, f1, f2].join(), `said: ${JSON.stringify(r.said)}`);
+});
+
+// a way by lift from the ground floor two floors up: the floor between ridden past
+const skipping = routes.routes.find((c) => c.package === "campus-hq.storeypath" && c.accessible && c.expect.legs?.length === 2
+  && /-F00$/.test(c.expect.legs[0].floor_id) && /-F02$/.test(c.expect.legs[1].floor_id));
+
+test("a way by lift past a floor: the floors it walks on alone, its column across the one it rides past; faded as it goes; floors: all as before; floors asked for shown instead; its own again with all", async () => {
+  truly(skipping, "a way two floors up by lift");
+  const shown = await withWay({ animate: false }, skipping);
+  const r = await page.run(async () => {
+    const world = window.wayWorld;
+    const floors = world.package.floorsOf(world.building).map((f) => f.id);
+    const state = () => {
+      const out = {};
+      for (const id of floors) {
+        const g = world.scene.getObjectByName(id);
+        const pieces = g.children.filter((m) => m.isMesh && m.userData.material);
+        out[id] = { visible: g.visible, faded: pieces.length > 0 && pieces.every((m) => m.userData.faded) };
+      }
+      const links = [];
+      world.scene.traverse((o) => { if (o.name.startsWith("route:link:")) links.push(o.visible); });
+      return { floors: out, links, shown: world.shownFloors };
+    };
+    const walked = state();
+    let landed = false;
+    const frames = [];
+    const flying = world.flyRoute({ seconds: 3 }).then(() => (landed = true));
+    while (!landed) {
+      frames.push(state());
+      await window.frames(1);
+    }
+    await flying;
+    await world.showRoute(window.wayNow, { floors: "all", animate: false });
+    const all = state();
+    world.clearRoute();
+    world.setFloors([floors[0], floors[1]]); // asked for; the way shown over them; all again; taken away
+    await world.showRoute(window.wayNow, { animate: false });
+    const over = state();
+    world.setFloors(null);
+    const own = state();
+    world.setFloors([floors[0], floors[1]]);
+    world.clearRoute();
+    const cleared = state();
+    world.setFloors(null);
+    return { floors, walked, frames, all, over, own, cleared };
+  });
+  const [g, f1, f2] = r.floors;
+  const on = (s, id) => s.floors[id].visible;
+  truly(shown.floors.join() === [g, f2].join(), `the way: ${shown.floors}`);
+  truly(on(r.walked, g) && on(r.walked, f2) && !on(r.walked, f1) && !r.walked.floors[g].faded && r.walked.floors[f2].faded
+    && r.walked.links.length > 0 && r.walked.links.every(Boolean) && r.walked.shown.join() === [g, f2].join(), `walked: ${JSON.stringify(r.walked)}`);
+  truly(r.frames.length > 0 && r.frames.every((s) => on(s, g) && on(s, f2) && !on(s, f1) && s.links.every(Boolean)
+    && s.floors[g].faded !== s.floors[f2].faded), `flying along, every frame: one of them clear, the other faded, the one between left out`);
+  truly(r.frames.some((s) => s.floors[f2].faded) && r.frames.some((s) => s.floors[g].faded), "each floor clear in its turn");
+  truly(on(r.all, f1) && r.all.floors[f1].faded && on(r.all, g) && on(r.all, f2), `floors: "all": ${JSON.stringify(r.all)}`);
+  truly(on(r.over, g) && on(r.over, f1) && !on(r.over, f2) && r.over.floors[f1].faded, `the ground and the first floor asked for: those, the one it does not walk on faded: ${JSON.stringify(r.over)}`);
+  truly(on(r.own, g) && on(r.own, f2) && !on(r.own, f1), `all asked for again: the way's own floors: ${JSON.stringify(r.own)}`);
+  truly(on(r.cleared, g) && on(r.cleared, f1) && !on(r.cleared, f2) && r.cleared.shown.join() === [g, f1].join(),
+    `taken away: what was asked for: ${JSON.stringify(r.cleared)}`);
+});
+
 test("showStep frames each step of a way and says so; the step's leg clear, the others faded", async () => {
   const shown = await withWay();
   const r = await page.run(async (n) => {

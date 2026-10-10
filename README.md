@@ -46,6 +46,7 @@ import { StoreyPathWorld } from "./storeypath-viewer/src/world/world.js";
 const world = new StoreyPathWorld("#world", { style: "real" });
 await world.open("/files/main-building.storeypath");
 world.setFloor("CAMP05-CAMPUS-MAIN-F02");
+world.setFloors(["CAMP05-CAMPUS-MAIN-F00", "CAMP05-CAMPUS-MAIN-F02"]);  // or some floors together, the others hidden
 world.setCutaway(true);
 world.select("CAMP05-CAMPUS-MAIN-F02-0127");   // fly to the president's office
 ```
@@ -86,7 +87,10 @@ viewers draw it (`showRoute`) as the best indoor maps do. On the plan, in its ca
 *You are here* at its start, a round badge where it changes floor (*Up to Floor 2*: a click
 shows that floor), a pin and a card on the room it ends in; `playRoute()` walks a dot along
 it, floor by floor. In 3D: a glowing ribbon over each floor, a column through the stairs or
-the lift, the same marks; `flyRoute()` takes the camera along it. Both step through it
+the lift, the same marks; the floors it walks on alone (a lift from the ground floor to
+the third: those two, the column spanning the floors it rides past; `floors: "all"` keeps
+them, faded; floors chosen with `setFloors` show instead); `flyRoute()` takes the camera
+along it. Both step through it
 (`showStep`). The Go module finds the same way, and
 [spec/conformance/routes.json](spec/conformance) holds ways every reader must agree on.
 
