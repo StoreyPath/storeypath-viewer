@@ -115,15 +115,9 @@ world.addEventListener("modechange", ({ detail: { mode } }) => {
   $("hud").hidden = !walking;
   $("minimap").hidden = !walking || !showMap;
   $("details").hidden = true;
-  $("enter").hidden = !walking;
-  $("crosshair").hidden = true;
   renderFloors();
+  renderHint();
   renderItemsBox();
-});
-
-world.addEventListener("walklock", ({ detail: { locked } }) => {
-  $("enter").hidden = locked || world.mode !== "walk";
-  $("crosshair").hidden = !locked;
 });
 
 world.addEventListener("roomchange", ({ detail }) => {
@@ -133,7 +127,7 @@ world.addEventListener("roomchange", ({ detail }) => {
 });
 
 world.addEventListener("select", ({ detail: { id, feature } }) => {
-  if (!id || world.mode === "walk") {
+  if (!id) {
     $("details").hidden = true;
     return;
   }
@@ -239,8 +233,14 @@ function renderHint() {
   const ways = [];
   if (world.atStairs && list[i + 1]) ways.push(`E up to ${list[i + 1].properties.name}`);
   if (world.atStairs && list[i - 1]) ways.push(`Q down to ${list[i - 1].properties.name}`);
-  $("room-hint").textContent = ways.join(" · ");
+  // the door E works (under the pointer, or ahead), else how to walk
+  const door = world.aimedDoor;
+  $("room-hint").textContent = ways.join(" · ") || (door ? `E ${door.open ? "closes" : "opens"} the door ${door.under ? "under the pointer" : "ahead"}`
+    : "Drag to look · W A S D to move · double-click the floor to go there");
 }
+
+world.addEventListener("dooraim", renderHint);
+world.addEventListener("doorchange", renderHint);
 
 // ---- minimap ----------------------------------------------------------------------------
 
@@ -329,10 +329,6 @@ $("quality").onchange = (e) => {
 };
 world.addEventListener("lookchange", renderLook);
 renderLook();
-$("enter-button").onclick = () => world.startWalking();
-$("enter").onclick = (e) => {
-  if (e.target === $("enter")) world.startWalking();
-};
 $("xray").onchange = (e) => {
   world.setXray(e.target.checked);
   remember("xray", e.target.checked || null);

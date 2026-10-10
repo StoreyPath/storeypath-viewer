@@ -62,8 +62,21 @@ the column to the next floor, ending on the destination (`routeprogress`, `route
 `clearRoute()` takes it away; `route` is the way shown. Its colours are CSS colours (by
 default the plan viewer's).
 
-Walking, doors open and shut: <kbd>E</kbd> or a click at a door within 2 m of the
-crosshair swings it, a shut door stops the walker until walked into (with
+Walking, the mouse is never taken (see ../README.md, "Walking"): a drag (either button,
+or a finger) looks round, <kbd>W A S D</kbd> or the arrows move, a click acts where the
+pointer is (`pick`), a double-click or a double tap on the floor glides there (`glide`), a
+right-click or a long press says `menu`, and what is under the pointer is said as it
+changes (`hover`, `hovered`); `mark` lightly marks what a click would act on.
+
+```ts
+world.setMode("walk");
+world.addEventListener("hover", (e) => world.mark(e.detail?.space ? { floor: e.detail.space } : null));
+world.addEventListener("pick", (e) => console.log(e.detail.item ?? e.detail.space, e.detail.door)); // at the pointer
+world.addEventListener("menu", (e) => showMenu(e.detail.clientX, e.detail.clientY, e.detail));
+```
+
+Walking, doors open and shut: a click on a door within 2 m, or <kbd>E</kbd> (the door
+under the pointer, else the nearest ahead: `useDoor()`), swings it, a shut door stops the walker until walked into (with
 `doors: "manual"`, until opened), and a page does the same by the door's ID (the
 opening's), the world saying so with `doorchange` (see ../README.md, "Doors"). Doors
 start open, as the plan draws them; whether one is open is the view's, never the package's.

@@ -44,7 +44,7 @@ Plain ES modules, no build step. Neither downloads anything but the package.
   world.setFloor("K7Q2XM-RUH-HQ-F02");
   world.setCutaway(true);
   world.select("K7Q2XM-RUH-HQ-F02-0142");             // fly to an office
-  // later, from a click:  world.startWalking();
+  // later: world.setMode("walk");  (drag to look, W A S D to move, double-click to go)
 </script>
 ```
 
@@ -62,6 +62,7 @@ install `three` and `jszip` alongside it.
 | `quality` | `"auto"` | `"auto"`, `"high"` or `"low"` ([below](#looks-and-quality)) |
 | `explode` | `0` | m between floors in the dollhouse view |
 | `doors` | `"auto"` | walking, a shut door opens when walked into (`"auto"`), or stays shut until opened (`"manual"`) ([doors](#doors)) |
+| `doorKey` | `"KeyE"` | walking, the key (a `KeyboardEvent.code`) that opens or shuts the door under the pointer, else the nearest ahead; `null` leaves every key to the page |
 | `slab`, `doorHead`, `windowSill`, `windowHead`, `cutHeight` | `0.22`, `2.1`, `0.9`, `2.2`, `1.25` | m |
 
 | Method | |
@@ -70,7 +71,7 @@ install `three` and `jszip` alongside it.
 | `setBuilding(id)` | build and show a building; a promise, resolved once it is shown |
 | `setFloor(id)` | one floor, or `null` for all; when walking, go to that floor |
 | `setMode("dollhouse" \| "walk", { at, floor, heading, back })` | orbit, or stand at the front door to walk in; walking from `at` (`{ x, z }`, local metres: the middle of the nearest room when in none), on `floor`, facing `heading`; back to orbiting, round the whole building, or with `back`, where the view was before walking |
-| `startWalking()` | take the mouse to look around (call it from a click: pointer lock); `stopWalking()` gives it back |
+| `startWalking()`, `stopWalking()` | kept for pages written before the mouse was never taken: the first is `setMode("walk")`, the second does nothing ([walking](#walking)) |
 | `changeFloor(+1 \| -1)` | when walking: up or down a floor |
 | `select(id, { go })` | highlight a space, zone or item and fly (or, walking, go) to it |
 | `setXray(on)`, `setCutaway(on)`, `setLabels(on)`, `setShowHidden(on)`, `setExplode(m)` | |
@@ -84,6 +85,7 @@ install `three` and `jszip` alongside it.
 | `setStyle("real" \| "model")`, `setQuality("auto" \| "high" \| "low")` | the look and the quality ([below](#looks-and-quality)): nothing is built again |
 | `ready()` | a promise, resolved once the look is drawn as it will stay: its finishes painted, its passes loaded |
 | `setDoorOpen(id, open, { instant })`, `doorOpen(id)`, `toggleDoor(id)`, `setDoors("auto" \| "manual")` | open or shut a door by its opening's ID ([doors](#doors)) |
+| `useDoor()` | walking: open or shut the door under the pointer (within reach), else the nearest ahead, as <kbd>E</kbd> does: its new `{ id, open }`, or null |
 | `destroy()` | |
 
 **Editing on top of it** (what Studio's Review does in 3D and walking; the world
@@ -91,22 +93,27 @@ changes nothing by itself — the page decides, saves, and tells it):
 
 | Method | |
 |---|---|
-| `pointAt(clientX, clientY)` | what is under a point of the screen — walking with the mouse taken, or given no point, under the crosshair: `{ floor, x, z, local, space, room, item, wall }` (`x`, `z`: local metres; `local`: `[x, y]` in the building's own frame, the metres of its drawings, as Studio and an item's `local` have them; the space or zone it is in, and `room`, the space (a zone's space); the item in the way; `wall`: whether a wall was met first). The first thing in the way counts: aimed at a wall, the point is on the floor just before it, so `room` is the room on the side aimed at. From the plan's walls and the items' boxes, not triangles: well under a millisecond on a floor of a thousand rooms, so it can follow the pointer, or the crosshair every frame |
+| `pointAt(clientX, clientY)` | what is under a point of the screen (given none, the middle of the view; walking, on the walker's floor): `{ floor, x, z, local, space, room, item, wall }` (`x`, `z`: local metres; `local`: `[x, y]` in the building's own frame, the metres of its drawings, as Studio and an item's `local` have them; the space or zone it is in, and `room`, the space (a zone's space); the item in the way; `wall`: whether a wall was met first). The first thing in the way counts: aimed at a wall, the point is on the floor just before it, so `room` is the room on the side aimed at. From the plan's walls and the items' boxes, not triangles: well under a millisecond on a floor of a thousand rooms, so it can follow the pointer every frame |
 | `worldPoint([x, y])`, `buildingPoint({ x, z })` | the building's own frame into the world and back (through its placement, format 0.7; null without one) |
 | `setFloorItems(floorId, items)` | replace one floor's furniture and equipment without building anything else again (a thousand desks in milliseconds): each `{ id, type, x, y, rotation }` in the building's own frame (rotation: degrees counter-clockwise, its front its own −y), with `width`, `depth`, `height`, `mount`, `elevation`, `color`, `grade` where they are not its type's in the package's catalogue |
 | `ghost(item \| null)` | where an item would go: see-through over its floor, green, or red with `ok: false`, its footprint outlined, with the magnet's `guides` (`[[x, y], [x, y]]` each); `null` takes it away |
-| `setDraggable(on)` | items carried across their floor by a drag in the dollhouse view: `itemdragstart`, `itemdrag`, `itemdragend` say where (`{ id, floor, x, z, local, altKey, shiftKey }`; a press that does not move stays a click) |
+| `mark(target \| null)` | lightly mark what a click would act on, apart from what is chosen: `{ floor: id }` a space's or zone's floor, `{ walls: id }` the faces of a space's walls towards it (a zone's: its space's), `{ item: id }` an item; `null`: nothing (Studio marks what painting or choosing would do as the pointer moves: `hover`) |
+| `setDraggable(on)` | items carried across their floor by a drag — in the dollhouse view any item, walking the item chosen (a drag elsewhere looks round): `itemdragstart`, `itemdrag`, `itemdragend` say where (`{ id, floor, x, z, local, altKey, shiftKey }`; a press that does not move stays a click) |
 | `updateSpace(id, { name, number, type, hidden, ignored, floor_finish, wall_finish })` | a room corrected: its label at once; its finishes in place, before the next frame (its floor's triangles and its walls' faces drawn in the finishes' materials: nothing built again, however many rooms change at once); its floor built again when its type or whether it shows changed |
 | `finishOf(id)` | what a space's or zone's floor and walls are in, as shown: `{ floor, wall }`, codes of `FINISHES` (its own, a zone's space's, else its type's) |
 
-Properties: `target` (where the dollhouse view looks, `{ x, z }`), `paused`, `draggable`.
+Properties: `target` (where the dollhouse view looks, `{ x, z }`), `paused`, `draggable`,
+`hovered` (walking, what is under the pointer, as `hover` said it last), `lookSensitivity`
+(walking, how far a drag turns the view: 1, the default, keeps what was pressed under the
+pointer; 0.25 to 4).
 
 Properties: `package`, `building`, `floor`, `mode`, `selected`, `room` (the space
-the walker is in), `walkFloor`, `atStairs`, `walking` (mouse taken), `player`
+the walker is in), `walkFloor`, `atStairs`, `walking` (the walk view is on), `player`
 (`{ x, z, dx, dz, floor }`, for a minimap), `prebuilt` (the floors shown from the
 package's pre-built 3D), `items` (whether items are drawn now), `look` (`{ style,
 quality, drawn, why }`: below), `doors` (`"auto"` or `"manual"`), `aimedDoor` (walking,
-the door within reach at the crosshair: `{ id, open }`, or null).
+the door <kbd>E</kbd> works: `{ id, open, under }`, under the pointer within reach, else the
+nearest ahead; or null).
 
 Items (format 0.6: desks, photocopiers, access points, sofas, TVs, …) are drawn
 in their type's colour as shapes of their kind (a desk with its chair on five
@@ -138,15 +145,22 @@ Events: `load`, `buildingchange`, `floorchange`, `modechange`, `routestep`
 (`{ index, step, leg, floor_id }`), `routeprogress` (`{ metres, total, fraction, leg,
 step, floor_id }`), `routeplay` (`{ state }`: playing, paused, ended, stopped), `select`
 (`{ id, feature }`), `roomchange` (`{ id, type, name, number, stairs }`),
-`walklock` (`{ locked }`), `pick` (a click on the dollhouse view, or walking with
-the mouse taken at the crosshair: what `pointAt` says is there, with `button`,
-`altKey`, `shiftKey`, and `door`, walking, the door within reach there; cancelable —
-unless a listener calls `preventDefault()`, what was clicked is selected, or walking
-at a door, the door opened or shut), `itemdragstart`, `itemdrag`, `itemdragend` (with
+`pick` (a click — a press that does not move a few pixels, or a tap — in either view:
+what `pointAt` says is there, with `button`, `altKey`, `shiftKey`, `clientX`, `clientY`,
+`pointerType`, and `door`, walking, the door within reach under the pointer; cancelable —
+unless a listener calls `preventDefault()`, what was clicked is selected, or walking on a
+door, the door opened or shut), `menu` (a right-click that does not move — a right-drag
+looks, or moves the dollhouse view — or walking a long press: what is there, as `pick`
+says, for the page's own menu), `hover` (walking: what is under the pointer changed —
+its floor, space, room, item, wall, or the door there (`door: { id, open }`); null once
+nothing is), `glide` (`{ state, x, z }`, walking: a double-click's glide `"going"`,
+`"there"`, `"stopped"` or `"refused"`), `itemdragstart`, `itemdrag`, `itemdragend` (with
 `cancelled`), `reload` (`{ floors }`), `lookchange` (`look`, when the look or
 quality changed, or auto chose Low), `doorchange` (`{ id, open, floor }`: a door asked
-to open or shut, by the walker or the page) and `dooraim` (`{ id, open }`, walking: the
-door within reach at the crosshair changed, or what it would do; `id` null for none).
+to open or shut, by the walker or the page) and `dooraim` (`{ id, open, under }`,
+walking: the door <kbd>E</kbd> works changed, or what it would do; `id` null for none).
+`walklock` (`{ locked }`) is said as the walk view starts and ends, for pages written
+when walking took the mouse.
 
 ### Looks and quality
 
@@ -204,11 +218,23 @@ Rooms' labels show where there is room for them on the screen (a room at least
 56 px across), and are placed again only when the view moves: a floor of a thousand
 rooms orbits as smoothly as a floor of ten.
 
-Walking: mouse to look, <kbd>W A S D</kbd> or the arrow keys to move,
-<kbd>Shift</kbd> to run, <kbd>E</kbd> or a click to open or shut the door at the
-crosshair ([below](#doors)). Walls and windows stop you, and shut doors; doorways and
-open doors don't. Floor changes are up to the page (the example uses
-<kbd>E</kbd>/<kbd>Q</kbd> where `atStairs` is true, when <kbd>E</kbd> was not a door's).
+### Walking
+
+The mouse is never taken: walking is used as Street View is, and the page around the
+world stays usable.
+
+| | |
+|---|---|
+| look round | drag with the left or right button, or one finger: the scene stays under the pointer, eased a little, and turns on a moment when let go of while moving (not with reduced motion); up and down stop short of straight up |
+| move | <kbd>W A S D</kbd> or the arrow keys, <kbd>Shift</kbd> to run; the wheel a step on or back (a pinch zooms nothing) |
+| go there | double-click (or double-tap) the floor: the walker glides there along a straight line, stopping before a wall or anything in the way (a key stops it); refused with a word by the pointer when something is in the way at once |
+| act | a click (a press that moves less than 4 px; a finger's, 10) at the pointer: `pick` says what is there, and unless the page takes it, a door within reach opens or shuts, else what is there is chosen; a right-click or a long press says `menu` |
+| see | what is under the pointer is said as it changes (`hover`); a ring on the floor shows where a double-click would go, the pointer is a hand over what a click acts on, and the door hint is by the pointer |
+
+Walls and windows stop you, and shut doors; doorways and open doors don't. Floor
+changes are up to the page (the example uses <kbd>E</kbd>/<kbd>Q</kbd> where `atStairs`
+is true, when <kbd>E</kbd> was not a door's). The walker's keys are never those typed in
+a field, in an open dialog or menu, or taken first by the page (`preventDefault()`).
 Walls come from the floors' `walls`, door and window openings from the openings'
 `span` (format 0.1); a package without them shows rooms but no walls.
 
@@ -219,19 +245,21 @@ A door's leaves start as the plan draws them, open (from the openings' `swings`,
 drawn without them gets one leaf opening into the room it serves, or two when wider
 than 1.3 m). An open leaf is never in the walker's way, even drawn across a passage.
 
-Walking, aim the crosshair at a door — its leaf or its doorway — within 2 m, and press
-<kbd>E</kbd> or click (with the mouse taken): it swings shut about its hinges in half a
-second, eased, or open again. A hint under the crosshair says so (`.sp3d-door-hint`,
-styled here; a page may restyle or hide it), the world's element has the class
-`sp3d-door-aim` meanwhile, and `dooraim` says which door, for a page drawing its own
-crosshair. A shut door is in the walker's way; walking into it (within half a metre,
+Walking, click a door within 2 m — its leaf, or a shut one's doorway (an open doorway
+is looked through: a click there is on what is beyond it) — or press <kbd>E</kbd>, which
+works the door under the pointer, else the nearest within 2 m ahead (no more than 60° off
+the way you look): it swings shut about its hinges in half a second, eased, or open again.
+With the pointer on it, a hint by the pointer says so (`.sp3d-door-hint`, styled here; a
+page may restyle or hide it) and the world's element has the class `sp3d-door-aim`;
+`dooraim` says which door <kbd>E</kbd> works, under the pointer or ahead. A shut door is in the walker's way; walking into it (within half a metre,
 going and looking towards it) opens it by itself, unless the world was made with
 `doors: "manual"` (or `setDoors("manual")`), when it stays shut until opened. In the
 dollhouse view nothing changes: a click chooses as before.
 
 <kbd>E</kbd> is taken only at a door (the world listens first, on the window: the
 event's `defaultPrevented` tells a page's own <kbd>E</kbd> it was a door's), never
-while typing in a field.
+while typing in a field; `doorKey` names another key, or `null` none (the page calls
+`useDoor()`).
 
 ```js
 world.addEventListener("doorchange", (e) => console.log(e.detail)); // { id, open, floor }
