@@ -1931,7 +1931,10 @@ export class StoreyPathWorld extends EventTarget {
   #tourFrame(dt) {
     const tour = this.#tour, shown = this.#route;
     if (tour.paused) return; // (the view is the page's meanwhile: it may be turned round)
-    tour.t = Math.min(tour.tour.seconds, tour.t + dt);
+    // a tenth of a second at most a frame, as the way's rising in: after a long frame (the
+    // first, its shaders made; a slow or busy machine) it goes on from where it was, its
+    // start said, not past it
+    tour.t = Math.min(tour.tour.seconds, tour.t + Math.min(dt, 0.1));
     const { parts } = tour.tour;
     let k = parts.findIndex((p) => tour.t < p.start + p.seconds);
     if (k < 0) k = parts.length - 1;

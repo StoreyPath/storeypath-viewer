@@ -1635,6 +1635,23 @@ test("playing a way: the camera along it, saying how far and which step; paused,
   truly(JSON.stringify(r.plays) === JSON.stringify(["playing", "paused", "playing", "ended", "playing", "stopped"]) && r.after === null, `said: ${r.plays}`);
 });
 
+test("playing a way after a long frame (a slow or busy machine): its start said first, the tour not past it", async () => {
+  await withWay();
+  const r = await page.run(async () => {
+    const world = window.wayWorld;
+    window.events.length = 0;
+    world.playRoute({ seconds: 6 });
+    const busy = performance.now() + 1200;
+    while (performance.now() < busy); // (the page busy: the first frame comes 1.2 s late)
+    await window.frames(2);
+    const steps = window.events.filter(([t]) => t === "routestep").map(([, d]) => d.index);
+    const progress = window.events.filter(([t]) => t === "routeprogress").map(([, d]) => d.fraction);
+    world.stopRoute();
+    return { steps, first: progress[0] };
+  });
+  truly(r.steps[0] === 0 && r.first < 0.1, `its start first: ${JSON.stringify(r)}`);
+});
+
 test("a way's pin and start keep their size on the screen far off: scaled with the distance, never below their own", async () => {
   await withWay();
   const r = await page.run(async () => {
