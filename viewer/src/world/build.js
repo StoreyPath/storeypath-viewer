@@ -306,10 +306,11 @@ export function planFloor(pkg, floor, origin, options = {}) {
   plan.wallRings = plan.walls.flat(1).concat(plan.parapets.flat(1));
 
   // the furniture and equipment (format 0.6, planItem), and the edges of those on the
-  // floor, which the walker bumps into
+  // floor, which the walker bumps into; ``options.models``: the types' models read (0.9.2,
+  // model.js), by type code
   const placement = pkg.manifest?.placements?.[props.building_id];
   setItems(plan, (pkg.itemsOn?.(floor.id) ?? []).map((item) => planItem(item.id, item.properties,
-    { origin, placement, wallHeight, type: pkg.itemType?.(item.properties.type) })));
+    { origin, placement, wallHeight, type: pkg.itemType?.(item.properties.type), model: o.models?.get?.(item.properties.type) })));
 
   const b = plan.bounds;
   for (const rings of [...plan.outline, ...plan.walls, ...plan.units.flatMap((u) => u.rings)]) {
@@ -1137,12 +1138,13 @@ export function itemPoint(it, across, ahead) {
 /** An item as the world plans it, from its properties as a package gives them (or
  * null when they do not say where it is): where it stands ([x, n], local metres), the
  * way its front faces (fx, fn), its size, how high its bottom is, its colour, the grade
- * of a desk and its type's shape (format 0.9.1: how it is drawn). Where it stands in its
+ * of a desk and its type's shape (format 0.9.1: how it is drawn), and its type's model
+ * (0.9.2, read: model.js) when it has one. Where it stands in its
  * building (format 0.7: ``local``, its middle and its turn counter-clockwise from the
  * drawing's -y) is put on the map by the building's ``placement``, as Studio put its
  * walls there; older packages give its point and heading on the map. ``type``: its
- * catalogue entry (colour, grade, shape). */
-export function planItem(id, p, { origin, placement, wallHeight, type }) {
+ * catalogue entry (colour, grade, shape); ``model``: its type's model, read, or none. */
+export function planItem(id, p, { origin, placement, wallHeight, type, model = null }) {
   const own = p.local && placement ? p.local : null;
   if (!own && !p.display_point) return null;
   const [x, n] = toLocal(origin, own ? toLonLat(placement, [own.x_m, own.y_m]) : p.display_point);
@@ -1154,7 +1156,7 @@ export function planItem(id, p, { origin, placement, wallHeight, type }) {
     width: p.width_m || 1, depth: p.depth_m || 0.6, height: p.height_m || 0.75,
     color: typeof color === "string" && COLOR.test(color) ? color : ITEM_COLOR,
     grade: typeof grade === "string" && grade in DESK_SETS ? grade : null,
-    shape: typeof shape === "string" ? shape : null };
+    shape: typeof shape === "string" ? shape : null, model: model?.position ? model : null };
   it.y = it.mount === "ceiling" ? wallHeight - it.height - 0.01 : p.elevation_m ?? (it.mount === "wall" ? WALL_ITEM : 0);
   return it;
 }
@@ -1681,19 +1683,73 @@ function visitorsAt(set, w) {
 }
 
 /** An item's template (Shapes.done), made once for its kind (kindOf) and size: ``form``
- * "detailed" (as DRAW draws it) or "light" (a box). */
+ * "detailed" (as DRAW draws it, or as its type's model is: modelTemplate) or "light" (a box). */
 function template(cache, it, form) {
-  const kind = form === "light" ? "light" : kindOf(it);
+  const model = form === "light" ? null : it.model;
+  const kind = form === "light" ? "light" : model ? `model ${model.id}` : kindOf(it);
   const key = [kind, it.width, it.depth, it.height, it.color, it.grade, kind === "plain" ? it.mount : ""].join("|");
   let t = cache.get(key);
   if (!t) {
-    const s = new Shapes();
-    if (kind === "light") drawPlain(s, { ...it, mount: "floor" }, it.color);
-    else (DRAW[kind] ?? drawPlain)(s, it, it.color);
-    t = s.done();
+    if (model) t = modelTemplate(model, it);
+    else {
+      const s = new Shapes();
+      if (kind === "light") drawPlain(s, { ...it, mount: "floor" }, it.color);
+      else (DRAW[kind] ?? drawPlain)(s, it, it.color);
+      t = s.done();
+    }
     cache.set(key, t);
   }
   return t;
+}
+
+/** A type's model (format 0.9.2, read by model.js) as an item's template: its box made the
+ * item's size, a scale for each way (across its width, up its height, ahead its depth),
+ * its middle where the item stands and its bottom on it; its colours and finishes as the
+ * model has them; lines along its edges where its faces fold (FOLD) and where it ends. */
+function modelTemplate(m, it) {
+  const n = m.vertices, from = m.position, position = new Float32Array(n * 3);
+  const size = [it.width, it.height, it.depth];
+  const scale = [0, 1, 2].map((k) => (m.max[k] - m.min[k] > 1e-6 ? size[k] / (m.max[k] - m.min[k]) : 1));
+  const middle = [(m.min[0] + m.max[0]) / 2, m.min[1], (m.min[2] + m.max[2]) / 2];
+  for (let j = 0; j < n * 3; j++) position[j] = (from[j] - middle[j % 3]) * scale[j % 3];
+  return { vertices: n, position, color: m.color, finish: m.finish, index: m.index, lines: folds(position, m.index) };
+}
+
+const FOLD = Math.cos((35 * Math.PI) / 180); // faces meeting at more than 35° show the edge between them
+
+/** The edges of a mesh's triangles where its faces fold (FOLD) or where it ends (an edge of
+ * one triangle), as line ends: vertices at one place are one, whatever their colours. */
+function folds(position, index) {
+  const n = position.length / 3, at = new Uint32Array(n), places = new Map();
+  for (let j = 0; j < n; j++) {
+    const key = `${Math.round(position[3 * j] * 1e4)},${Math.round(position[3 * j + 1] * 1e4)},${Math.round(position[3 * j + 2] * 1e4)}`;
+    let k = places.get(key);
+    if (k === undefined) places.set(key, (k = places.size));
+    at[j] = k;
+  }
+  const edges = new Map(); // the two places, as one number → [its ends, the normals of its faces]
+  const p = (i, c) => position[3 * i + c];
+  for (let f = 0; f + 2 < index.length; f += 3) {
+    const [a, b, c] = [index[f], index[f + 1], index[f + 2]];
+    const u = [p(b, 0) - p(a, 0), p(b, 1) - p(a, 1), p(b, 2) - p(a, 2)], v = [p(c, 0) - p(a, 0), p(c, 1) - p(a, 1), p(c, 2) - p(a, 2)];
+    const nx = u[1] * v[2] - u[2] * v[1], ny = u[2] * v[0] - u[0] * v[2], nz = u[0] * v[1] - u[1] * v[0], l = Math.hypot(nx, ny, nz);
+    if (l < 1e-12) continue;
+    for (const [i, j] of [[a, b], [b, c], [c, a]]) {
+      const x = at[i], y = at[j];
+      if (x === y) continue;
+      const key = x < y ? x * places.size + y : y * places.size + x;
+      const e = edges.get(key);
+      if (e) e.normals.push([nx / l, ny / l, nz / l]);
+      else edges.set(key, { ends: [i, j], normals: [[nx / l, ny / l, nz / l]] });
+    }
+  }
+  const lines = [];
+  for (const { ends: [i, j], normals } of edges.values()) {
+    const [first, ...others] = normals;
+    if (others.length && others.every((q) => first[0] * q[0] + first[1] * q[1] + first[2] * q[2] >= FOLD)) continue;
+    lines.push(p(i, 0), p(i, 1), p(i, 2), p(j, 0), p(j, 1), p(j, 2));
+  }
+  return Float32Array.from(lines);
 }
 
 /** A floor's furniture and equipment as pieces, as buildPieces gives its other
@@ -1781,9 +1837,10 @@ function placedLines(list) {
 
 /** What an item takes in its own frame, as DRAW draws it: [across0, ahead0, across1,
  * ahead1, top] (metres from its middle and its bottom): its footprint and height, and
- * for a desk its chair and what goes with its grade; for a meeting table its chairs. */
+ * for a desk its chair and what goes with its grade; for a meeting table its chairs. One
+ * drawn as its type's model (0.9.2) takes its box: the model is made its size. */
 export function itemExtent(it) {
-  const w = it.width, d = it.depth, kind = kindOf(it);
+  const w = it.width, d = it.depth, kind = it.model ? "model" : kindOf(it);
   if (kind === "MEETING") {
     const { board } = tableChairs(w, d), reach = TABLE.out + CHAIR.reach;
     const ends = d >= TABLE.ends - 1e-9 ? reach : 0;

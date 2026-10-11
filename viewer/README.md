@@ -117,7 +117,9 @@ nearest ahead; or null).
 
 Items (format 0.6: desks, photocopiers, access points, sofas, TVs, …) are drawn
 in their type's colour as shapes of their kind (a desk with its chair on five
-spokes, and what goes with its grade: visitors' chairs, a return, a credenza), on
+spokes, and what goes with its grade: visitors' chairs, a return, a credenza), or as
+their type's 3D model when it has one (format 0.9.2: `models/<CODE>.glb`, made the
+item's size; one that cannot be read leaves the type its shape), on
 their floor, where they
 stand in their building (format 0.7: `local`, put on the map by the building's
 placement, as its walls are; older packages: their point and heading on the map).

@@ -141,6 +141,24 @@ export class StoreyPathPackage {
     return dir && this._zip ? this._zip.file(`${dir.endsWith("/") ? dir : dir + "/"}${floorId}.glb`) : null;
   }
 
+  /** Whether an item type comes with its 3D model (format 0.9.2: ``models/<CODE>.glb``, as
+   * the type's ``model`` says). */
+  hasModel(code) {
+    return Boolean(this._modelFile(code));
+  }
+
+  /** An item type's 3D model as binary glTF (spec/FORMAT.md, "Models"), or null when the
+   * package has none for it. */
+  async model(code) {
+    const file = this._modelFile(code);
+    return file ? file.async("arraybuffer") : null;
+  }
+
+  _modelFile(code) {
+    const path = `models/${code}.glb`;
+    return this._zip && this._itemTypes.get(code)?.model === path ? this._zip.file(path) : null;
+  }
+
   /** Floors of a building, lowest first. */
   floorsOf(buildingId) {
     return this._floorsByBuilding.get(buildingId) ?? [];
@@ -168,7 +186,7 @@ export class StoreyPathPackage {
   }
 
   /** An item type of the catalogue by its code (an item's ``type``): its names,
-   * category, size, mount, colour and fields; or null. */
+   * category, size, mount, colour, shape, model (0.9.2: model()) and fields; or null. */
   itemType(code) {
     return this._itemTypes.get(code) ?? null;
   }

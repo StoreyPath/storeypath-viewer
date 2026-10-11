@@ -66,6 +66,7 @@ import {
   itemPoint, occluders, originOf, planFloor, planItem, setItems, toLocal as localOf,
 } from "./build.js";
 import { DOOR, FloorDoors } from "./doors.js";
+import { parseModel } from "./model.js";
 import { Painter } from "./finishes.js";
 import { toLonLat } from "./frame.js";
 import { qualityFor, rendererName } from "./gpu.js";
@@ -127,6 +128,21 @@ const RIDE_WORDS = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ram
 // a floor faded back while a way is shown: its floors and its walls, a light shell
 const FLOORISH = new Set(["floor", "slab"]);
 
+/** The 3D models of a package's item types (format 0.9.2: models/<CODE>.glb), each read once,
+ * by type code; a type whose model cannot be read keeps its shape, and says why. */
+async function readModels(pkg) {
+  const models = new Map();
+  const types = (pkg.catalogue?.types ?? []).filter((t) => t?.model && pkg.hasModel?.(t.code));
+  await Promise.all(types.map(async (t) => {
+    try {
+      models.set(t.code, parseModel(await pkg.model(t.code)));
+    } catch (e) {
+      console.warn(`StoreyPathWorld: ${t.code}'s 3D model could not be read, so it is drawn by its shape: ${e.message}`);
+    }
+  }));
+  return models;
+}
+
 export class StoreyPathWorld extends EventTarget {
   #o;
   #element;
@@ -155,6 +171,7 @@ export class StoreyPathWorld extends EventTarget {
   #ground = null;
   #destroyed = false;
   #pkg = null;
+  #models = new Map(); // the package's item types' models, read (format 0.9.2), by code
   #origin = null;
   #building = null;
   #buildingGroup = null;
@@ -461,7 +478,9 @@ export class StoreyPathWorld extends EventTarget {
   /** Open a package from a URL, Blob, File or ArrayBuffer. */
   async open(source) {
     const pkg = await loadPackage(source);
+    const models = await readModels(pkg);
     this.#pkg = pkg;
+    this.#models = models;
     this.#baked = new Map();
     this.#shut.clear(); // its doors as the plan draws them
     await this.setBuilding(pkg.buildings[0]?.id);
@@ -539,7 +558,9 @@ export class StoreyPathWorld extends EventTarget {
    * here (not from a pre-built world/). Resolves with the package. */
   async reload(source, { floors } = {}) {
     const pkg = await loadPackage(source);
+    const models = await readModels(pkg);
     const id = this.#building;
+    this.#models = models;
     if (!id || !pkg.floorsOf(id).length) {
       this.#pkg = pkg;
       this.#baked = new Map();
@@ -934,7 +955,8 @@ export class StoreyPathWorld extends EventTarget {
       width_m: g.width ?? t?.width, depth_m: g.depth ?? t?.depth, height_m: g.height ?? t?.height,
       elevation_m: g.elevation !== undefined ? g.elevation : t?.elevation ?? null };
     return planItem(g.id, p, { origin: this.#origin, placement: this.#placement(), wallHeight: f.plan.wallHeight,
-      type: { color: g.color ?? t?.color, grade: g.grade ?? t?.grade, shape: g.shape !== undefined ? g.shape : t?.shape } });
+      type: { color: g.color ?? t?.color, grade: g.grade ?? t?.grade, shape: g.shape !== undefined ? g.shape : t?.shape },
+      model: this.#models.get(g.type) ?? null });
   }
 
   /** Show where an item would go (placed, or carried): see-through over its floor, green,
@@ -2231,7 +2253,7 @@ export class StoreyPathWorld extends EventTarget {
 
   #buildFloor(floor) {
     const o = this.#o;
-    const plan = planFloor(this.#pkg, floor, this.#origin, o);
+    const plan = planFloor(this.#pkg, floor, this.#origin, { ...o, models: this.#models });
     const baked = this.#baked.get(floor.id);
     const { pieces, rooms, obstacles, items, doors } = baked ? this.#bakedPieces(baked) : buildPieces(plan, o);
     if (baked) this.#baked.delete(floor.id); // its geometry is the floor's now: read again when built again

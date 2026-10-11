@@ -133,6 +133,9 @@ export interface ItemType {
 	/** How it is drawn (format 0.9.1); absent or null: by its code's first part (DESK-MANAGER as
 	 * a desk), else as a box. */
 	shape?: ItemShape | null;
+	/** Its 3D model in the package (format 0.9.2): `models/<CODE>.glb`; absent or null: none,
+	 * drawn by its shape. */
+	model?: string | null;
 	fields: ItemField[];
 	retired: boolean;
 }
@@ -219,7 +222,32 @@ export declare class StoreyPathPackage {
 	hasWorld(floorId: string): boolean;
 	/** A floor's pre-built 3D as binary glTF, or null when the package has none. */
 	world(floorId: string): Promise<ArrayBuffer | null>;
+	/** Whether an item type comes with its 3D model (format 0.9.2: models/<CODE>.glb). */
+	hasModel(code: string): boolean;
+	/** An item type's 3D model as binary glTF (parseModel reads it), or null when the package has none. */
+	model(code: string): Promise<ArrayBuffer | null>;
 }
+
+/** An item type's 3D model read (format 0.9.2): one mesh in the type's own frame, metres, +Y
+ * up, its front facing +Z; colours 0–255 linear, finishes (roughness, metalness) 0–255. */
+export interface ItemModel {
+	position: Float32Array;
+	color: Uint8Array;
+	finish: Uint8Array;
+	index: Uint32Array;
+	vertices: number;
+	triangles: number;
+	min: [number, number, number];
+	max: [number, number, number];
+	/** This model's own number, for a cache. */
+	id: number;
+}
+
+/** At most this many triangles a model: more is refused. */
+export declare const MODEL_TRIANGLES: number;
+/** A model file read (binary glTF as Studio writes it, spec/FORMAT.md "Models"); throws, saying
+ * why, when it is not one this reads. */
+export declare function parseModel(data: ArrayBuffer | Uint8Array): ItemModel;
 
 /** Read a package from a URL, Blob, File or ArrayBuffer. A package of a format version
  * this viewer does not read is refused (see checkVersion). */

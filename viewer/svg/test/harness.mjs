@@ -64,13 +64,15 @@ export function zip(files) {
   return Buffer.concat([...local, directory, end]);
 }
 
-/** A package file changed: ``change`` gets its JSON files (name → parsed) to change in place. */
-export function repack(path, change) {
+/** A package file changed: ``change`` gets its JSON files (name → parsed) to change in place;
+ * ``add``: other files put in it (name → bytes). */
+export function repack(path, change, add = {}) {
   const files = unzip(readFileSync(path));
   const json = new Map([...files].filter(([name]) => /\.(json|geojson)$/.test(name))
     .map(([name, data]) => [name, JSON.parse(data.toString("utf8"))]));
   change(json);
   for (const [name, value] of json) files.set(name, JSON.stringify(value));
+  for (const [name, data] of Object.entries(add)) files.set(name, Buffer.from(data));
   return zip(files);
 }
 

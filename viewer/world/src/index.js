@@ -3,6 +3,8 @@
 export { StoreyPathWorld } from "../../src/world/world.js";
 export { loadPackage, checkVersion, StoreyPathPackage, FORMAT, FORMAT_VERSION, SUPPORTED_MAJOR_VERSION } from "../../src/package.js";
 export { TYPE_COLORS } from "../../src/theme.js";
+// an item type's 3D model (format 0.9.2), as the world reads it
+export { MODEL_TRIANGLES, parseModel } from "../../src/world/model.js";
 // the finishes (format 0.9): StoreyPath's floors and walls, and what a room shows
 export { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } from "../../src/finishes.js";
 export { webglSupport } from "./support.js";

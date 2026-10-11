@@ -3,7 +3,8 @@
 // opened, its floors and rooms built, a room chosen by a click and by select, its
 // items drawn when asked for (or when one floor is shown), chosen by a click and
 // bumped into by the walker, the same package pre-built (world/) shown the same,
-// and the WebGL check telling a software renderer from a graphics card.
+// and the WebGL check telling a software renderer from a graphics card. BROWSER=0: the tests
+// in Node alone, no Chrome started.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -36,6 +37,7 @@ const { TYPE_COLORS } = await import("../../src/theme.js");
 const { toLonLat } = await import("../../src/world/frame.js");
 const { qualityFor } = await import("../../src/world/gpu.js");
 const { isItemId } = await import("../../src/ids.js");
+const { MODEL_TRIANGLES, parseModel } = await import("../../src/world/model.js");
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -369,6 +371,148 @@ test("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or o
   const plain = f0(await loadPackage(readFileSync(join(packages, "campus-hq.storeypath"))));
   truly(director?.shape === "box" && kindOf(director) === "plain" && plain.items.every((i) => i.shape === null),
     `the package's shapes: ${director?.shape}, ${plain.items.map((i) => i.shape)}`);
+});
+
+// ---- item types' models (format 0.9.2) ------------------------------------------------
+
+// a box 2 m across, 1 m tall and 0.5 m deep, as a type's model: red below, blue above, a
+// box's corners (bit 1 across, 2 up, 4 ahead) and its faces outwards
+const RED = [200, 30, 30], BLUE = [30, 30, 200], SHINY = [40, 220];
+const BOX = {
+  position: Array.from({ length: 8 }, (_, i) => [i & 1 ? 1 : -1, i & 2 ? 1 : 0, i & 4 ? 0.25 : -0.25]).flat(),
+  color: Array.from({ length: 8 }, (_, i) => (i & 2 ? BLUE : RED)).flat(),
+  finish: Array.from({ length: 8 }, () => SHINY).flat(),
+  index: [1, 3, 7, 1, 7, 5, 0, 4, 6, 0, 6, 2, 2, 6, 7, 2, 7, 3, 0, 1, 5, 0, 5, 4, 4, 5, 7, 4, 7, 6, 0, 2, 3, 0, 3, 1],
+};
+
+/** A model file as Studio writes one (spec/FORMAT.md, "Models"): binary glTF of one mesh,
+ * its colours and finishes in its vertices, each in a buffer view of stride 4 (glTF keeps
+ * a vertex's attributes on four bytes); ``edit`` changes its JSON before it is written. */
+function modelFile({ position, color, finish, index }, edit = () => {}) {
+  const n = position.length / 3, pad = (b, fill = 0) => Buffer.concat([b, Buffer.alloc((4 - (b.length % 4)) % 4, fill)]);
+  const pos = Buffer.from(Float32Array.from(position).buffer), col = Buffer.alloc(n * 4), fin = Buffer.alloc(n * 4);
+  for (let i = 0; i < n; i++) {
+    col.set(color.slice(3 * i, 3 * i + 3), 4 * i);
+    fin.set(finish.slice(2 * i, 2 * i + 2), 4 * i);
+  }
+  const idx = pad(Buffer.from(Uint16Array.from(index).buffer)), bin = Buffer.concat([pos, col, fin, idx]);
+  const min = [0, 1, 2].map((k) => Math.min(...position.filter((_, j) => j % 3 === k)));
+  const max = [0, 1, 2].map((k) => Math.max(...position.filter((_, j) => j % 3 === k)));
+  const doc = {
+    asset: { version: "2.0", generator: "the viewer's tests" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, COLOR_0: 1, _FINISH: 2 }, indices: 3, material: 0, mode: 4 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 } }],
+    buffers: [{ byteLength: bin.length }],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: pos.length },
+      { buffer: 0, byteOffset: pos.length, byteLength: col.length, byteStride: 4 },
+      { buffer: 0, byteOffset: pos.length + col.length, byteLength: fin.length, byteStride: 4 },
+      { buffer: 0, byteOffset: pos.length + col.length + fin.length, byteLength: index.length * 2 },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: n, type: "VEC3", min, max },
+      { bufferView: 1, componentType: 5121, normalized: true, count: n, type: "VEC3" },
+      { bufferView: 2, componentType: 5121, normalized: true, count: n, type: "VEC2" },
+      { bufferView: 3, componentType: 5123, count: index.length, type: "SCALAR" },
+    ],
+  };
+  edit(doc);
+  const text = pad(Buffer.from(JSON.stringify(doc)), 0x20), head = Buffer.alloc(12), chunk = (b, kind) => {
+    const h = Buffer.alloc(8);
+    h.writeUInt32LE(b.length, 0);
+    h.writeUInt32LE(kind, 4);
+    return Buffer.concat([h, b]);
+  };
+  const body = Buffer.concat([chunk(text, 0x4e4f534a), chunk(bin, 0x004e4942)]);
+  head.writeUInt32LE(0x46546c67, 0);
+  head.writeUInt32LE(2, 4);
+  head.writeUInt32LE(12 + body.length, 8);
+  const out = Buffer.concat([head, body]);
+  return out.buffer.slice(out.byteOffset, out.byteOffset + out.length);
+}
+
+test("a type's model (0.9.2) is read: its triangles, its box, its colours and finishes as written; what is not one is refused, saying why", () => {
+  const m = parseModel(modelFile(BOX));
+  const same = (a, b) => JSON.stringify(Array.from(a)) === JSON.stringify(Array.from(b));
+  truly(m.vertices === 8 && m.triangles === 12 && same(m.min, [-1, 0, -0.25]) && same(m.max, [1, 1, 0.25]),
+    `read: ${m.vertices} vertices, ${m.triangles} triangles, ${m.min} to ${m.max}`);
+  truly(same(m.color, BOX.color) && same(m.finish, BOX.finish) && same(m.index, BOX.index), "its colours, finishes and triangles as written");
+  truly(parseModel(modelFile(BOX)).id !== m.id, "each model read its own");
+  const refused = (data, why) => {
+    try {
+      parseModel(data);
+    } catch (e) {
+      truly(why.test(e.message), `refused, but saying ${e.message}`);
+      return;
+    }
+    throw new Error(`not refused: ${why}`);
+  };
+  refused(new TextEncoder().encode("solid cube\nendsolid").buffer, /not binary glTF/);
+  const v1 = new Uint8Array(modelFile(BOX));
+  v1[4] = 1;
+  refused(v1.buffer, /version 1/);
+  refused(modelFile(BOX, (j) => { j.extensionsRequired = ["KHR_draco_mesh_compression"]; }), /KHR_draco_mesh_compression/);
+  refused(modelFile(BOX, (j) => { j.meshes[0].primitives[0].mode = 1; }), /mode 1/);
+  refused(modelFile(BOX, (j) => { delete j.meshes[0].primitives[0].attributes.POSITION; }), /positions/);
+  refused(modelFile(BOX, (j) => { j.accessors[0].count = 9; }), /outside its buffer/);
+  refused(modelFile(BOX, (j) => { j.buffers[0].uri = "box.bin"; }), /outside the file/);
+  refused(modelFile({ ...BOX, index: BOX.index.map((i) => (i === 7 ? 8 : i)) }), /index past/);
+  const many = Array.from({ length: (MODEL_TRIANGLES + 1) * 3 }, (_, i) => BOX.index[i % BOX.index.length]);
+  refused(modelFile({ ...BOX, index: many }), new RegExp(`more than ${MODEL_TRIANGLES} triangles`));
+});
+
+test("an item drawn as its type's model: its box made the item's size each way, where it stands, in the model's colours; lines where it folds; a box when light", () => {
+  const model = parseModel(modelFile(BOX));
+  const it = { id: "M", type: "SOFA-X", mount: "floor", x: 10, n: 5, fx: 0, fn: 1, width: 1, depth: 0.25, height: 0.5, color: "#a8845e",
+    grade: null, shape: "desk", model, y: 0 };
+  const [piece] = buildItems({ elevation: 3, items: [it] }, "detailed", { edges: true });
+  const g = piece.geometry, p = g.getAttribute("position"), c = g.getAttribute("color");
+  const ends = (f) => [0, 1, 2].map((k) => f(...Array.from({ length: p.count }, (_, i) => p.array[3 * i + k])));
+  const [min, max] = [ends(Math.min), ends(Math.max)];
+  // facing north (fn 1): across goes west (x − a), ahead north (z = −(n + b)); its bottom on the floor at 3 m
+  truly(p.count === 8 && unlike(min, [9.5, 3, -5.125], 1e-6) === null && unlike(max, [10.5, 3.5, -4.875], 1e-6) === null,
+    `${p.count} vertices from ${min} to ${max}`);
+  const colours = Array.from({ length: p.count }, (_, i) => [p.getY(i) > 3.25 ? "up" : "down", [c.getX(i), c.getY(i), c.getZ(i)].map((v) => Math.round(v * 255))]);
+  truly(colours.every(([at, rgb]) => JSON.stringify(rgb) === JSON.stringify(at === "up" ? BLUE : RED)), `colours: ${JSON.stringify(colours)}`);
+  truly(piece.edges.length === 12 * 6, `a box's twelve edges, its faces' diagonals not: ${piece.edges.length / 6} lines`);
+  truly(JSON.stringify(itemExtent(it)) === JSON.stringify([-0.5, -0.125, 0.5, 0.125, 0.5]), `its box, not a desk's: ${itemExtent(it)}`);
+  const [light] = buildItems({ elevation: 3, items: [it] }, "light");
+  const lc = light.geometry.getAttribute("color");
+  truly(light.geometry.getAttribute("position").count === 8 && Math.round(lc.getX(0) * 255) !== RED[0], "light: a box of the type's colour");
+  // a second item of the type and size is a copy of the same template: one model, made each size once
+  const twice = buildItems({ elevation: 0, items: [it, { ...it, id: "N", x: 0 }, { ...it, id: "O", width: 2 }] })[0].geometry;
+  truly(twice.getAttribute("position").count === 24, `three items, ${twice.getAttribute("position").count} vertices`);
+});
+
+test("a package's types' models (0.9.2): read from models/<CODE>.glb as the type says; a type whose model cannot be read is drawn by its shape", async () => {
+  const pkg = await loadPackage(repack(join(packages, "campus-hq.storeypath"), (files) => {
+    const m = files.get("manifest.json");
+    m.format_version = "0.9.2";
+    m.files.models = "models/";
+    for (const t of files.get("catalogue.json").types) {
+      if (t.code === "SOFA") t.model = "models/SOFA.glb";
+      if (t.code === "COPIER") t.model = "models/COPIER.glb";
+      if (t.code === "TV") t.model = "models/SOFA.glb"; // not its own
+    }
+  }, { "models/SOFA.glb": Buffer.from(modelFile(BOX)), "models/COPIER.glb": Buffer.from("not a model") }));
+  truly(pkg.hasModel("SOFA") && pkg.hasModel("COPIER") && !pkg.hasModel("TV") && !pkg.hasModel("DESK-JUNIOR"),
+    "a model where its type says, at its own code");
+  truly((await pkg.model("SOFA")).byteLength === modelFile(BOX).byteLength && (await pkg.model("TV")) === null, "its bytes; none for another's");
+  // as the world reads them: each once, a model that cannot be read left out (its type keeps its shape)
+  const models = new Map();
+  for (const t of pkg.catalogue.types.filter((x) => pkg.hasModel(x.code))) {
+    try {
+      models.set(t.code, parseModel(await pkg.model(t.code)));
+    } catch {
+      // drawn by its shape
+    }
+  }
+  truly([...models.keys()].join() === "SOFA", `read: ${[...models.keys()]}`);
+  const items = pkg.floorsOf(HQ).flatMap((f) => planFloor(pkg, f, originOf(pkg, HQ), { models }).items);
+  const sofa = items.find((i) => i.type === "SOFA"), copier = items.find((i) => i.type === "COPIER");
+  truly(sofa?.model === models.get("SOFA") && copier && copier.model === null && kindOf(copier) === "COPIER",
+    `the sofa as its model, the copier as its shape: ${sofa?.model?.id}, ${copier?.model}`);
+  truly(pkg.floorsOf(HQ).flatMap((f) => planFloor(pkg, f, originOf(pkg, HQ)).items).every((i) => i.model === null), "no models given: none drawn");
 });
 
 test("a wayfinding kiosk: a plinth, a post and a head, its screen ahead, as tall as its type, seen in the cutaway", async () => {
@@ -718,6 +862,10 @@ test("a piece drawn a finish at a time: its triangles ordered by finish, in grou
 });
 
 // ---- in Chrome ----------------------------------------------------------------
+// (BROWSER=0: the tests above alone, in Node; no Chrome started)
+
+const inNode = tests.length;
+const browser = process.env.BROWSER !== "0";
 
 const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,#v{width:900px;height:600px}</style>
 <div id="w"></div><div id="v"></div>
@@ -916,8 +1064,13 @@ const server = await serve(root, { "/page.html": PAGE, "/simple-office.storeypat
   "/campus.storeypath": file("campus.storeypath"), "/simple-office-world.storeypath": file("simple-office-world.storeypath"),
   "/campus-world.storeypath": file("campus-world.storeypath"), "/campus-hq.storeypath": file("campus-hq.storeypath"),
   "/campus-hq-2.storeypath": file("campus-hq-2.storeypath"), "/campus-hq-doors.storeypath": doubleDoors,
+  "/campus-hq-models.storeypath": repack(join(packages, "campus-hq.storeypath"), (files) => {
+    files.get("manifest.json").format_version = "0.9.2";
+    files.get("manifest.json").files.models = "models/";
+    for (const t of files.get("catalogue.json").types) if (t.code === "SOFA" || t.code === "COPIER") t.model = `models/${t.code}.glb`;
+  }, { "models/SOFA.glb": Buffer.from(modelFile(BOX)), "models/COPIER.glb": Buffer.from("not a model") }),
   "/jszip.min.js": readFileSync(join(root, "../vendor/jszip.min.js")) });
-const page = await launch({ webgl: true });
+const page = browser ? await launch({ webgl: true }) : null;
 // Input that must arrive together (a double-click, a double tap, a finger's first move) is
 // sent at once, each command not waiting for the one before's answer: on CI, drawn in
 // software, an answer can take longer than a double-click, or than a long press.
@@ -928,10 +1081,12 @@ const doubleClick = (x, y) => together(
   () => page.mouse("mouseReleased", x, y),
   () => page.mouse("mousePressed", x, y, { down: true, params: { clickCount: 2 } }),
   () => page.mouse("mouseReleased", x, y, { params: { clickCount: 2 } }));
-await page.open(`${server.url}/page.html`, 900, 600);
-await page.run(async () => {
-  for (let i = 0; i < 100 && !window.ready; i++) await new Promise((r) => setTimeout(r, 50));
-});
+if (browser) {
+  await page.open(`${server.url}/page.html`, 900, 600);
+  await page.run(async () => {
+    for (let i = 0; i < 100 && !window.ready; i++) await new Promise((r) => setTimeout(r, 50));
+  });
+}
 
 test("the WebGL check refuses a software renderer", async () => {
   const r = await page.run(() => window.sp.webglSupport());
@@ -1967,6 +2122,37 @@ test("setFloorItems: an item given a shape (0.9.1) is drawn as it, whatever its 
       lockerAsDesk: await given({ type: "LOCKER-TALL", shape: "desk" }) };
   }, floor);
   truly(r.box === 8 && r.locker === 8 && r.desk > 100 && r.none === r.desk && r.lockerAsDesk > 100, `drawn: ${JSON.stringify(r)}`);
+});
+
+test("a type's model (0.9.2) is drawn for its items, in its colours; one that cannot be read leaves its type its shape", async () => {
+  const floor = await openFloor("/campus-hq-models.storeypath");
+  const r = await page.run(async (floor) => {
+    const world = window.world;
+    const one = world.package.itemsOn(floor)[0];
+    const at = { x: one.properties.local.x_m, y: one.properties.local.y_m, rotation: one.properties.local.rotation_deg };
+    const drawn = () => { // the floor's first item: its vertices drawn, and their colours
+      let n = 0;
+      const colours = new Set();
+      world.scene.getObjectByName(floor).traverse((m) => {
+        const k = m.name.startsWith("items") ? m.geometry?.getAttribute("_item") : null;
+        const c = k && m.geometry.getAttribute("color");
+        for (let i = 0; k && i < k.count; i++) {
+          if (k.getX(i) !== 0) continue;
+          n++;
+          colours.add([c.getX(i), c.getY(i), c.getZ(i)].map((v) => Math.round(v * 255)).join());
+        }
+      });
+      return { n, colours: [...colours].sort() };
+    };
+    const given = async (type) => {
+      world.setFloorItems(floor, [{ id: one.id, ...at, type }]);
+      await window.frames();
+      return drawn();
+    };
+    return { sofa: await given("SOFA"), copier: await given("COPIER"), tv: await given("TV") };
+  }, floor);
+  truly(r.sofa.n === 8 && JSON.stringify(r.sofa.colours) === JSON.stringify([RED.join(), BLUE.join()].sort()), `the sofa as its model: ${JSON.stringify(r.sofa)}`);
+  truly(r.copier.n > 8 && r.tv.n > 8, `the copier (its model unreadable) and the TV (none) as their shapes: ${JSON.stringify(r)}`);
 });
 
 test("setFloorItems replaces one floor's items and builds nothing else again; select finds them where they are", async () => {
@@ -3299,23 +3485,24 @@ test("destroy empties the container", async () => {
 let failed = 0;
 // ONLY=<words>: only the tests whose names have them (the others' state is not needed by any)
 const only = process.env.ONLY?.toLowerCase();
-for (const t of tests.filter((x) => !only || x.name.toLowerCase().includes(only))) {
+for (const t of (browser ? tests : tests.slice(0, inNode)).filter((x) => !only || x.name.toLowerCase().includes(only))) {
   try {
-    await page.run(() => window.idle?.(false));
+    await page?.run(() => window.idle?.(false));
     await t.fn();
     console.log(`ok    ${t.name}`);
   } catch (e) {
     failed++;
     console.log(`FAIL  ${t.name}\n      ${e.message}`);
   } finally {
-    await page.run(() => window.idle?.(true)).catch(() => {});
+    await page?.run(() => window.idle?.(true)).catch(() => {});
   }
 }
-if (page.errors.length) {
+if (page?.errors.length) {
   failed++;
   console.log(`FAIL  no errors in the page\n      ${page.errors.slice(0, 5).join("\n      ")}`);
 }
-page.close();
+page?.close();
 server.close();
-console.log(failed ? `${failed} failed` : `all ${only ? tests.filter((x) => x.name.toLowerCase().includes(only)).length : tests.length} passed`);
+const ran = (browser ? tests : tests.slice(0, inNode)).filter((x) => !only || x.name.toLowerCase().includes(only)).length;
+console.log(failed ? `${failed} failed` : `all ${ran} passed${browser ? "" : " (in Node; BROWSER=0)"}`);
 process.exit(failed ? 1 : 0);
