@@ -600,10 +600,13 @@ test("stairs: their steps rise to the floor above, two flights and a landing in 
   for (const x of flights) x.tucked = true;
   truly(!buildPieces(plan).pieces.some((p) => p.name === "stairs"), "stairs hidden in review: no steps");
   for (const x of flights) x.tucked = false;
-  const low = cutPieces(pieces, plan.elevation).find((p) => p.name === "stairsLow"), y = low.geometry.getAttribute("position");
+  // cut low, the steps wholly under the cut alone (not flattened, as walls are): built so, not cut from the full ones
+  const low = pieces.find((p) => p.name === "stairsLow"), y = low.geometry.getAttribute("position");
+  const under = flights.reduce((n, x) => n + stairFlights(x.rings, plan.height, plan.wallHeight).filter((s) => s[3] <= 1.25).length, 0);
   let highest = -Infinity;
   for (let i = 0; i < y.count; i++) highest = Math.max(highest, y.getY(i));
-  truly(low.view === "cut" && highest <= plan.elevation + 1.25 + 1e-6, `cut at ${highest - plan.elevation}`);
+  truly(low.view === "cut" && triangles(low) === under * 12 && under < steps && highest <= plan.elevation + 1.25 + 1e-6, `cut: ${under} steps, up to ${highest - plan.elevation}`);
+  truly(!cutPieces(pieces, plan.elevation).some((p) => p.name === "stairsLow"), "not cut again");
   truly(buildPieces(plan, { edges: true }).pieces.find((p) => p.name === "stairs").edges.length > 0, "its lines");
 });
 
@@ -700,7 +703,7 @@ test("lines along edges (the model look): only when asked for, the same when bui
   truly(JSON.stringify(lines(both)) === JSON.stringify(lines(alone)), "built alone, other lines");
   truly(alone.every((p) => !p.geometry), "built alone: no geometry");
   const names = Object.keys(lines(alone)).sort();
-  truly(JSON.stringify(names) === JSON.stringify(["door", "doorFrame", "frame", "sillBoard", "slab", "stairs", "wall"]), `lines on ${names}`);
+  truly(JSON.stringify(names) === JSON.stringify(["door", "doorFrame", "frame", "sillBoard", "slab", "stairs", "stairsLow", "wall"]), `lines on ${names}`);
   const items = buildItems(plan, "detailed", { only: "edges" });
   truly(items.length && items.every((p) => p.edges.length % 6 === 0 && p.edges.length > 0 && !p.geometry), "the items' lines");
 });

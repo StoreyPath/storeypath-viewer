@@ -100,7 +100,7 @@ export const PIECES = {
   sillBoard: { material: "sillBoard" },
   lights: { material: "lightPanel", view: "walk" },
   stairs: { material: "stairs", view: "full" }, // the steps of stairs and escalators, up to the floor above
-  stairsLow: { material: "stairs", view: "cut" }, // cut low, as the walls are
+  stairsLow: { material: "stairs", view: "cut" }, // those wholly under the cut, as a plan shows stairs
   // the furniture and equipment (buildItems), coloured by vertex, kept apart from the
   // rest: those standing below the cut, and those above it (on a wall, under the
   // ceiling); each detailed, or light (a box each) for a whole building
@@ -111,12 +111,12 @@ export const PIECES = {
 };
 const TEXTURED = new Set(["floor", "wall"]); // the materials with a texture: the rest need no uv
 // the pieces cut low (cutPieces), from the full ones
-const CUT_LOW = { wall: "wallLow", wallTop: "wallCut", parapet: "parapetLow", parapetTop: "parapetCut", stairs: "stairsLow" };
+const CUT_LOW = { wall: "wallLow", wallTop: "wallCut", parapet: "parapetLow", parapetTop: "parapetCut" };
 /** The pieces with lines along their edges when asked for (`edges`): the walls (their
  * lines on `wall` and `parapet`), the slab, door and window frames, door leaves, window
  * boards and the items; not the wall over and under openings (it is the wall), the
  * floors, glass, skirting, architraves, handles or ceiling. */
-export const EDGED = new Set(["slab", "wall", "parapet", "frame", "doorFrame", "door", "sillBoard", "stairs",
+export const EDGED = new Set(["slab", "wall", "parapet", "frame", "doorFrame", "door", "sillBoard", "stairs", "stairsLow",
   "items", "items:high", "items:light", "items:light:high"]);
 
 /** Distance from point ``p`` to the segment ``a``–``b`` (plan meters). */
@@ -470,10 +470,14 @@ export function buildPieces(plan, options = {}) {
     }
   }
 
-  // the steps of the stairs (and escalators), rising to the floor above
+  // the steps of the stairs (and escalators), rising to the floor above; in the cutaway
+  // view those wholly under the cut alone, as a plan shows stairs (not flattened, as walls are)
   for (const u of plan.units) {
     if (!STAIRS.has(u.type) || u.tucked) continue;
-    for (const [p, q, y0, y1, depth] of stairFlights(u.rings, plan.height, wallHeight)) box("stairs", p, q, y0, y1, depth);
+    for (const [p, q, y0, y1, depth] of stairFlights(u.rings, plan.height, wallHeight)) {
+      box("stairs", p, q, y0, y1, depth);
+      if (y1 <= o.cutHeight + 1e-6) box("stairsLow", p, q, y0, y1, depth);
+    }
   }
 
   // Openings in a parapet (no full wall at either side) get no head, sill or glass:

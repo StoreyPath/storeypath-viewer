@@ -718,6 +718,7 @@ The node names it; its `extras` say what it is: `material`, `view`, and `type` a
 | `sills` | `wallPlain` | | the wall under windows: its ends (its faces are `wall`'s) |
 | `sillBoard` | `sillBoard` | | a board on each window's sill |
 | `stairs` | `stairs` | `full` | the steps of each space or zone of type `stairs` or `escalator`, rising a floor's `height` (each riser about 17.5 cm, the last up onto the floor above; none above the walls): along its outline's longer side, as two flights side by side with a landing at the far end where it is 2 m wide or more, else as one; drawings do not say which way stairs go up, so this shows where they are, not their direction |
+| `stairsLow` | `stairs` | `cut` | the steps of `stairs` wholly under `options.cutHeight`, for the cutaway view, as a plan shows stairs |
 | `glass`, `frame` | `glass`, `frame` | `full` | windows: the glass, and its frame and mullions |
 | `door`, `doorFrame` | `door`, `doorFrame` | `full` | door leaves, open as the plan draws them (each a run of vertices of its own: `doors` below), and their frames |
 | `trim`, `handle` | `trim`, `handle` | `full` | architraves round doors, on both faces of their wall; lever handles each side of each leaf (each leaf's a run of vertices of their own) |
@@ -735,16 +736,15 @@ its grade; a meeting table with as many chairs round it as its size seats), item
 quickly as it would read them (files of builder 2 have them, as `items` and
 `items:high`).
 
-The walls, parapets and stairs cut low are not in the file: they are `wall`, `wallTop`,
-`parapet`, `parapetTop` and `stairs` with every vertex higher than `elevation` +
+The walls and parapets cut low are not in the file: they are `wall`, `wallTop`,
+`parapet` and `parapetTop` with every vertex higher than `elevation` +
 `options.cutHeight` brought down to that height (and on the faces, its v to
-1 − `cutHeight`), shown with `view` `cut`, the tops with the material `wallCut` (the
-stairs' with their own).
+1 − `cutHeight`), shown with `view` `cut`, the tops with the material `wallCut`.
 Texture coordinates (`TEXCOORD_0`) are only on what has a texture: the floor
 finishes (metres east and north) and the walls' and parapets' faces (v = 1 − the
 height above the floor, in metres). What is built of boxes (`heads`, `headTop`, `sills`,
 `glass`, `frame`, `door`, `doorFrame`, `trim`, `handle`, `skirting`, `sillBoard`,
-`lights`, `stairs`) shares its corners between its faces and has no normals: flat-shaded, as
+`lights`, `stairs`, `stairsLow`) shares its corners between its faces and has no normals: flat-shaded, as
 glTF draws a mesh without them. Its vertices are in the order they were built: box by
 box, so a door's leaf (and its handles) is a run of them.
 
