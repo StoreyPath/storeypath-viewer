@@ -7,6 +7,10 @@ furniture and equipment on them. A project of several buildings is several packa
 one each (One building per package). It is a ZIP archive of plain JSON, GeoJSON and
 CSV files, so any system can read it without special software.
 
+Sent where others could read it, a package may be sealed with a password
+(`*.storeypath.enc`): what it holds is a package as below, and how it is opened is in
+StoreyPath Viewer's spec/SEALED.md.
+
 A copy of this document is included in every package.
 
 ## Files

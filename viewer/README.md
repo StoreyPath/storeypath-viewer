@@ -413,6 +413,24 @@ Events (`addEventListener`, data in `event.detail`): `load`, `buildingchange`,
 `floorchange`, `modechange`, `select` (`{ id, feature }`, `id` is `null` when
 cleared).
 
+A package sealed with a password (`.storeypath.enc`, [SEALED.md](../spec/SEALED.md)) is
+opened with it: `world.open(file, { password })`, `viewer.open(file, { password })`,
+`loadPackage(file, { password })`, and the 2D plan's `readPackage(file, { password })`.
+The password is a string, or a function giving one, called only when the package is
+sealed. Without it, or with another, they throw a `SealedError` whose `needsPassword` is
+true, for the page to ask for it and open the file again:
+
+```js
+import { SealedError } from "@storeypath/viewer-world";
+
+try {
+  await world.open(file);
+} catch (e) {
+  if (!(e instanceof SealedError && e.needsPassword)) throw e;
+  await world.open(file, { password: await askThePerson() });
+}
+```
+
 The package object (`viewer.package`, or `loadPackage(source)` on its own):
 `get(id)`, `hierarchy(id)` → `{ project, location, building, floor, object }`,
 `floorsOf(buildingId)`, `spacesOn(floorId)`, `doorsOf(spaceId)`,

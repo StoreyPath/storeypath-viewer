@@ -12,3 +12,5 @@ export { webglSupport } from "./support.js";
 export { route, shortest, Graph } from "../../src/navigation.js";
 // items' IDs (format 0.8): a tag checked, or read as a person typed it
 export { ITEM_ID_ALPHABET, itemCheckSymbol, isItemId, normalizeItemId } from "../../src/ids.js";
+// packages sealed with a password (spec/SEALED.md): open(source, { password }) reads them
+export { SealedError, isSealed, unseal } from "../../src/sealed.js";

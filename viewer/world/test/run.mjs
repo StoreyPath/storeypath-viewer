@@ -38,6 +38,7 @@ const { toLonLat } = await import("../../src/world/frame.js");
 const { qualityFor } = await import("../../src/world/gpu.js");
 const { isItemId } = await import("../../src/ids.js");
 const { MODEL_TRIANGLES, parseModel } = await import("../../src/world/model.js");
+const { SealedError, isSealed, unseal } = await import("../../src/sealed.js");
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -46,6 +47,27 @@ const truly = (v, what) => {
 };
 
 // ---- in Node ------------------------------------------------------------------
+
+test("a package sealed with a password (spec/SEALED.md) opens with it as the package it was; without it, or another, says so; changed, refused", async () => {
+  const v = JSON.parse(readFileSync(join(packages, "../sealed.json"), "utf8"));
+  const sealed = readFileSync(join(packages, "..", v.sealed)), plain = readFileSync(join(packages, "..", v.plain));
+  truly(isSealed(sealed) && !isSealed(plain), "told apart");
+  truly(Buffer.from(await unseal(sealed, v.password)).equals(plain), "unsealed: the package it was");
+  for (const password of [undefined, "correct horse battery stable"]) {
+    const e = await loadPackage(sealed, { password }).then(() => null, (err) => err);
+    truly(e instanceof SealedError && e.needsPassword, `with ${password}: ${e}`);
+  }
+  let asked = 0;
+  const pkg = await loadPackage(new Blob([sealed]), { password: () => (asked++, v.password) });
+  const want = await loadPackage(plain);
+  truly(asked === 1 && pkg.spaces.length > 0 && pkg.spaces.length === want.spaces.length && pkg.project.id === want.project.id,
+    `opened: ${pkg.spaces.length} spaces, asked ${asked}`);
+  await loadPackage(plain, { password: () => { throw new Error("asked for a plain package's password"); } });
+  const changed = new Uint8Array(sealed);
+  changed[41 + (v.piece + 16) * 2 + 5] ^= 1; // a byte of its third piece
+  const e = await loadPackage(changed, { password: v.password }).then(() => null, (err) => err);
+  truly(e instanceof SealedError && !e.needsPassword && /changed/.test(e.message), `changed: ${e}`);
+});
 
 test("the WebGL check says no where there is no document", async () => {
   const { webglSupport } = await import("../dist/support.js");

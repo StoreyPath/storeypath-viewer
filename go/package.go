@@ -255,6 +255,9 @@ type archive struct {
 
 func openArchive(r io.ReaderAt, size int64, limits Limits) (*archive, error) {
 	limits = limits.orDefault()
+	if isSealedAt(r) { // (sealed.go: OpenSealed and ReadSealed take its password)
+		return nil, ErrNeedsPassword
+	}
 	z, err := zip.NewReader(r, size)
 	if err != nil {
 		return nil, fmt.Errorf("not a readable package: %w", err)

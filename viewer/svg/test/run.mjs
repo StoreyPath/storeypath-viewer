@@ -12,6 +12,7 @@ import { inside } from "../dist/geometry.js";
 import { FORMAT_VERSION, readPackage as readInBrowsers } from "../dist/read.js";
 import { Graph, route } from "../dist/navigation.js";
 import { ITEM_ID_ALPHABET, isItemId, itemCheckSymbol, normalizeItemId } from "../dist/ids.js";
+import { SealedError } from "../dist/sealed.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -44,6 +45,17 @@ const alike = (a, b, tolerance, what) => {
 };
 
 // ---- in Node ------------------------------------------------------------------
+
+test("a package sealed with a password is read with it as the package it was; without it, said so", async () => {
+  const v = JSON.parse(readFileSync(join(conformance, "sealed.json"), "utf8"));
+  const sealed = readFileSync(join(conformance, v.sealed)), plain = readFileSync(join(conformance, v.plain));
+  const e = await readInBrowsers(sealed).then(() => null, (err) => err);
+  truly(e instanceof SealedError && e.needsPassword, `without its password: ${e}`);
+  const got = await readInBrowsers(new Blob([sealed]), { password: async () => v.password });
+  const want = await readInBrowsers(plain);
+  equal([got.manifest.project, got.spaces.length, got.floors.length], [want.manifest.project, want.spaces.length, want.floors.length],
+    "the package it was");
+});
 
 const pkg = readPackage(join(conformance, "packages/campus.storeypath"));
 

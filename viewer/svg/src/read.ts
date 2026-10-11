@@ -2,6 +2,7 @@
 // with what the platform has: no library to load.
 
 import type { Navigation } from "./navigation.js";
+import { isSealed, unseal, type Password } from "./sealed.js";
 import type { PackageLike } from "./package.js";
 
 export const FORMAT = "storeypath-package";
@@ -33,10 +34,15 @@ interface Manifest {
   [key: string]: unknown;
 }
 
-/** A package's manifest and features, from its bytes (a file, a download). */
-export async function readPackage(source: ArrayBuffer | Uint8Array | Blob): Promise<PackageLike & { manifest: Manifest }> {
-  const bytes = source instanceof Blob ? new Uint8Array(await source.arrayBuffer())
+/** A package's manifest and features, from its bytes (a file, a download). One sealed
+ * with a password (spec/SEALED.md) is opened with ``options.password`` (a string, or a
+ * function giving one); without it, or with the wrong one, a SealedError whose
+ * ``needsPassword`` is true is thrown. */
+export async function readPackage(source: ArrayBuffer | Uint8Array | Blob,
+  options: { password?: Password } = {}): Promise<PackageLike & { manifest: Manifest }> {
+  const given = source instanceof Blob ? new Uint8Array(await source.arrayBuffer())
     : source instanceof Uint8Array ? source : new Uint8Array(source);
+  const bytes = isSealed(given) ? await unseal(given, options.password) : given;
   const files = entries(bytes);
   const json = async (name: string): Promise<unknown> => {
     const entry = files.get(name);

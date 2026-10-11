@@ -94,9 +94,10 @@ export class StoreyPathViewer extends EventTarget {
     return this.#selected;
   }
 
-  /** Open a package from a URL, Blob, File or ArrayBuffer. */
-  async open(source) {
-    const pkg = await loadPackage(source);
+  /** Open a package from a URL, Blob, File or ArrayBuffer; one sealed with a password
+   * with ``options.password`` (loadPackage: a SealedError, its needsPassword true, without it). */
+  async open(source, options = {}) {
+    const pkg = await loadPackage(source, options);
     await this.#ready;
     this.#pkg = pkg;
     this.#selected = null;

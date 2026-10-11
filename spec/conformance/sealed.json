@@ -1,0 +1,9 @@
+{
+  "sealed": "sealed/campus-hq.storeypath.enc",
+  "password": "correct horse battery staple",
+  "rounds": 1000,
+  "piece": 16384,
+  "pieces": 4,
+  "plain": "packages/campus-hq.storeypath",
+  "plain_sha256": "19bdfb06b7ef706f960fad7677dacf04407feac43205a3be454f4026b9e5a351"
+}

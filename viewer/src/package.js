@@ -3,6 +3,8 @@
 
 import JSZip from "jszip";
 
+import { isSealed, unseal } from "./sealed.js";
+
 export const FORMAT = "storeypath-package";
 /** The format version this viewer reads, any patch of it (spec/FORMAT.md, "Versioning"). */
 export const FORMAT_VERSION = "0.9";
@@ -30,17 +32,25 @@ const SINCE_0_3 = ["zones"]; // parts of open spaces; none in older packages
 const SINCE_0_6 = ["items"]; // furniture and equipment; none in older packages
 
 /**
- * Load a package from a URL, Blob, File or ArrayBuffer.
+ * Load a package from a URL, Blob, File or ArrayBuffer. One sealed with a password
+ * (spec/SEALED.md, `.storeypath.enc`) is opened with ``password``: a string, or a
+ * function giving one (asked only when the package is sealed); without it, or with the
+ * wrong one, a SealedError whose ``needsPassword`` is true is thrown.
+ * @param {string | URL | Blob | ArrayBuffer | Uint8Array} source
+ * @param {{ password?: string | (() => string | Promise<string>) }} [options]
  * @returns {Promise<StoreyPathPackage>}
  */
-export async function loadPackage(source) {
+export async function loadPackage(source, { password } = {}) {
   let data = source;
   if (typeof source === "string" || source instanceof URL) {
     const response = await fetch(source);
     if (!response.ok) throw new Error(`Could not load ${source} (HTTP ${response.status})`);
     data = await response.blob();
   }
-  const zip = await JSZip.loadAsync(data);
+  const bytes = data instanceof Blob ? new Uint8Array(await data.arrayBuffer())
+    : data instanceof Uint8Array ? data : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+      : new Uint8Array(data);
+  const zip = await JSZip.loadAsync(isSealed(bytes) ? await unseal(bytes, password) : bytes);
   const read = async (name) => {
     const file = zip.file(name);
     if (!file) throw new Error(`The package has no ${name}.`);

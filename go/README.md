@@ -40,6 +40,12 @@ for _, b := range pkg.Buildings {
   package is a few MB. **A server reading uploaded packages should pass its own
   limits, tied to the size of upload it accepts** (`OpenWithLimits`, `Read`): what
   reading costs is in proportion to them, not to the upload.
+- Packages sealed with a password (`.storeypath.enc`, [SEALED.md](../spec/SEALED.md)):
+  `Open`, `Read` and `ReadManifest` say so (`ErrNeedsPassword`); `OpenSealed(path,
+  password)` and `ReadSealed(data, password, limits)` open one (a plain package as it
+  is), its contents held to `limits.MaxTotalBytes`; `Unseal(r, w, password)` writes
+  its contents a piece at a time. Another password is `ErrNeedsPassword` too; a
+  changed or cut-short file is `ErrSealedDamaged`.
 - `Validate`: the checks Studio's validator makes, each `Problem` with a stable
   `Code` (`MISSING_FILE`, `BAD_FILE`, `DUPLICATE_ID`, `PARENT`, `ZONE`, `CHANGES`,
   `PLACEMENT`, `ITEM`, `ITEM_TYPE`, `VALUE`, …), the file and the ID it is about.
