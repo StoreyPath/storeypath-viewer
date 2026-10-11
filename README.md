@@ -29,7 +29,7 @@ of this repository, so a package and the code that reads it always agree.
 ![The same floor in 3D, cut away: the left half Real, finished as built; the right half Model, white with its edges drawn](docs/images/looks.webp)
 
 `StoreyPathWorld` builds a building from its package alone: walls at the thickness they
-were drawn, doors with architraves and handles, windows with glass, skirting, furniture
+were drawn, doors with architraves and handles, windows with glass, skirting, stairs with their steps, furniture
 with its chairs (each desk with what its grade has, a meeting table as many as it seats;
 each type drawn as its 3D model when it has one, else as its catalogue's shape says, else
 as its code's first part does),

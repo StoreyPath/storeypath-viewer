@@ -202,7 +202,7 @@ Either way: soft shadows from the sun, fitted round what is shown (on a big floo
 round what is looked at, and walking round the walker) and drawn again only when
 what casts them or their frame changes; walking, the ceiling keeps the sun out but
 at the windows, and the ceiling panels nearest the walker light its room. Skirting,
-architraves, handles, window boards, ceiling panels and the furniture are geometry
+architraves, handles, window boards, ceiling panels, the steps of stairs and the furniture are geometry
 (build.js), the same in every look and quality.
 
 ```js

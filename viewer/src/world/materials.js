@@ -97,6 +97,7 @@ export class Materials {
     this.trim = this.doorFrame;
     this.skirting = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.5, ...flat });
     this.sillBoard = new THREE.MeshStandardMaterial({ color: 0xe9e6e0, roughness: 0.35, ...flat });
+    this.stairs = new THREE.MeshStandardMaterial({ color: 0xc9c4ba, roughness: 0.8, ...flat }); // stone steps
     this.handle = new THREE.MeshStandardMaterial({ color: 0xc4c7cb, roughness: 0.28, metalness: 1, ...flat });
     this.lightPanel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfffaf0, emissiveIntensity: 2.2, ...flat });
     // furniture: each vertex says how rough and how metallic it is (`_finish`); the
@@ -206,6 +207,7 @@ export class Materials {
     this.trim = this.doorFrame;
     this.skirting = clay(0xeceae6);
     this.sillBoard = clay(0xeceae6);
+    this.stairs = clay(0xe4e2dd);
     this.handle = clay(0xb8bbc0, { roughness: 0.5 });
     this.lightPanel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.2, flatShading: true });
     // furniture: white, keeping a hint of its colour

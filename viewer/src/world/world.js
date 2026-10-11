@@ -109,7 +109,7 @@ const LABEL_ROOM = 56; // px: a room this wide on the screen (its longer side) h
 // what casts and takes shadows, by material (walking, the ceiling keeps the sun out but
 // at the windows); the order drawn in, after the rest
 const CASTS = new Set(["slab", "wall", "wallTop", "wallCut", "wallPlain", "frame", "doorFrame", "door", "item", "skirting",
-  "trim", "handle", "sillBoard", "ceiling"]);
+  "trim", "handle", "sillBoard", "stairs", "ceiling"]);
 const TAKES = new Set([...CASTS, "floor", "glass"].filter((m) => m !== "ceiling"));
 const ORDER = { volume: 2, glass: 4 };
 const QUALITIES = new Set(["auto", "high", "low"]);

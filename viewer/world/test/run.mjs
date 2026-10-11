@@ -29,8 +29,8 @@ register(`data:text/javascript,${encodeURIComponent(`
     return path ? { url: ${JSON.stringify(vendor)} + path, shortCircuit: true } : next(specifier, context);
   }`)}`);
 const { FORMAT_VERSION, loadPackage } = await import("../../src/package.js");
-const { BUILDER, buildItems, buildPieces, ceilingPanels, groupByFinish, inside, itemExtent, kindOf, originOf, planFloor, roomFinder,
-  setItems, tableChairs, toLocal } = await import("../../src/world/build.js");
+const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, originOf, outlineRect,
+  planFloor, roomFinder, setItems, stairFlights, tableChairs, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
 const { TYPE_COLORS } = await import("../../src/theme.js");
@@ -103,7 +103,7 @@ test("the baker writes each floor as binary glTF: its pieces, rooms, obstacles a
       "glass", "frame", "heads", "sills", "floor:shaft:hidden", "obstacles", "skirting", "trim", "handle", "sillBoard",
       "lights"]) truly(node(name), `no ${name}`);
     truly(!node("wallLow") && !node("wallCut"), "the walls cut low are made from the full ones, not stored");
-    truly(x.builder === BUILDER && BUILDER === 5, `builder ${x.builder}`);
+    truly(x.builder === BUILDER && BUILDER === 6, `builder ${x.builder}`);
     truly(node("lights").extras.view === "walk" && node("trim").extras.view === "full" && !node("skirting").extras.view,
       "panels show walking, architraves not in the cutaway, skirting always");
     // boxes (frames, doors, skirting, …) share their corners and have no normals: flat-shaded, as items are
@@ -146,7 +146,7 @@ for (const name of ["campus", "campus-hq"]) test(`the baker writes a floor's ite
     const held = { campus: 9, "campus-hq": 10 }[name]; // campus-hq: and a kiosk
     // an item's ID: an asset's tag (format 0.8), the project's number before (campus: 0.6)
     const itemId = name === "campus" ? (id) => /^[A-Z0-9]+-I\d{6}$/.test(id) : isItemId;
-    truly(x.builder === 5 && x.items.length === held && x.items.every(itemId), JSON.stringify(x.items));
+    truly(x.builder === BUILDER && x.items.length === held && x.items.every(itemId), JSON.stringify(x.items));
     const node = (name) => json.nodes.find((n) => n.name === name);
     // drawn in detail, they are built from their templates (in milliseconds), not read
     truly(!node("items") && !node("items:high"), "the detailed items are not in the file");
@@ -565,6 +565,48 @@ test("a floor's details: skirting along its walls, architraves and lever handles
   truly(ceilingPanels(plan) === panels, "worked out once a plan");
 });
 
+test("stairs: their steps rise to the floor above, two flights and a landing in a stairwell, one in a narrow one; cut low as walls are", async () => {
+  // a stairwell 5 by 2.6 m, turned 30°: its rectangle found whichever way it lies
+  const a = Math.PI / 6, [ux, un] = [Math.cos(a), Math.sin(a)], [vx, vn] = [-un, ux];
+  const rect = (L, W, [cx, cn] = [10, 20]) => [[[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]
+    .map(([s, t]) => [cx + ux * s * L / 2 + vx * t * W / 2, cn + un * s * L / 2 + vn * t * W / 2])]];
+  const r = outlineRect(rect(5, 2.6));
+  truly(Math.abs(r.L - 5) < 1e-9 && Math.abs(r.W - 2.6) < 1e-9 && Math.abs(Math.abs(r.u[0] * ux + r.u[1] * un) - 1) < 1e-9, JSON.stringify(r));
+  const within = (steps, L, W) => steps.every(([p, q, , , depth]) => [p, q].every(([x, n]) => {
+    const s = (x - 10) * ux + (n - 20) * un, t = (x - 10) * vx + (n - 20) * vn;
+    return Math.abs(s) <= L / 2 + 1e-9 && Math.abs(t) + depth / 2 <= W / 2 + 1e-9;
+  }));
+  // 20 risers of 17.5 cm, the last up onto the floor above; under the walls' top (3.28 m) the 18 below it
+  const rise = 3.5, top = 3.28, risers = Math.round(rise / 0.175), drawn = Math.floor(top / (rise / risers));
+  const well = stairFlights(rect(5, 2.6), rise, top);
+  const tops = well.map((s) => s[3]);
+  truly(well.length === drawn && tops.every((y, i) => i === 0 || y > tops[i - 1]) && Math.max(...tops) <= top, `${well.length} steps: ${tops}`);
+  truly(within(well, 5, 2.6), "the steps inside the stairwell");
+  const landing = well[risers / 2 - 1];
+  truly(Math.abs(landing[4] - 2.5) < 1e-9 && Math.abs(landing[3] - rise / 2) < 1e-9, `the landing: ${landing}`);
+  truly(new Set(well.filter((s) => s !== landing).map((s) => s[4])).size === 1 && well[0][4] < 1.3, "two flights side by side");
+  const narrow = stairFlights(rect(4, 1.2), rise, top);
+  truly(stairFlights(rect(4, 1.2), rise, 4).length === risers - 1 && narrow.length === drawn && narrow.every((s) => Math.abs(s[4] - 1.1) < 1e-9) && within(narrow, 4, 1.2), `one flight: ${narrow.length}`);
+  truly(stairFlights(rect(4, 1.2), rise, 2.0).every((s) => s[3] <= 2.0), "none higher than the walls");
+  truly(!stairFlights(rect(0.5, 0.3), rise, top).length, "too small for stairs: none");
+
+  // on a floor (HQ's ground floor has its stairs): a piece of their own (lines along them in the model look), and
+  // cut low in the cutaway view
+  const { plan } = await hqGround();
+  const flights = plan.units.filter((x) => x.type === "stairs" && !x.tucked);
+  const pieces = buildPieces(plan).pieces, stairs = pieces.find((p) => p.name === "stairs");
+  const steps = flights.reduce((n, x) => n + stairFlights(x.rings, plan.height, plan.wallHeight).length, 0);
+  truly(flights.length && stairs && triangles(stairs) === steps * 12 && steps >= flights.length * 10, `${flights.length} stairs, ${steps} steps`);
+  for (const x of flights) x.tucked = true;
+  truly(!buildPieces(plan).pieces.some((p) => p.name === "stairs"), "stairs hidden in review: no steps");
+  for (const x of flights) x.tucked = false;
+  const low = cutPieces(pieces, plan.elevation).find((p) => p.name === "stairsLow"), y = low.geometry.getAttribute("position");
+  let highest = -Infinity;
+  for (let i = 0; i < y.count; i++) highest = Math.max(highest, y.getY(i));
+  truly(low.view === "cut" && highest <= plan.elevation + 1.25 + 1e-6, `cut at ${highest - plan.elevation}`);
+  truly(buildPieces(plan, { edges: true }).pieces.find((p) => p.name === "stairs").edges.length > 0, "its lines");
+});
+
 /** An angle in (−π, π]. */
 const wrapAngle = (a) => a - 2 * Math.PI * Math.ceil((a - Math.PI) / (2 * Math.PI));
 /** A leaf's free edge, lying at angle ``a`` (radians counter-clockwise from east: (cos a, −sin a) in x and z). */
@@ -658,7 +700,7 @@ test("lines along edges (the model look): only when asked for, the same when bui
   truly(JSON.stringify(lines(both)) === JSON.stringify(lines(alone)), "built alone, other lines");
   truly(alone.every((p) => !p.geometry), "built alone: no geometry");
   const names = Object.keys(lines(alone)).sort();
-  truly(JSON.stringify(names) === JSON.stringify(["door", "doorFrame", "frame", "sillBoard", "slab", "wall"]), `lines on ${names}`);
+  truly(JSON.stringify(names) === JSON.stringify(["door", "doorFrame", "frame", "sillBoard", "slab", "stairs", "wall"]), `lines on ${names}`);
   const items = buildItems(plan, "detailed", { only: "edges" });
   truly(items.length && items.every((p) => p.edges.length % 6 === 0 && p.edges.length > 0 && !p.geometry), "the items' lines");
 });

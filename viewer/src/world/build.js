@@ -30,8 +30,8 @@ import { toLonLat, wrapLongitude } from "./frame.js";
  * items; before 3, without skirting, architraves, handles, window boards, ceiling
  * panels and the finer furniture; before 4, without the room each wall's face faces;
  * before 5, without its doors' leaves listed to swing, and its open leaves in the
- * walker's way) is built again. */
-export const BUILDER = 5;
+ * walker's way; before 6, without the steps of its stairs) is built again. */
+export const BUILDER = 6;
 
 /** What shapes the geometry; a world built with others builds its floors itself. */
 export const GEOMETRY = {
@@ -53,6 +53,11 @@ const SKIRTING = { height: 0.08, proud: 0.014 }; // m, along every face of every
 const ARCHITRAVE = { width: 0.075, proud: 0.016 }; // m, round a door on both faces of its wall
 const PANEL = { half: 0.3, step: 2.4, narrow: 3.4, clear: 0.15 }; // m: ceiling panels, 60 cm square, about every 2.4 m
 const UNLIT = new Set(["shaft", "elevator", "open_to_below"]); // no ceiling panels
+const STAIRS = new Set(["stairs", "escalator"]); // their steps drawn (stairFlights)
+// m: a step this high, this deep at most, its flight this thick under it; kept this far in
+// from the stairs' outline; two flights and a landing in a stairwell this wide, a gap
+// (the well) between them
+const STEP = { riser: 0.175, tread: 0.3, waist: 0.15, inset: 0.05, twoFlights: 2.0, well: 0.1 };
 const EDGE_TURN = Math.cos((20 * Math.PI) / 180); // a wall's corner turns more than this: a line up it (edges)
 const DOUBLE_DOOR = 1.3; // m: a door wider than this, drawn without its swings, has two leaves
 const MEETING = 0.003; // m: the leaves of a double door stop this short of each other's, shut: a seam
@@ -94,6 +99,8 @@ export const PIECES = {
   handle: { material: "handle", view: "full" },
   sillBoard: { material: "sillBoard" },
   lights: { material: "lightPanel", view: "walk" },
+  stairs: { material: "stairs", view: "full" }, // the steps of stairs and escalators, up to the floor above
+  stairsLow: { material: "stairs", view: "cut" }, // cut low, as the walls are
   // the furniture and equipment (buildItems), coloured by vertex, kept apart from the
   // rest: those standing below the cut, and those above it (on a wall, under the
   // ceiling); each detailed, or light (a box each) for a whole building
@@ -104,12 +111,12 @@ export const PIECES = {
 };
 const TEXTURED = new Set(["floor", "wall"]); // the materials with a texture: the rest need no uv
 // the pieces cut low (cutPieces), from the full ones
-const CUT_LOW = { wall: "wallLow", wallTop: "wallCut", parapet: "parapetLow", parapetTop: "parapetCut" };
+const CUT_LOW = { wall: "wallLow", wallTop: "wallCut", parapet: "parapetLow", parapetTop: "parapetCut", stairs: "stairsLow" };
 /** The pieces with lines along their edges when asked for (`edges`): the walls (their
  * lines on `wall` and `parapet`), the slab, door and window frames, door leaves, window
  * boards and the items; not the wall over and under openings (it is the wall), the
  * floors, glass, skirting, architraves, handles or ceiling. */
-export const EDGED = new Set(["slab", "wall", "parapet", "frame", "doorFrame", "door", "sillBoard",
+export const EDGED = new Set(["slab", "wall", "parapet", "frame", "doorFrame", "door", "sillBoard", "stairs",
   "items", "items:high", "items:light", "items:light:high"]);
 
 /** Distance from point ``p`` to the segment ``a``–``b`` (plan meters). */
@@ -461,6 +468,12 @@ export function buildPieces(plan, options = {}) {
       const cx = x, cn = -z;
       box("lights", [cx - ux * half, cn - un * half], [cx + ux * half, cn + un * half], y0, y0 + 0.012, half * 2, FACE.bottom);
     }
+  }
+
+  // the steps of the stairs (and escalators), rising to the floor above
+  for (const u of plan.units) {
+    if (!STAIRS.has(u.type) || u.tucked) continue;
+    for (const [p, q, y0, y1, depth] of stairFlights(u.rings, plan.height, wallHeight)) box("stairs", p, q, y0, y1, depth);
   }
 
   // Openings in a parapet (no full wall at either side) get no head, sill or glass:
@@ -1007,6 +1020,82 @@ function leverHandles(from, [dx, dn], w, box) {
     box("handle", at(t - 0.01, o(0.03)), at(t + 0.01, o(0.03)), y - 0.01, y + 0.01, 0.05);
     box("handle", at(t - 0.13, o(0.055)), at(t + 0.012, o(0.055)), y - 0.011, y + 0.011, 0.022);
   }
+}
+
+/** The smallest rectangle round a room's outline (its largest part's outer ring, plan
+ * metres): its middle ``c``, the way its longer side runs ``u`` (a unit vector), its
+ * length ``L`` along that and width ``W`` across; null for no outline. */
+export function outlineRect(rings) {
+  const ring = rings.map((r) => r[0]).sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)))[0];
+  if (!ring || ring.length < 3) return null;
+  // its convex hull (monotone chain); the smallest box round it has a side along one of its edges
+  const pts = ring.map(([x, n]) => [x, n]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list) => {
+    const h = [];
+    for (const p of list) {
+      while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+      h.push(p);
+    }
+    return h.slice(0, -1);
+  };
+  const hull = [...half(pts), ...half(pts.slice().reverse())];
+  if (hull.length < 3) return null;
+  let best = null;
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i], b = hull[(i + 1) % hull.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-9) continue;
+    const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len], v = [-u[1], u[0]];
+    let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
+    for (const [x, n] of hull) {
+      const s = x * u[0] + n * u[1], t = x * v[0] + n * v[1];
+      s0 = Math.min(s0, s); s1 = Math.max(s1, s); t0 = Math.min(t0, t); t1 = Math.max(t1, t);
+    }
+    const area = (s1 - s0) * (t1 - t0);
+    if (best && area >= best.area - 1e-9) continue;
+    const [sm, tm] = [(s0 + s1) / 2, (t0 + t1) / 2];
+    const c = [u[0] * sm + v[0] * tm, u[1] * sm + v[1] * tm];
+    best = s1 - s0 >= t1 - t0 ? { area, c, u, L: s1 - s0, W: t1 - t0 } : { area, c, u: v, L: t1 - t0, W: s1 - s0 };
+  }
+  return best && { c: best.c, u: best.u, L: best.L, W: best.W };
+}
+
+/** The steps of a flight of stairs in a room's outline, rising ``rise`` (floor to floor)
+ * along its longer side: in a stairwell two metres wide or more, two flights side by
+ * side, a landing between them at the far end, as most stairs between floors are; else
+ * one. A step for each riser but the last (which is up onto the floor above), none
+ * higher than ``top`` (the walls' height: what is above is in the floor above's slab).
+ * Each step a box [p, q, y0, y1, depth] as Boxes takes it: plan points p to q along its
+ * flight, its top y1 above the floor, the flight's thickness under it. Drawn to show
+ * where stairs are and the way they rise: no drawing says which way they go up, so the
+ * first flight starts at an end of the outline's longer side. */
+export function stairFlights(rings, rise, top) {
+  const r = outlineRect(rings);
+  if (!r) return [];
+  const L = r.L - 2 * STEP.inset, W = r.W - 2 * STEP.inset;
+  if (L < 0.6 || W < 0.4 || !(rise > 0)) return [];
+  const [ux, un] = r.u, [vx, vn] = [-un, ux];
+  const at = (s, t) => [r.c[0] + ux * s + vx * t, r.c[1] + un * s + vn * t]; // s along, t across
+  const risers = Math.max(2, Math.round(rise / STEP.riser)), h = rise / risers;
+  const out = [];
+  // a step from s0 to s1 along, t across its middle, its top the k-th riser's
+  const step = (s0, s1, t, depth, k) => {
+    const y1 = k * h;
+    if (y1 > top + 1e-6 || Math.abs(s1 - s0) < 1e-3) return;
+    out.push([at(Math.min(s0, s1), t), at(Math.max(s0, s1), t), Math.max(0, y1 - h - STEP.waist), y1, depth]);
+  };
+  if (W >= STEP.twoFlights && L >= 2.4) {
+    const w = (W - STEP.well) / 2, landing = Math.min(Math.max(w, 1.0), L * 0.4), edge = L / 2 - landing;
+    const first = Math.ceil(risers / 2), second = risers - first;
+    const t1 = Math.min(STEP.tread, (L - landing) / first), t2 = Math.min(STEP.tread, (L - landing) / second);
+    for (let k = 1; k < first; k++) step(edge - (first - k) * t1, edge - (first - k - 1) * t1, -(W - w) / 2, w, k); // up to the landing
+    step(edge, L / 2, 0, W, first); // the landing, across both
+    for (let k = 1; k < second; k++) step(edge - k * t2, edge - (k - 1) * t2, (W - w) / 2, w, first + k); // and back
+  } else {
+    const t = Math.min(STEP.tread, L / risers), start = -((risers - 1) * t) / 2;
+    for (let k = 1; k < risers; k++) step(start + (k - 1) * t, start + k * t, 0, W, k);
+  }
+  return out;
 }
 
 /** Where a floor's ceiling panels are (60 cm square): on a grid square to each room's
