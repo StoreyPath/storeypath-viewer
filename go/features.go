@@ -286,7 +286,11 @@ type ItemType struct {
 	// Shape is how it is drawn (format 0.9.1), one of ItemShapes; nil: by its code's
 	// first part (DESK-MANAGER as a desk), else as a box. A shape a later version adds
 	// is kept as it is written (a viewer that does not know it draws by the code).
-	Shape   *string     `json:"shape"`
+	Shape *string `json:"shape"`
+	// Model is the path of its 3D model in the package (format 0.9.2): always
+	// models/<CODE>.glb, binary glTF in the type's own frame (FORMAT.md, Models); nil:
+	// none, drawn by its shape.
+	Model   *string     `json:"model"`
 	Fields  []ItemField `json:"fields"`
 	Retired bool        `json:"retired"`
 }

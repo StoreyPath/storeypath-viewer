@@ -257,6 +257,29 @@ func TestA091CatalogueSaysHowEachTypeIsDrawn(t *testing.T) {
 	}
 }
 
+func TestA092CatalogueSaysWhichTypesHaveAModel(t *testing.T) {
+	// 0.9.2 adds a type's model: the path of its 3D model in the package. A reader of 0.9
+	// reads it; a package of 0.9.1 has none.
+	version := editJSON(FileManifest, func(doc map[string]any) { doc["format_version"] = "0.9.2" })
+	model := editJSON(FileCatalogue, func(doc map[string]any) {
+		for _, ty := range doc["types"].([]any) {
+			if m := ty.(map[string]any); m["code"] == "SOFA" {
+				m["model"] = "models/SOFA.glb"
+			}
+		}
+	})
+	p := rewriteFrom(t, "campus-hq.storeypath", func(name string, data []byte) []byte { return model(name, version(name, data)) })
+	if problems := p.Validate(); len(problems) > 0 {
+		t.Fatalf("a 0.9.2 package with a model: %v", problems)
+	}
+	if ty := p.ItemType("SOFA"); ty == nil || ty.Model == nil || *ty.Model != "models/SOFA.glb" {
+		t.Errorf("the sofa's model: %+v", ty)
+	}
+	if ty := p.ItemType("COPIER"); ty == nil || ty.Model != nil {
+		t.Errorf("the copier has no model: %+v", ty)
+	}
+}
+
 func TestTheCatalogueFindsATypeByItsCode(t *testing.T) {
 	// Validate looks up every item's type: by going through the types, a catalogue
 	// of n types and n items took n² steps.

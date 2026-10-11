@@ -141,6 +141,18 @@
           "default": null,
           "title": "Shape"
         },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
         "workplaces": {
           "default": 0,
           "maximum": 100,

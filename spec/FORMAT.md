@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.9.1
+# StoreyPath package format — version 0.9.2
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -27,6 +27,7 @@ A copy of this document is included in every package.
 | `navigation.json` | The walking network of the building: where a person can walk, and how long it takes, for finding the way (format 0.8) |
 | `schema/*.schema.json` | JSON Schema for every JSON file |
 | `world/<floor-id>.glb` | Optional: each floor already built in 3D, as binary glTF (Pre-built 3D) |
+| `models/<CODE>.glb` | Optional: an item type's 3D model, as binary glTF (Models, 0.9.2) |
 | `FORMAT.md` | This document |
 
 Readers locate each file through `manifest.json → files`, by its role (`location`,
@@ -283,7 +284,7 @@ kept for good and never given to another type (a type no longer used is `retired
 English and Arabic names, a `category` (furniture, equipment, appliance), a size, how
 it is mounted (`floor`, `wall`, `ceiling`), a colour (`#rrggbb`), `workplaces` (how many people work
 at one: a desk, 1; 0 for most else), `grade` (who a desk is for, 0.7), `shape` (how it is
-drawn, 0.9.1: Shapes, below), and its `fields`. Each field
+drawn, 0.9.1: Shapes, below), `model` (its 3D model, 0.9.2: Models, below), and its `fields`. Each field
 says who enters it: `owner: "storeypath"` (what is physical: a colour, a size, a
 model) or `"system"` (the system that manages the asset: an access point's network).
 A reader keeps the `system` fields itself, by the item's ID; the package never
@@ -304,6 +305,26 @@ deep). A shape a reader does not know (a later version's) is drawn as if the typ
 none. Its size, colour and grade are the type's whatever its shape. The shape says only
 how a type looks: what it is stays with its code (a wayfinding kiosk is a `KIOSK` type,
 below, whatever its shape).
+
+**Models (0.9.2).** A type may come with a 3D model of what it is: a supplier's model of
+that sofa, that copier. Its `model` is the model's path in the package, always `models/`,
+its code and `.glb` (`models/SOFA-3.glb`); absent or null, it has none. The package holds
+each model once, for the types its `catalogue.json` holds that have one, and
+`manifest.json → files.models` is `models/` when it holds any. A model is binary glTF 2.0
+of one mesh (the first node of the first scene, with no transform) of one part drawn as
+triangles, in the type's own frame: metres, +Y up, its front facing +Z (glTF's own
+convention: where a person sits on a sofa, where a screen shows), +X across it, its middle
+at x = 0, z = 0 and its bottom at y = 0. Its colours are in its vertices (`COLOR_0`,
+unsigned bytes, normalised, linear as glTF has them), and how rough and how metallic each
+part is in `_FINISH` (two unsigned bytes, normalised: roughness, metalness); it has no
+textures, and its one material leaves the vertex colours as they are, so any glTF viewer
+shows it as StoreyPath does. It has at most 20,000 triangles (Studio makes about 5,000 of
+a supplier's model). An item of the type is drawn as the model made the item's size: its
+box stretched or shrunk each way to the item's `width_m` (x), `height_m` (y) and `depth_m`
+(z), turned and placed as the item is. Studio gives a type its model's own size when the
+model is added, so it is drawn as it was made. The model says only how a type looks in 3D:
+the plan still draws its shape. A reader that cannot read a model (missing, malformed, too
+large) draws the type by its shape, as one of 0.9.1 does.
 
 **Kiosks.** An item whose type is `KIOSK`, or `KIOSK-` and more (`KIOSK-WALL`), is
 where a wayfinding kiosk stands: a screen where people type their employee number
@@ -775,6 +796,14 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.9.1
+
+- `catalogue.json`: a type's `model` (Models): the path of its 3D model in the package,
+  `models/<CODE>.glb`, binary glTF in the type's own frame; absent or null, none.
+- `models/`: each model once (`manifest.json → files.models`).
+- A patch: a reader of 0.9 reads a 0.9.2 package (Versioning), drawing each type by its
+  shape as before.
 
 ## Changes from 0.9.0
 
