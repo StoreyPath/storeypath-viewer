@@ -151,8 +151,9 @@ export function lineMaterial({ color, edge, chevron }) {
         float rim = smoothstep(uCore - 0.12, uCore - 0.02, a) * core;
         float glow = 1.0 - smoothstep(uCore, 1.0, a);
         glow = glow * glow * 0.5;
-        // chevrons pointing the way it goes, flowing along it
-        float p = (vAlong - a * uEvery * 0.42 - uTime * uSpeed * uFlow) / uEvery;
+        // chevrons pointing the way it goes (each one's tip, at the middle, ahead of its
+        // arms), flowing along it
+        float p = (vAlong + a * uEvery * 0.42 - uTime * uSpeed * uFlow) / uEvery;
         float f = fract(p);
         float w = fwidth(p) * 1.5;
         float chev = smoothstep(0.0, w + 0.02, f) * (1.0 - smoothstep(0.2, 0.2 + w + 0.02, f)) * (1.0 - smoothstep(uCore * 0.62, uCore * 0.78, a));

@@ -1468,6 +1468,24 @@ test("a way rises in from its start, its end's pin shown once it gets there; che
   truly(r.at(-1)[2] > r[0][2], `the chevrons' clock goes on: ${r[0][2]} then ${r.at(-1)[2]}`);
 });
 
+test("a way's chevrons point the way it goes, each one's tip ahead of its arms, and flow that way", async () => {
+  // the shader's own line for where along a chevron a point of the ribbon is (vAlong:
+  // metres from the way's start; a: how far from its middle line), read as it is written
+  const { lineMaterial, ROUTE_SIZE } = await import("../../src/world/route.js");
+  const glsl = lineMaterial({ color: "#336699", edge: "#ffffff", chevron: "#ffffff" }).fragmentShader;
+  const said = glsl.match(/float p = \(([^;]+)\) \/ uEvery;/);
+  truly(said, "the shader works out where along a chevron each point is");
+  const phase = new Function("vAlong", "a", "uEvery", "uTime", "uSpeed", "uFlow", `return (${said[1]}) / uEvery;`);
+  // where along the way a chevron's edge (phase 1) is, at ``a`` from the middle, at ``time``
+  const at = (a, time) => {
+    const p0 = phase(0, a, ROUTE_SIZE.chevron, time, ROUTE_SIZE.flow, 1), p1 = phase(1, a, ROUTE_SIZE.chevron, time, ROUTE_SIZE.flow, 1);
+    return (1 - p0) / (p1 - p0);
+  };
+  const middle = at(0, 0), arm = at(ROUTE_SIZE.core * 0.6, 0);
+  truly(middle > arm + 0.05, `its tip (at the middle, ${middle.toFixed(2)} m along) ahead of its arms (${arm.toFixed(2)} m)`);
+  truly(at(0, 1) > middle + 0.5, `a second later, further along: ${middle.toFixed(2)} then ${at(0, 1).toFixed(2)} m`);
+});
+
 test("without motion (reduced motion asked for) a way is there at once, and going along it is there at once", async () => {
   await page.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   try {
