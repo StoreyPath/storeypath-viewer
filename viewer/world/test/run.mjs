@@ -978,6 +978,20 @@ const PAGE = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}#w,
     const step = () => (n-- > 0 ? requestAnimationFrame(step) : res());
     step();
   });
+  // what the highlight covers (a group: a floor tinted, its edge, its walls' faces; an item's edges): its meshes' bounds
+  window.litBox = (lit) => {
+    const min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+    lit.traverse((m) => {
+      if (!m.geometry) return;
+      m.geometry.computeBoundingBox();
+      const b = m.geometry.boundingBox;
+      for (const k of ["x", "y", "z"]) {
+        min[k] = Math.min(min[k], b.min[k]);
+        max[k] = Math.max(max[k], b.max[k]);
+      }
+    });
+    return { min, max, containsPoint: (p) => ["x", "y", "z"].every((k) => p[k] >= min[k] && p[k] <= max[k]) };
+  };
   // what a world shows: each floor's meshes (triangles, bounds), its labels, and the picture
   window.look = async (world, floor = null) => {
     world.setFloor(floor);
@@ -1332,14 +1346,14 @@ test("on a pre-built floor, a click and select choose and highlight a room", asy
     const office = world.package.units.find((u) => u.properties.number === "F0-302");
     world.select(office.id, { go: false });
     const lit = world.scene.getObjectByName("highlight");
-    lit.geometry.computeBoundingBox();
+    const litBox = window.litBox(lit);
     const { x, z } = world.toLocal(office.properties.display_point);
     const clicked = world.package.units.find((u) => u.properties.number === "F0-315");
     const p = world.toLocal(clicked.properties.display_point);
     const q = world.camera.position.clone().set(p.x, 0.05, p.z).project(world.camera);
     const box = world.renderer.domElement.getBoundingClientRect();
     return { prebuilt: world.prebuilt.length, selected: world.selected === office.id, lit: lit.visible,
-      inside: lit.geometry.boundingBox.containsPoint({ x, y: lit.geometry.boundingBox.min.y, z }),
+      inside: litBox.containsPoint({ x, y: litBox.min.y, z }),
       id: clicked.id, at: [box.left + ((q.x + 1) / 2) * box.width, box.top + ((1 - q.y) / 2) * box.height] };
   });
   truly(r.prebuilt === 1 && r.selected && r.lit && r.inside, JSON.stringify(r));
@@ -1425,10 +1439,10 @@ for (const name of ["campus", "campus-world", "campus-hq", "campus-hq-2"]) {
       world.select(desk.id); // the view goes to it
       await window.still(world); // (its flight over: by frames, not the clock)
       const lit = world.scene.getObjectByName("highlight");
-      lit.geometry.computeBoundingBox();
+      const litBox = window.litBox(lit);
       const { x, z } = world.toLocal(desk.properties.display_point);
       const y = floor.properties.elevation + desk.properties.height_m;
-      const inside = lit.geometry.boundingBox.containsPoint({ x, y, z });
+      const inside = litBox.containsPoint({ x, y, z });
       world.select(null, { go: false });
       await window.frames();
       const p = world.camera.position.clone().set(x, y, z).project(world.camera);
@@ -2250,9 +2264,9 @@ test("setFloorItems replaces one floor's items and builds nothing else again; se
     const plan = world.plan(floor);
     world.select(given[0].id, { go: false });
     const lit = world.scene.getObjectByName("highlight");
-    lit.geometry.computeBoundingBox();
+    const litBox = window.litBox(lit);
     const at = world.worldPoint([given[0].x, given[0].y]);
-    const inside = lit.geometry.boundingBox.containsPoint({ x: at.x, y: lit.geometry.boundingBox.min.y + 0.1, z: at.z });
+    const inside = litBox.containsPoint({ x: at.x, y: litBox.min.y + 0.1, z: at.z });
     world.select("P-I999999", { go: false });
     return { items: plan.items.map((i) => i.id), same: wall() === before,
       others: world.scene.getObjectByName(world.package.floorsOf(world.building)[1].id).children.every((c, k) => c === upper[k]),
