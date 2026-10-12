@@ -130,6 +130,18 @@ const FLOORISH = new Set(["floor", "slab"]);
 const CHOSEN = 0xffb347; // what is chosen: a light amber, over its own colour (#highlight)
 const ALONG = { reach: 0.35, facing: 0.35 }; // a wall's face along a line: this near it (m), and turned this little off it
 
+/** A triangle's middle and the way it faces, on the plan ({ x, z, nx, nz }), as
+ * groupByFinish's ``where`` says it: the triangle from vertex ``i`` of ``index`` (or of
+ * ``pos`` itself, unindexed). */
+function faceAt(pos, index, i) {
+  const [a, b, c] = [0, 1, 2].map((k) => (index ? index.getX(i + k) : i + k));
+  const ax = pos.getX(a), ay = pos.getY(a), az = pos.getZ(a);
+  const ux = pos.getX(b) - ax, uy = pos.getY(b) - ay, uz = pos.getZ(b) - az;
+  const vx = pos.getX(c) - ax, vy = pos.getY(c) - ay, vz = pos.getZ(c) - az;
+  const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx, n = Math.hypot(nx, nz) || 1;
+  return { x: (ax * 3 + ux + vx) / 3, z: (az * 3 + uz + vz) / 3, nx: nx / n, nz: nz / n };
+}
+
 /** Whether a wall's face (a triangle's middle and the way it faces, on the plan) lies along
  * a wall finished on its own: near its line, between its ends, facing across it. */
 function alongWall(l, w) {
@@ -1025,7 +1037,9 @@ export class StoreyPathWorld extends EventTarget {
 
   /** Mark lightly what a click would act on (not the choice's highlight): ``{ floor: id }``
    * a space's or zone's floor; ``{ walls: id }`` the faces of a space's walls towards it (a
-   * zone's: its space's); ``{ item: id }`` an item; null: nothing. As a page shows, following
+   * zone's: its space's); ``{ walls: id, line: [[x, y], [x, y]] }`` those along one wall
+   * of it (a line of the building's own frame, as a space's ``wall_finishes`` have it);
+   * ``{ item: id }`` an item; null: nothing. As a page shows, following
    * the pointer (hover), what painting or choosing there would do. */
   mark(target) {
     const key = target ? JSON.stringify(target) : "";
@@ -1075,7 +1089,9 @@ export class StoreyPathWorld extends EventTarget {
       const found = this.#findSpace(target.walls);
       if (found) {
         floor = found.floor;
-        add(this.#wallFaces(found.floor, found.space.space ?? found.space.id), this.#markLook.fill, 4);
+        const a = target.line && this.worldPoint(target.line[0]), b = target.line && this.worldPoint(target.line[1]);
+        const along = a && b ? { ax: a.x, az: a.z, bx: b.x, bz: b.z } : null;
+        if (!target.line || along) add(this.#wallFaces(found.floor, found.space.space ?? found.space.id, along), this.#markLook.fill, 4);
       }
     }
     if (!floor || !group.children.length) return;
@@ -1088,8 +1104,9 @@ export class StoreyPathWorld extends EventTarget {
   #markLook = null;
 
   /** The faces of a floor's walls towards a space (as they are finished: their ``_room``),
-   * a little off them; or null. */
-  #wallFaces(f, spaceId) {
+   * a little off them; with ``along`` ({ ax, az, bx, bz }, in the world), those along that
+   * line alone (as a wall finished on its own is dressed: alongWall); or null. */
+  #wallFaces(f, spaceId, along = null) {
     const index = f.rooms?.indexOf(spaceId) ?? -1;
     if (index < 0) return null;
     const out = [];
@@ -1100,6 +1117,7 @@ export class StoreyPathWorld extends EventTarget {
       const idx = g.index, n = idx ? idx.count : pos.count;
       for (let i = 0; i + 2 < n; i += 3) {
         if (room.getX(idx ? idx.getX(i) : i) !== index) continue;
+        if (along && !alongWall(along, faceAt(pos, idx, i))) continue;
         for (let k = 0; k < 3; k++) {
           const v = idx ? idx.getX(i + k) : i + k, off = 0.006;
           out.push(pos.getX(v) + (nor ? nor.getX(v) * off : 0), pos.getY(v) + (nor ? nor.getY(v) * off : 0), pos.getZ(v) + (nor ? nor.getZ(v) * off : 0));

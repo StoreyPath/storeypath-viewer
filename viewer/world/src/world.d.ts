@@ -573,8 +573,8 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * ([[x, y], [x, y]] each, building frame); null takes it away. */
 	ghost(spec: (GivenItem & { floor?: string; ok?: boolean; guides?: [[number, number], [number, number]][] }) | null): void;
 	/** Mark lightly what a click would act on (not the choice's highlight): a space's or zone's floor, the faces of a
-	 * space's walls towards it (a zone's: its space's), or an item; null: nothing. */
-	mark(target: { floor: string } | { walls: string } | { item: string } | null): void;
+	 * space's walls towards it (a zone's: its space's), those along one wall of it (`line`, building frame), or an item; null: nothing. */
+	mark(target: { floor: string } | { walls: string; line?: [[number, number], [number, number]] } | { item: string } | null): void;
 	/** Items carried across their floor by a drag (itemdrag… events): in the dollhouse view any item shown; walking,
 	 * the item chosen (a drag elsewhere looks round). */
 	setDraggable(on: boolean): void;
