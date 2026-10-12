@@ -127,6 +127,7 @@ const ROUTE = { order: 20, faded: 0.3,
 const RIDE_WORDS = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ramp: "Ramp" };
 // a floor faded back while a way is shown: its floors and its walls, a light shell
 const FLOORISH = new Set(["floor", "slab"]);
+const CHOSEN = 0xffb347; // what is chosen: a light amber, over its own colour (#highlight)
 
 /** The 3D models of a package's item types (format 0.9.2: models/<CODE>.glb), each read once,
  * by type code; a type whose model cannot be read keeps its shape, and says why. */
@@ -386,7 +387,6 @@ export class StoreyPathWorld extends EventTarget {
       }
     }
     if (this.#ground) this.#ground.material = this.#materials.ground();
-    if (this.#lit) this.#lit.material = this.#materials.highlight;
   }
 
   /** ``n`` lights for the ceiling panels nearest the walker (shown only when walking). */
@@ -2396,21 +2396,55 @@ export class StoreyPathWorld extends EventTarget {
 
   /** Highlight a space (``found``: its floor and space) or an item (its floor and
    * item), or none. */
+  /** What is chosen, marked lightly over what it is, its finish and colour seen through:
+   * a space's or zone's floor tinted and its edge drawn, and the faces of its walls
+   * towards it tinted (the room, not its floor alone); an item's box tinted and its
+   * edges drawn. */
   #highlight(found) {
     if (this.#lit) {
       this.#lit.removeFromParent();
-      this.#lit.geometry.dispose();
+      this.#lit.traverse((o) => o.geometry?.dispose());
       this.#lit = null;
     }
     if (!found) return;
-    const geometry = found.item ? itemBox(found.floor.plan, found.item) : flat(found.space.rings, found.floor.elevation + 0.02);
-    const lit = new THREE.Mesh(geometry, this.#materials.highlight);
+    const lit = new THREE.Group(), look = this.#chosenLook();
+    const add = (geometry, material, order, Kind = THREE.Mesh) => {
+      if (!geometry) return;
+      const part = new Kind(geometry, material);
+      part.renderOrder = order;
+      part.raycast = () => {};
+      lit.add(part);
+    };
+    if (found.item) {
+      const box = itemBox(found.floor.plan, found.item);
+      add(box, look.item, 3);
+      add(new THREE.EdgesGeometry(box), look.line, 4, THREE.LineSegments);
+    } else {
+      const y = found.floor.elevation + 0.02;
+      add(flat(found.space.rings, y), look.fill, 3);
+      const edges = found.space.rings.map((rings) => ribbon(rings[0].map(([x, n]) => [x, -n]).concat([[rings[0][0][0], -rings[0][0][1]]]), y + 0.004, 0.08));
+      add(edges.length > 1 ? mergeGeometries(edges) : edges[0], look.edge, 4);
+      if (edges.length > 1) for (const e of edges) e.dispose();
+      add(this.#wallFaces(found.floor, found.space.space ?? found.space.id), look.wall, 3);
+    }
     lit.name = "highlight";
-    lit.renderOrder = 3;
     lit.userData.space = found.space ?? null;
     lit.visible = this.#o.showHidden || !found.space?.tucked;
     found.floor.group.add(lit);
     this.#lit = lit;
+  }
+
+  #chosen = null;
+
+  /** How what is chosen is marked: a light amber, faint over faces, clear along edges. */
+  #chosenLook() {
+    const tint = (opacity, more = {}) => new THREE.MeshBasicMaterial({ color: CHOSEN, transparent: true, opacity, depthWrite: false,
+      toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, ...more });
+    return this.#chosen ??= {
+      fill: tint(0.14), wall: tint(0.12), item: tint(0.08),
+      edge: tint(0.95, { side: THREE.DoubleSide, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
+      line: new THREE.LineBasicMaterial({ color: CHOSEN, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }),
+    };
   }
 
   #label(p) {

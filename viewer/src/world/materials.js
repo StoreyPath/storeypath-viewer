@@ -46,9 +46,6 @@ export class Materials {
     this.#painter = painter;
     this.#finishes = new Map();
     this.#volumes = new Map();
-    this.highlight = new THREE.MeshStandardMaterial({
-      color: 0xff8a00, emissive: 0xff8a00, emissiveIntensity: 0.35, transparent: true, opacity: 0.35, depthWrite: false,
-    });
     // lines along edges ("model"): seen over the faces they edge, drawn a little nearer
     // (a share of the distance, so that at a glancing angle what is behind a wall is not
     // seen through it), and not in the depth the occlusion is worked out from
