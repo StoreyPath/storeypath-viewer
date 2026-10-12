@@ -839,18 +839,27 @@ function wallFace(faces, p, q, e, y0, y1, [dx, dn], facing) {
 }
 
 /** A piece's triangles drawn a finish at a time: ordered by the finish of the room each
- * is of (``finishAt(room)``, from its `_room`: a room past the end of the list for a
- * wall's face outside every room), in groups, one a finish (the geometry given an index
- * the first time; its triangles moved, never built again). The finishes, in the order of
- * the groups (one: no groups); null for a piece without rooms. */
+ * is of (``finishAt(room, where)``, from its `_room`: a room past the end of the list for a
+ * wall's face outside every room; ``where()``, when it asks, the triangle's middle and
+ * which way it faces on the plan: { x, z, nx, nz }), in groups, one a finish (the geometry
+ * given an index the first time; its triangles moved, never built again). The finishes,
+ * in the order of the groups (one: no groups); null for a piece without rooms. */
 export function groupByFinish(geometry, finishAt) {
   const room = geometry.getAttribute("_room"), position = geometry.getAttribute("position");
   if (!room || !position) return null;
   const index = geometry.index, tris = Math.floor((index ? index.count : position.count) / 3);
   const codes = [], slot = new Map(), of = new Uint32Array(tris), counts = [];
   const src = index ? index.array.slice() : null;
+  const where = (t) => () => {
+    const [a, b, c] = [0, 1, 2].map((k) => (src ? src[t * 3 + k] : t * 3 + k));
+    const ax = position.getX(a), ay = position.getY(a), az = position.getZ(a);
+    const ux = position.getX(b) - ax, uy = position.getY(b) - ay, uz = position.getZ(b) - az;
+    const vx = position.getX(c) - ax, vy = position.getY(c) - ay, vz = position.getZ(c) - az;
+    const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx, n = Math.hypot(nx, nz) || 1;
+    return { x: (ax * 3 + ux + vx) / 3, z: (az * 3 + uz + vz) / 3, nx: nx / n, nz: nz / n };
+  };
   for (let t = 0; t < tris; t++) {
-    const code = finishAt(room.getX(src ? src[t * 3] : t * 3));
+    const code = finishAt(room.getX(src ? src[t * 3] : t * 3), where(t));
     let s = slot.get(code);
     if (s === undefined) {
       s = codes.push(code) - 1;

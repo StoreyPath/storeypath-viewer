@@ -296,6 +296,22 @@
           "description": "what its walls are finished in (format 0.9), on each wall's face towards it: a code of StoreyPath's wall finishes (FORMAT.md, Finishes); null for its type's default. A reader that does not know a code shows the default",
           "title": "Wall Finish"
         },
+        "wall_finishes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/WallPaintProp"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "walls of it finished otherwise than the rest, one by one (format 0.9.3): an accent wall. Each a line along the wall's face towards it, in metres of the building's own frame (as an item's `local`), and its finish; a wall's faces along a line, within its thickness, are that finish, the rest `wall_finish`. Null: none. A reader that does not know it shows every wall as `wall_finish`",
+          "title": "Wall Finishes"
+        },
         "hidden": {
           "default": false,
           "description": "real, but not shown unless asked for (a shaft, a plant room)",
@@ -351,6 +367,37 @@
       ],
       "title": "SpaceType",
       "type": "string"
+    },
+    "WallPaintProp": {
+      "properties": {
+        "line": {
+          "description": "from one end of the wall to the other, [x_m, y_m] each, in the building's own frame",
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Line",
+          "type": "array"
+        },
+        "finish": {
+          "maxLength": 40,
+          "pattern": "^WALL(-[A-Z0-9]+)+$",
+          "title": "Finish",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "finish"
+      ],
+      "title": "WallPaintProp",
+      "type": "object"
     }
   },
   "properties": {

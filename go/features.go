@@ -74,6 +74,10 @@ type Space struct {
 	// default (FloorFinishOf, WallFinishOf), as is a code this module does not know.
 	FloorFinish *string `json:"floor_finish"`
 	WallFinish  *string `json:"wall_finish"`
+	// WallFinishes (format 0.9.3): walls of it finished otherwise than the rest, one by
+	// one (an accent wall): each a line along the wall's face towards it, in metres of
+	// the building's own frame (as an item's Local), and its finish. Nil: none.
+	WallFinishes []WallPaint `json:"wall_finishes"`
 	// Hidden: real, but not shown unless asked for. Ignored: judged not worth
 	// anything by a person; best left out.
 	Hidden  bool `json:"hidden"`
@@ -317,3 +321,11 @@ const (
 	OwnerStoreyPath = "storeypath"
 	OwnerSystem     = "system"
 )
+
+// WallPaint is one wall of a space finished otherwise than its other walls (format
+// 0.9.3): from one end of it to the other, [x_m, y_m] each in the building's own frame,
+// along its face towards the space; and the finish (a WALL-… code) it is in.
+type WallPaint struct {
+	Line   [][2]float64 `json:"line"`
+	Finish string       `json:"finish"`
+}

@@ -555,6 +555,13 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * (null when the package does not place the building: before format 0.7). */
 	worldPoint(point: [number, number]): { x: number; z: number } | null;
 	buildingPoint(point: { x: number; z: number }): [number, number] | null;
+	/** Walking from a point of a floor (local metres, as worldPoint gives; in a room, else the middle of the
+	 * nearest), facing `heading` (default: as the view faces): the walk view started there, or the walker taken
+	 * there when walking already. */
+	walkAt(at: { x: number; z: number }, options?: { floor?: string | null; heading?: number }): void;
+	/** The dollhouse view looking down at a point of a floor (local metres), framing about `size` metres (default
+	 * 20): flown there, or there at once with `animate: false`. */
+	lookAt(at: { x: number; z: number }, options?: { floor?: string | null; size?: number; animate?: boolean }): void;
 	/** What is under a point of the screen (client pixels; given none, the middle of the view): quick enough to
 	 * follow the pointer. Walking, on the walker's floor. */
 	pointAt(clientX?: number, clientY?: number): WorldPoint | null;
@@ -576,7 +583,9 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * floor's triangles, its walls' faces, in their finishes before the next frame; nothing
 	 * built again), its floor built again when its type or whether it is shown changed. */
 	updateSpace(id: string, props: { name?: string | null; number?: string | null; type?: string; hidden?: boolean; ignored?: boolean;
-		floor_finish?: string | null; wall_finish?: string | null }): boolean;
+		floor_finish?: string | null; wall_finish?: string | null;
+		/** walls finished otherwise one by one (0.9.3): lines in the building's own frame */
+		wall_finishes?: { line: [[number, number], [number, number]]; finish: string }[] | null }): boolean;
 	/** What a space's or zone's floor and walls are in, as shown (codes of FINISHES), or null. */
 	finishOf(id: string): { floor: string; wall: string } | null;
 	setXray(on: boolean): void;

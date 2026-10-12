@@ -926,6 +926,17 @@ test("a piece drawn a finish at a time: its triangles ordered by finish, in grou
   const again = groupByFinish(g, (i) => (rooms[i] === office ? "NAVY" : typeOf(i)));
   truly(g.index.array === array && again.includes("NAVY") && g.groups.length === again.length, "moved in place");
   truly(groupByFinish(g, () => "ONE").length === 1 && g.groups.length === 0, "one finish: no groups");
+  // one wall of the office otherwise (0.9.3): its faces told apart by where each lies and
+  // which way it faces, a triangle's middle on its face, its facing flat and level
+  let asked = 0;
+  const one = groupByFinish(g, (i, where) => {
+    if (rooms[i] !== office) return typeOf(i);
+    const w = where();
+    asked++;
+    truly(Number.isFinite(w.x) && Number.isFinite(w.z) && Math.abs(Math.hypot(w.nx, w.nz) - 1) < 1e-9, `where ${JSON.stringify(w)}`);
+    return w.nx > 0.9 ? "ACCENT" : "NAVY";
+  });
+  truly(asked > 0 && one.includes("ACCENT") && one.includes("NAVY"), `one wall otherwise: ${one}`);
 });
 
 // ---- in Chrome ----------------------------------------------------------------

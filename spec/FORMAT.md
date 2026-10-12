@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.9.2
+# StoreyPath package format — version 0.9.3
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -123,7 +123,7 @@ MultiPolygon, for drawing or modelling the floor; they rise to the ceiling),
 **space** — `type`, `name`, `number`, `drawing_label`, `floor_id`, `area_m2`,
 `display_point` (a good spot for its label), `zones`, `outdoor` (open to the sky: a terrace or balcony with no
 windows of its own; a glazed veranda is not), `capacity`, `capacity_from`, `grade`
-(Capacity), `stack` (Stacks), `floor_finish` and `wall_finish` (Finishes), `hidden`, `ignored`.
+(Capacity), `stack` (Stacks), `floor_finish`, `wall_finish` and `wall_finishes` (Finishes), `hidden`, `ignored`.
 Geometry: Polygon or MultiPolygon. A space is what walls, doors and windows enclose:
 walls stand on its edges.
 
@@ -571,6 +571,14 @@ null is the room's type's default (Defaults).
   that side (a zone's walls are its space's), else that space's type's default; a face
   towards no room (the building's outside, the jambs of openings), as `exterior` in the
   list. The wall over a door or a window, and under a window, is the wall.
+- **One wall otherwise (0.9.3).** A space may finish some of its walls otherwise than
+  the rest, one by one (an accent wall): `wall_finishes`, a list of `{"line": [[x, y],
+  [x, y]], "finish": "WALL-…"}`, each line from one end of the wall to the other along
+  its face towards the space, in metres of the building's own frame (as an item's
+  `local`). A face of a wall towards the space lying along a line, within the wall's
+  thickness of it and between its ends, is that line's finish; the space's other faces
+  are its `wall_finish`. Null (or absent): none. A reader that does not know it shows
+  every wall of the space as its `wall_finish`.
 - **A code a reader does not know** (one a later version adds) is shown as the type's
   default; a reader refuses only a code not of the form of a floor's (`FLOOR-` and
   capital letters, digits and hyphens: `^FLOOR(-[A-Z0-9]+)+$`, at most 40 characters)
@@ -802,6 +810,13 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.9.2
+
+- Spaces' `wall_finishes` (Finishes): walls finished otherwise than the rest, one by
+  one, each a line along the wall in the building's own frame and its finish.
+- A patch: a reader of 0.9 reads a 0.9.3 package (Versioning), showing every wall of a
+  space as its `wall_finish`.
 
 ## Changes from 0.9.1
 

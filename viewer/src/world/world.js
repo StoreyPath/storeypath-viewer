@@ -128,6 +128,17 @@ const RIDE_WORDS = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ram
 // a floor faded back while a way is shown: its floors and its walls, a light shell
 const FLOORISH = new Set(["floor", "slab"]);
 const CHOSEN = 0xffb347; // what is chosen: a light amber, over its own colour (#highlight)
+const ALONG = { reach: 0.35, facing: 0.35 }; // a wall's face along a line: this near it (m), and turned this little off it
+
+/** Whether a wall's face (a triangle's middle and the way it faces, on the plan) lies along
+ * a wall finished on its own: near its line, between its ends, facing across it. */
+function alongWall(l, w) {
+  const dx = l.bx - l.ax, dz = l.bz - l.az, len = Math.hypot(dx, dz);
+  if (len < 1e-6) return false;
+  const ux = dx / len, uz = dz / len;
+  const t = (w.x - l.ax) * ux + (w.z - l.az) * uz, off = Math.abs((w.x - l.ax) * uz - (w.z - l.az) * ux);
+  return off <= ALONG.reach && t >= -ALONG.reach && t <= len + ALONG.reach && Math.abs(w.nx * ux + w.nz * uz) <= ALONG.facing;
+}
 
 /** The 3D models of a package's item types (format 0.9.2: models/<CODE>.glb), each read once,
  * by type code; a type whose model cannot be read keeps its shape, and says why. */
@@ -1122,9 +1133,9 @@ export class StoreyPathWorld extends EventTarget {
     const p = feature.properties;
     const tucked = () => Boolean(p.hidden || p.ignored);
     const was = { type: p.type, tucked: tucked(), floor: p.floor_finish ?? null, wall: p.wall_finish ?? null, name: p.name,
-      number: p.number };
-    for (const k of ["name", "number", "type", "hidden", "ignored", "floor_finish", "wall_finish"]) {
-      if (k in props) p[k] = props[k] ?? (k.endsWith("_finish") ? null : props[k]);
+      number: p.number, walls: JSON.stringify(p.wall_finishes ?? null) };
+    for (const k of ["name", "number", "type", "hidden", "ignored", "floor_finish", "wall_finish", "wall_finishes"]) {
+      if (k in props) p[k] = props[k] ?? (k.endsWith("_finish") || k === "wall_finishes" ? null : props[k]);
     }
     if (p.type !== was.type || tucked() !== was.tucked) {
       this.#rebuildFloor(f.id);
@@ -1133,7 +1144,7 @@ export class StoreyPathWorld extends EventTarget {
     // its finishes before the next frame (many rooms changed at once: their floor dressed once)
     const kinds = this.#toDress.get(f) ?? new Set();
     if ((p.floor_finish ?? null) !== was.floor) kinds.add("floor");
-    if ((p.wall_finish ?? null) !== was.wall) kinds.add("wall");
+    if ((p.wall_finish ?? null) !== was.wall || JSON.stringify(p.wall_finishes ?? null) !== was.walls) kinds.add("wall");
     if (kinds.size) this.#toDress.set(f, kinds);
     const s = f.spaces.find((u) => u.id === id);
     if (s && (p.name !== was.name || p.number !== was.number)) {
@@ -2339,7 +2350,17 @@ export class StoreyPathWorld extends EventTarget {
         return known.get(i);
       };
     };
-    const at = { floor: memo((id) => this.#floorFinishOf(id)), wall: memo((id) => this.#wallFinishOf(id)) };
+    const walls = memo((id) => this.#wallFinishOf(id)), painted = memo((id) => this.#wallPaints(id));
+    // a wall's face along one of its room's walls finished otherwise (0.9.3) is that finish
+    const wall = (i, where) => {
+      const lines = painted(i);
+      if (lines) {
+        const w = where();
+        for (const l of lines) if (alongWall(l, w)) return l.finish;
+      }
+      return walls(i);
+    };
+    const at = { floor: memo((id) => this.#floorFinishOf(id)), wall };
     for (const mesh of f.pieces) {
       const kind = mesh.userData.material;
       if ((kind !== "floor" && kind !== "wall") || (which && which !== kind)) continue;
@@ -2371,6 +2392,20 @@ export class StoreyPathWorld extends EventTarget {
     const p = id ? this.#pkg?.get(id)?.properties : null;
     if (!p) return EXTERIOR;
     return wallFinish(p.kind === "zone" ? this.#pkg.get(p.space_id)?.properties ?? p : p);
+  }
+
+  /** The walls of a space (a zone's: its space's) finished otherwise one by one (0.9.3),
+   * in the world: [{ ax, az, bx, bz, finish }], or null for none. */
+  #wallPaints(id) {
+    let p = id ? this.#pkg?.get(id)?.properties : null;
+    if (p?.kind === "zone") p = this.#pkg.get(p.space_id)?.properties ?? null;
+    const out = [];
+    for (const w of p?.wall_finishes ?? []) {
+      const code = wallFinish({ wall_finish: w?.finish }), a = w?.line?.[0] && this.worldPoint(w.line[0]);
+      const b = w?.line?.[1] && this.worldPoint(w.line[1]);
+      if (a && b && code === w.finish) out.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, finish: code });
+    }
+    return out.length ? out : null;
   }
 
   /** A piece as a mesh, drawn with the world's material for it. */
