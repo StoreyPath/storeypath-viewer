@@ -704,6 +704,17 @@ export class StoreyPathWorld extends EventTarget {
     this.#emit("walklock", { locked: mode === "walk" }); // (as before the mouse was never taken)
   }
 
+  /** Walking from a point of a floor ({ x, z }, local metres: worldPoint), in a room (else
+   * the middle of the nearest), facing ``heading`` (default: as the view faces): the walk
+   * view started there, or the walker taken there when walking already. */
+  walkAt(at, { floor = null, heading } = {}) {
+    if (!at) return;
+    if (this.#mode !== "walk") return this.setMode("walk", { at, floor, heading });
+    const floorId = floor && this.#floors.has(floor) ? floor : this.#walkFloor;
+    const start = this.#standAt(floorId, at);
+    this.#walkTo(floorId, start.x, start.z, heading);
+  }
+
   /** The walk view (as setMode("walk")). Before, it took the mouse to look around; it is
    * never taken now: a drag looks. Kept for pages written for that. */
   startWalking() {
