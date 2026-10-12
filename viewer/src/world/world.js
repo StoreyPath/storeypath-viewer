@@ -1456,6 +1456,23 @@ export class StoreyPathWorld extends EventTarget {
     this.#emit("select", { id: this.#selected, feature: found ? this.#pkg.get(id) : null });
   }
 
+  /** The dollhouse view looking down at ``at`` ({ x, z }, local metres: worldPoint) on
+   * ``floor`` (its ID; the floor shown when not given), framing about ``size`` metres:
+   * flown there, or there at once (``animate`` false). A page showing the same place in
+   * 2D before shows it so in 3D. */
+  lookAt(at, { floor = null, size = 20, animate = true } = {}) {
+    const f = this.#floors.get(floor ?? this.#floor) ?? this.#floors.values().next().value;
+    if (!f || !at || this.#mode !== "dollhouse") return;
+    this.#flyTo(at, f.elevation + this.#offset(f), size);
+    if (!animate) {
+      const flight = this.#flight;
+      this.#flight = null;
+      this.#camera.position.copy(flight.to);
+      this.#orbit.target.copy(flight.toT);
+      this.#orbit.update();
+    }
+  }
+
   /** Go up (+1) or down (−1) a floor, from where the walker stands. */
   changeFloor(step) {
     const list = this.#floorList();
