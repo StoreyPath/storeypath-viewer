@@ -355,7 +355,8 @@ def furnish(ws) -> None:
     kiosk in the reception, facing its door; and each piece its own item (format 0.10):
     the director's chair at the director's desk, a meeting table for six in the meeting
     room with its six chairs round it, facing it, and in the corridor a dome camera and
-    a smoke detector under the ceiling and a fire extinguisher against its wall."""
+    a smoke detector under the ceiling and a fire extinguisher against its wall, and a card
+    reader beside the door of office 003, serving it."""
     from shapely.geometry import shape
 
     from storeypath.workspace import Override
@@ -371,6 +372,7 @@ def furnish(ws) -> None:
         # rotation 0: its front (where its user sits) faces the plan's -y; 90: +x
         it = ws.add_item(code, f_id, round(x, 3), round(y, 3), rotation=rotation, values=values)
         it.group = group  # (placed together, as a set is: 0.10)
+        return it
 
     f_id, (x0, y0, x1, y1) = room("HQ-F00", "001")  # an office on the south side, its door north
     place("DESK-DIRECTOR", f_id, (x0 + x1) / 2, y0 + 2.0)  # room behind its chair for its cabinet
@@ -427,9 +429,18 @@ def furnish(ws) -> None:
     place("CHAIR-MEETING", f_id, mx + 1.25, my, rotation=270, group=meeting)
     place("CHAIR-MEETING", f_id, mx - 1.25, my, rotation=90, group=meeting)
     f_id, (x0, y0, x1, y1) = room("HQ-F00", "005")
-    place("CCTV-DOME", f_id, x0 - 1.2, (cy0 + cy1) / 2, rotation=90, view_deg=90, range_m=12)
+    place("CCTV-DOME", f_id, x0 - 1.2, (cy0 + cy1) / 2, rotation=90, view_deg=110)  # its own angle, its type's range
     place("SMOKE-DETECTOR", f_id, x0 - 3.4, (cy0 + cy1) / 2)
     place("FIRE-EXTINGUISHER", f_id, x0 - 3.4, cy1 - 0.15, agent="CO2", capacity_kg=5)
+    # a card reader on the corridor's wall beside office 003's door, facing the corridor,
+    # serving that door (0.10)
+    f_id, (x0, y0, x1, y1) = room("HQ-F00", "003")
+    office = next(r for r in ws.floor_objects(f_id) if r.kind == "space" and ws.effective(r)["number"] == "003")
+    door = min((r for r in ws.floor_objects(f_id) if r.kind == "opening" and r.type == "door" and office.id in r.connects),
+               key=lambda r: r.id)
+    dx, dy = door.geometry["coordinates"]
+    reader = place("CARD-READER", f_id, dx + (door.width or 0.9) / 2 + 0.25, dy + 0.15, rotation=180)
+    reader.door_id = door.id
 
 
 def simple_office(work: Path) -> None:

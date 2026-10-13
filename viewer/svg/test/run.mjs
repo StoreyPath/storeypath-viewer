@@ -451,6 +451,33 @@ inChrome("a desk and a table are drawn alone (format 0.10: their chairs are item
     K3: ["sp-item-storage", 0, 2, 0, "rect"], K4: ["sp-item-camera", 0, 0, 1, "rect"], K5: ["sp-item-camera", 0, 0, 1, "circle"] }, "by shape");
 });
 
+inChrome("a camera's mark is as wide as it sees; what it covers, out to its range, shows chosen, or every camera's (coverage: 0.10)", async (page) => {
+  const plan = floorFromPackage(hq, `${HQ}-F00`);
+  const dome = plan.items.find((i) => i.type === "CCTV-DOME");
+  equal(dome.view, { deg: 110, range: 12 }, "its own angle, its type's range");
+  truly(plan.items.find((i) => i.type === "CARD-READER").door?.startsWith(`${HQ}-F00-`), "a card reader: the door it serves");
+  equal(plan.items.find((i) => i.type === "SOFA").view, null, "a sofa: no view");
+  await page.run((p) => window.fresh({}, p), plan);
+  const covers = () => page.run((id) => {
+    const c = document.querySelector(`[data-sp-item="${id}"] .sp-item-coverage`);
+    if (!c || getComputedStyle(c).display === "none") return c ? "hidden" : null;
+    const b = c.getBBox();
+    return [b.x, b.y, b.width, b.height].map((v) => Math.round(v * 100) / 100);
+  }, dome.id);
+  equal(await covers(), "hidden", "not chosen: what it covers not shown");
+  const mark = await page.run((id) => document.querySelector(`[data-sp-item="${id}"] .sp-item-view`).getBBox().width, dome.id);
+  alike(mark, 2 * 1.6 * Math.sin((55 * Math.PI) / 180), 0.02, "its mark: 110° wide, 1.6 m out");
+  await page.run((id) => window.engine.select(id), dome.id);
+  const half = 12 * Math.sin((55 * Math.PI) / 180);
+  alike(await covers(), [-half, 0, 2 * half, 12], 0.02, "chosen: 110° wide, 12 m out ahead of it");
+  await page.run(() => { window.engine.select(null); window.engine.setOptions({ coverage: true }); });
+  alike(await covers(), [-half, 0, 2 * half, 12], 0.02, "coverage: every camera's");
+  plan.items = [{ ...dome, id: "ALL-ROUND", view: { deg: 360, range: 5 } }];
+  await page.run((p) => window.fresh({ coverage: true }, p), plan);
+  alike(await page.run(() => { const b = document.querySelector(".sp-item-coverage").getBBox(); return [b.x, b.y, b.width, b.height]; }),
+    [-5, -5, 10, 10], 0.02, "all round: a circle");
+});
+
 inChrome("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or one not known, its code does", async (page) => {
   const shaped = readPackage(repack(join(conformance, "packages/campus-hq.storeypath"), (files) => {
     files.get("manifest.json").format_version = "0.9.1";

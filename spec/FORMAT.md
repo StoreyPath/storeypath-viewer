@@ -266,7 +266,8 @@ Like every ID, an item's is never issued again once it is retired.
     "display_point": [46.67, 24.71], "heading": 270.0,          // its front faces west
     "width_m": 1.8, "depth_m": 0.9, "height_m": 0.75,
     "mount": "floor", "elevation_m": 0.0,                        // wall: its bottom; ceiling: null
-    "values": { }, "group": "G4K7QX2MD" } }                      // placed with its chair and pedestal
+    "values": { }, "group": "G4K7QX2MD",                        // placed with its chair and pedestal
+    "door_id": null, "view_deg": null, "range_m": null } }       // a card reader's door; a camera's view
 ```
 
 - `type` is a code of `catalogue.json`; `name` is that type's English name, for a reader
@@ -289,6 +290,17 @@ Like every ID, an item's is never issued again once it is retired.
   group share and no other item of the package has; null, or absent, in none. A group is a
   link, not an asset: it has no tag, each of its items keeps its own ID, and taken out of
   the group an item keeps that ID. Studio moves and turns a group's items together.
+- `door_id` (0.10) is the door an item serves, for a type that `serves_door`: a card
+  reader, a door controller, an exit button, an intercom. It is the ID of an opening of the
+  item's floor, a `door` or an `opening` (never a `window`); null, or absent, none. Studio
+  links one placed within 2 m of a door to the nearest, and a person may link it to another.
+  A door deleted since leaves it null in the package (the link comes back with the door).
+- `view_deg` and `range_m` (0.10) are a camera's view, an item of a type of shape `camera`:
+  how wide it sees, degrees across, centred on the way its front faces (360: all round),
+  and how far, metres. Each is the item's own (its fields of those keys, entered where a
+  lens is zoomed or a camera looks down a corridor), else its type's; null, or absent, not
+  a camera or not known. A reader draws what a camera covers out to `range_m`, as a wedge
+  or, all round, a circle; walls are not taken off it.
 
 `catalogue.json` (`schema/catalogue.schema.json`) lists the types: a `code` that is
 kept for good and never given to another type (a type no longer used is `retired`),
@@ -302,7 +314,9 @@ A reader keeps the `system` fields itself, by the item's ID; the package never
 carries them. The catalogue is the organization's: the same for every project. A
 package's `catalogue.json` holds every type its items use, each once (a retired one too,
 while an item has it), or, exported so, the whole catalogue (0.9.1; before, always the
-whole). A type a package does not hold is not removed: a reader keeping types adds new
+whole). A camera type's `view_deg` and `range_m` (0.10) are its items' view where
+they are given none of their own; a type's `serves_door` (0.10), whether its items serve a
+door (`door_id`). A type a package does not hold is not removed: a reader keeping types adds new
 ones and updates those it has, and takes none away.
 
 **Categories (0.10).** A type's `category`, and its items', says what it is: furniture
@@ -845,6 +859,9 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   place of `meeting_table`) are drawn alone, their chairs types and items of their own.
 - Items' `group`: the items placed or grouped together (a workstation, a meeting table and
   its chairs), a key they share.
+- Items' `door_id`: the door a card reader, a door controller, an exit button serves; types'
+  `serves_door`.
+- Items' and camera types' `view_deg` and `range_m`: what a camera covers.
   New shapes: `table`, `chair`, `side_chair`, `armchair`, `storage`, `camera`.
 - A minor version: a reader of 0.9 refuses a 0.10 package (Versioning), as what a desk
   and a meeting table are drawn with changed.

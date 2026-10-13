@@ -179,10 +179,18 @@ type Item struct {
 	Category string `json:"category"` // one of ItemCategories (format 0.10)
 	// Group is the key the items placed or grouped together share (format 0.10: a
 	// workstation's desk, chair and pedestal; a meeting table and its chairs); nil: none.
-	Group    *string `json:"group"`
-	Name     string  `json:"name"`
-	Floor    string  `json:"floor_id"`
-	Building string  `json:"building_id"`
+	Group *string `json:"group"`
+	// Door is the door it serves (format 0.10: a card reader, a door controller, of a
+	// type that ServesDoor): an opening of its floor, never a window; nil: none.
+	Door *string `json:"door_id"`
+	// ViewDeg and RangeM are a camera's view (format 0.10: of a type of shape camera):
+	// how wide it sees, degrees across about the way its front faces (360: all round),
+	// and how far, metres; its own, else its type's. Nil: not a camera, or not known.
+	ViewDeg  *float64 `json:"view_deg"`
+	RangeM   *float64 `json:"range_m"`
+	Name     string   `json:"name"`
+	Floor    string   `json:"floor_id"`
+	Building string   `json:"building_id"`
 	// Space, and Zone when the space is divided, are where its middle stood when
 	// the package was exported: nil when it is in none.
 	Space *string `json:"space_id"`
@@ -298,9 +306,15 @@ type ItemType struct {
 	// Model is the path of its 3D model in the package (format 0.9.2): always
 	// models/<CODE>.glb, binary glTF in the type's own frame (FORMAT.md, Models); nil:
 	// none, drawn by its shape.
-	Model   *string     `json:"model"`
-	Fields  []ItemField `json:"fields"`
-	Retired bool        `json:"retired"`
+	Model *string `json:"model"`
+	// ViewDeg and RangeM are a camera type's view (format 0.10), for its items not given
+	// their own: degrees across (360: all round), metres far; nil: none.
+	ViewDeg *float64 `json:"view_deg"`
+	RangeM  *float64 `json:"range_m"`
+	// ServesDoor: its items each serve a door (format 0.10: Item.Door).
+	ServesDoor bool        `json:"serves_door"`
+	Fields     []ItemField `json:"fields"`
+	Retired    bool        `json:"retired"`
 }
 
 // ItemShapes are the shapes an item type may be drawn as (catalogue.json, format 0.9.1;

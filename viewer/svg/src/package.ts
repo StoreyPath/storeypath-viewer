@@ -38,6 +38,10 @@ interface ItemProps {
   /** Where it stands in its building's own frame (format 0.7): its middle, and its turn
    * counter-clockwise from facing -y. Moving the building on the map leaves it as it is. */
   local?: { x_m: number; y_m: number; rotation_deg: number } | null;
+  /** The items placed or grouped together share it (format 0.10). */
+  group?: string | null;
+  /** The door it serves (format 0.10), and a camera's view: degrees across, metres far. */
+  door_id?: string | null; view_deg?: number | null; range_m?: number | null;
 }
 
 /** What a package gives: its manifest and its features (as viewer/src/package.js loads them, or as read). */
@@ -64,6 +68,7 @@ const ITEM_COLOR = "#8a8a8a"; // an item whose type the package does not describ
 const COLOR = /^#[0-9a-f]{6}$/i;
 /** The grades a desk may be for (catalogue.json, format 0.7): no other reaches the page. */
 const GRADES = new Set(["president", "c_level", "director", "manager", "section_head", "senior", "junior"]);
+const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
 
 /** A floor of a package, ready to draw. */
 export function floorFromPackage(pkg: PackageLike, floorId: string, options: FromPackageOptions = {}): FloorPlan {
@@ -139,7 +144,8 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     }
     items.push({ id: f.id, type: p.type, category: p.category ?? "furniture", name: p.name ?? null, mount: p.mount ?? "floor",
       at, front, width: p.width_m || 1, depth: p.depth_m || 0.6, color: colors.get(p.type) ?? ITEM_COLOR,
-      grade: grades.get(p.type) ?? null, shape: shapes.get(p.type) ?? null });
+      grade: grades.get(p.type) ?? null, shape: shapes.get(p.type) ?? null, door: p.door_id ?? null,
+      view: positive(p.view_deg) && p.view_deg <= 360 ? { deg: p.view_deg, range: positive(p.range_m) ? p.range_m : null } : null });
   }
   return {
     id: floorId,

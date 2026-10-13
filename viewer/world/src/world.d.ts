@@ -97,6 +97,14 @@ export interface ItemProperties {
 	elevation_m: number | null;
 	/** Its details entered in StoreyPath, by the catalogue's field keys. */
 	values: Record<string, string | number>;
+	/** The items placed or grouped together share it (format 0.10); null: none. */
+	group?: string | null;
+	/** The door it serves (format 0.10: a card reader, a door controller): an opening of its floor. */
+	door_id?: string | null;
+	/** A camera's view (format 0.10): degrees across about the way it faces (360: all round),
+	 * and metres far; its own, else its type's; null: not a camera, or not known. */
+	view_deg?: number | null;
+	range_m?: number | null;
 }
 
 /** A detail the items of a type carry, and who enters it: StoreyPath, or the system that manages the asset. */
@@ -143,6 +151,11 @@ export interface ItemType {
 	/** Its 3D model in the package (format 0.9.2): `models/<CODE>.glb`; absent or null: none,
 	 * drawn by its shape. */
 	model?: string | null;
+	/** A camera type's view (format 0.10), for its items given none of their own. */
+	view_deg?: number | null;
+	range_m?: number | null;
+	/** Its items each serve a door (format 0.10: their door_id). */
+	serves_door?: boolean;
 	fields: ItemField[];
 	retired: boolean;
 }

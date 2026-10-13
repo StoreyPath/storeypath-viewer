@@ -1723,3 +1723,51 @@ func TestItemsPlacedTogetherShareTheirGroup(t *testing.T) {
 		}
 	}
 }
+
+func TestAReaderServesADoorOfItsFloorAndACameraSaysItsView(t *testing.T) {
+	// Format 0.10: a card reader's door_id is a door of its floor; a camera's view is its own
+	// angle (its field) and its type's range. A door not of the package, or a window, or a
+	// view past all round, is a problem.
+	p := open(t, "campus-hq.storeypath")
+	var reader, camera *Item
+	for i := range p.Items {
+		switch p.Items[i].Type {
+		case "CARD-READER":
+			reader = p.Items[i]
+		case "CCTV-DOME":
+			camera = p.Items[i]
+		}
+	}
+	if reader == nil || reader.Door == nil || camera == nil {
+		t.Fatalf("reader %v, camera %v", reader, camera)
+	}
+	var window string
+	for _, o := range p.Openings {
+		if o.ID == *reader.Door && (o.Type != "door" || o.Floor != reader.Floor) {
+			t.Errorf("%s serves %s, a %s on %s", reader.ID, o.ID, o.Type, o.Floor)
+		}
+		if o.Type == "window" && o.Floor == reader.Floor {
+			window = o.ID
+		}
+	}
+	if camera.ViewDeg == nil || *camera.ViewDeg != 110 || camera.RangeM == nil || *camera.RangeM != 12 || camera.Door != nil {
+		t.Errorf("camera: view %v, range %v, door %v", camera.ViewDeg, camera.RangeM, camera.Door)
+	}
+	if ty := p.Catalogue.Type("CARD-READER"); ty == nil || !ty.ServesDoor {
+		t.Errorf("CARD-READER serves no door: %+v", ty)
+	}
+	if problems := p.Validate(); len(problems) != 0 {
+		t.Fatalf("problems: %v", problems)
+	}
+	door, wide := *reader.Door, 400.0
+	for _, bad := range []string{"NOT-A-DOOR", window} {
+		reader.Door = &bad
+		if got := codes(p.Validate()); !slices.Equal(got, []string{ProblemItem}) {
+			t.Errorf("door %s: %v", bad, got)
+		}
+	}
+	reader.Door, camera.ViewDeg = &door, &wide
+	if got := codes(p.Validate()); !slices.Equal(got, []string{ProblemValue}) {
+		t.Errorf("view 400°: %v", got)
+	}
+}

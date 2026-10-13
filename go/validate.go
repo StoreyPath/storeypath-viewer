@@ -56,10 +56,10 @@ const (
 	ProblemChanges       = "CHANGES"        // changes.json does not agree with the package
 	ProblemGeometry      = "GEOMETRY"       // a feature's geometry is not the kind its file holds
 	ProblemScope         = "SCOPE"          // a package holds a building its scope does not list, or lacks one it does; from 0.7, not exactly one
-	ProblemItem          = "ITEM"           // an item is on a floor not in the package (or not of its building), or in a space or zone not on its floor; from 0.7, without its position in its building, or with a map position or heading away from it
+	ProblemItem          = "ITEM"           // an item is on a floor not in the package (or not of its building), or in a space or zone not on its floor, or serves a door not of its floor (0.10); from 0.7, without its position in its building, or with a map position or heading away from it
 	ProblemItemType      = "ITEM_TYPE"      // an item's type is not in the package's catalogue
 	ProblemPlacement     = "PLACEMENT"      // a building of the package, or one an item stands in, has no placement in the manifest
-	ProblemValue         = "VALUE"          // a value the format does not allow: a type the manifest's types do not list, a negative capacity, a grade, mount, category or colour not of the format, a finish's code not of the form of a floor's or a wall's (format 0.9)
+	ProblemValue         = "VALUE"          // a value the format does not allow: a type the manifest's types do not list, a negative capacity, a grade, mount, category or colour not of the format, a finish's code not of the form of a floor's or a wall's (format 0.9), a camera's view past all round or of no range (0.10)
 	ProblemNavigation    = "NAVIGATION"     // (0.8) the walking network names a building, floor, space or zone not in the package, holds a node twice, or an edge joins a node it does not have (or two nodes another edge joins), or has no line
 	ProblemItemElsewhere = "ITEM_ELSEWHERE" // (ValidateAcross) an item's ID is an item of another project, in another package
 )
@@ -92,6 +92,9 @@ var (
 
 // maxWorkplaces: the most people who work at one item (a bench of desks).
 const maxWorkplaces = 100
+
+// maxRangeM: the furthest a camera sees, in metres (format 0.10: range_m).
+const maxRangeM = 500.0
 
 // knownKinds: the kinds of objects.csv rows this reader knows. Rows of others (a
 // later format's), and their IDs in changes.json, are left alone.
@@ -351,6 +354,19 @@ func (p *Package) Validate() []Problem {
 		typed("opening", openingsFile, o.ID, o.Type)
 		geometryOf(o.ID, o.Geometry, openingsFile, true, add)
 	}
+	// a camera's view (0.10): more than nothing, all round and maxRangeM at most
+	viewed := func(file, id, what string, deg, reach *float64) {
+		if deg != nil && !(*deg > 0 && *deg <= 360) {
+			add(ProblemValue, file, id, "%s: view_deg %g is not more than 0 and at most 360", what, *deg)
+		}
+		if reach != nil && !(*reach > 0 && *reach <= maxRangeM) {
+			add(ProblemValue, file, id, "%s: range_m %g is not more than 0 and at most %g", what, *reach, maxRangeM)
+		}
+	}
+	ways := make(map[string]string, len(p.Openings)) // what an item's door may be: an opening's type, by its ID
+	for _, o := range p.Openings {
+		ways[o.ID] = o.Type
+	}
 	for _, it := range p.Items {
 		if kindOf(it.Building) != "building" {
 			add(ProblemItem, itemsFile, it.ID, "%s: in building %s, which is not a building of the package", it.ID, it.Building)
@@ -368,6 +384,10 @@ func (p *Package) Validate() []Problem {
 		if p.Catalogue != nil && p.Catalogue.Type(it.Type) == nil {
 			add(ProblemItemType, itemsFile, it.ID, "%s: type %s is not in the catalogue", it.ID, it.Type)
 		}
+		if it.Door != nil && (ways[*it.Door] == "" || ways[*it.Door] == "window" || !strings.HasPrefix(*it.Door, it.Floor+"-")) {
+			add(ProblemItem, itemsFile, it.ID, "%s: serves unknown door %s (or not a door or opening of its floor)", it.ID, *it.Door)
+		}
+		viewed(itemsFile, it.ID, it.ID, it.ViewDeg, it.RangeM)
 		if it.Local == nil && oneBuilding {
 			add(ProblemItem, itemsFile, it.ID, "%s: no position in its building (local)", it.ID)
 		} else if f, err := p.Frame(it.Building); it.Local != nil && err == nil {
@@ -415,6 +435,7 @@ func (p *Package) Validate() []Problem {
 			if ty.Grade != nil && !slices.Contains(grades, *ty.Grade) {
 				add(ProblemValue, file, ty.Code, "%s: type %s: grade %q is not one of %s", file, ty.Code, *ty.Grade, strings.Join(grades, ", "))
 			}
+			viewed(file, ty.Code, file+": type "+ty.Code, ty.ViewDeg, ty.RangeM)
 		}
 	}
 

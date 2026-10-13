@@ -59,7 +59,8 @@ export interface PlanItem {
    * part says how it is drawn (DESK, MEETING, SOFA, TV, COPIER, ACCESS, BED, KIOSK); others
    * by how they are mounted. */
   type?: string;
-  /** furniture, equipment or appliance. */
+  /** Its type's category (format 0.10): workstations, seating, tables, storage, soft_seating,
+   * beds, furniture, security, fire_safety, it_av, building_services, appliances or equipment. */
   category?: string;
   name?: string | null;
   /** floor, wall or ceiling (drawn dashed, as overhead). */
@@ -81,6 +82,11 @@ export interface PlanItem {
    * sofa, storage, screen, copier, bed, kiosk, access_point, camera or box (meeting_table, of
    * 0.9: a table); null (or one this viewer does not know): by its type's code. */
   shape?: string | null;
+  /** A camera's view (format 0.10): how wide it sees, degrees across about the way it
+   * faces (360: all round), and how far, metres (null: not known); null: not known. */
+  view?: { deg: number; range: number | null } | null;
+  /** The door it serves (format 0.10: a card reader, a door controller): the door's ID. */
+  door?: string | null;
 }
 
 export interface FloorPlan {

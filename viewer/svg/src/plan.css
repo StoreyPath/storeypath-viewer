@@ -20,6 +20,7 @@
   --sp-label-strong: #1d1d1f;
   --sp-label-halo: rgba(255, 255, 255, 0.9);
   --sp-select: #ff8a00;
+  --sp-coverage: #3f51b5; /* what a camera looks at */
   --sp-highlight: #0f9d74;
   --sp-dim-opacity: 0.28;
   --sp-pin: #d62d50;
@@ -137,6 +138,10 @@
 .sp-item-front { stroke: var(--sp-item-front); stroke-width: 2.5; }
 .sp-item-mark { fill: none; stroke: var(--sp-item-mark); stroke-width: 1; }
 .sp-item-view { stroke-dasharray: 3 3; }
+/* what a camera looks at, out to its range: the chosen camera's, or every one's (coverage) */
+.sp-item-coverage { display: none; fill: var(--sp-coverage); fill-opacity: 0.1; stroke: var(--sp-coverage); stroke-opacity: 0.5;
+  stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
+.sp-coverage .sp-item-coverage, .sp-item.sp-selected .sp-item-coverage { display: inline; }
 .sp-item-chair { fill: var(--sp-item-chair); stroke: var(--sp-item-stroke); stroke-width: 1; }
 .sp-item-back { fill: var(--sp-item-front); fill-opacity: 0.55; }
 .sp-item-dot { fill: var(--sp-item-front); stroke: none; }
@@ -302,6 +307,7 @@
     --sp-item-front: #f1f1f3;
     --sp-item-mark: rgba(255, 255, 255, 0.6);
     --sp-item-chair: #8b909b;
+    --sp-coverage: #8c9eff;
     --sp-route: #4d8dff;
     --sp-route-casing: #1d4fc4;
     --sp-route-halo: rgba(14, 15, 18, 0.62);
@@ -347,6 +353,7 @@
   --sp-item-front: #f1f1f3;
   --sp-item-mark: rgba(255, 255, 255, 0.6);
   --sp-item-chair: #8b909b;
+  --sp-coverage: #8c9eff;
   --sp-route: #4d8dff;
   --sp-route-casing: #1d4fc4;
   --sp-route-halo: rgba(14, 15, 18, 0.62);

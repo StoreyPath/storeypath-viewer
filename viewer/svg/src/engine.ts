@@ -67,6 +67,9 @@ export interface EngineOptions {
   /** Whether items can be clicked or chosen with the keyboard (default: true); when
    * not, a click on one chooses the space under it. */
   interactiveItems?: boolean;
+  /** Draw what every camera looks at, out to its range (format 0.10; default: false: the
+   * chosen camera's alone). Each camera's mark shows its angle either way. */
+  coverage?: boolean;
   /** Label size in pixels (set the font with CSS: .sp-labels). */
   labelSize?: number;
   /** What the plan is called, for screen readers. */
@@ -160,8 +163,17 @@ const ITEM_SHAPES: Record<string, string> = { desk: "desk", table: "table", chai
   access_point: "ap", camera: "camera", box: "plain", meeting_table: "table" };
 const ITEM_KINDS: Record<string, string> = { DESK: "desk", MEETING: "table", SOFA: "sofa", TV: "tv", SCREEN: "tv", COPIER: "copier",
   PRINTER: "copier", ACCESS: "ap", BED: "bed", KIOSK: "kiosk" };
-/** A camera's view drawn ahead of it: this wide (degrees) and this far (metres). */
+/** A camera's mark ahead of it: as wide as it sees (this wide when its view is not known) and
+ * this far at most (metres); what it covers is drawn out to its range (coverage). */
 const CAMERA_VIEW = { deg: 60, reach: 1.6 };
+/** A view ahead of an item (its front, +y here) from ``from``: ``deg`` wide and ``r`` far, a
+ * wedge; all round, a circle. */
+const wedge = (deg: number, r: number, from: number): string => {
+  if (deg >= 360) return `M${round(-r)},${round(from)}A${round(r)},${round(r)} 0 1 0 ${round(r)},${round(from)}`
+    + `A${round(r)},${round(r)} 0 1 0 ${round(-r)},${round(from)}Z`;
+  const half = (deg / 2) * (Math.PI / 180), sx = r * Math.sin(half), sy = from + r * Math.cos(half);
+  return `M0,${round(from)}L${round(-sx)},${round(sy)}A${round(r)},${round(r)} 0 ${deg > 180 ? 1 : 0} 0 ${round(sx)},${round(sy)}Z`;
+};
 const itemKind = (it: PlanItem): string => {
   const own = (table: Record<string, string>, key: string | null | undefined): string | undefined =>
     key && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
@@ -730,11 +742,10 @@ export class FloorPlanEngine extends EventTarget {
           const x = -w / 2 + (k * w) / doors;
           mark("line", { x1: round(x), y1: round(d / 2 - t), x2: round(x), y2: round(d / 2) });
         }
-      } else if (kind === "camera") { // what it looks at
-        const half = (CAMERA_VIEW.deg / 2) * (Math.PI / 180), r = CAMERA_VIEW.reach, from = it.mount === "ceiling" ? 0 : d / 2;
-        const sx = r * Math.sin(half), sy = from + r * Math.cos(half);
-        mark("path", { d: `M0,${round(from)}L${round(-sx)},${round(sy)}A${round(r)},${round(r)} 0 0 0 ${round(sx)},${round(sy)}Z` },
-          "sp-item-mark sp-item-view");
+      } else if (kind === "camera") { // what it looks at: its angle, near; what it covers, out to its range
+        const deg = it.view?.deg ?? CAMERA_VIEW.deg, range = it.view?.range ?? null, from = it.mount === "ceiling" ? 0 : d / 2;
+        mark("path", { d: wedge(deg, Math.min(CAMERA_VIEW.reach, range ?? Infinity), from) }, "sp-item-mark sp-item-view");
+        if (range) g.prepend(svg("path", { class: "sp-item-coverage", d: wedge(deg, range, from) }));
       } else if (kind === "sofa") { // its seat, between the arms and before the back
         const arm = Math.min(0.2, w / 6), back = Math.min(0.22, d / 3);
         mark("rect", { x: round(-w / 2 + arm), y: round(-d / 2 + back), width: round(w - 2 * arm), height: round(d - back) });
@@ -805,6 +816,7 @@ export class FloorPlanEngine extends EventTarget {
       c.toggle("sp-theme-light", theme === "light");
       c.toggle("sp-theme-dark", theme === "dark");
       c.toggle("sp-still", !this.motion());
+      c.toggle("sp-coverage", this.opts.coverage === true);
     }
   }
 

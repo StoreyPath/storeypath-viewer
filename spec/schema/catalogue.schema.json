@@ -196,6 +196,39 @@
           "default": null,
           "title": "Grade"
         },
+        "view_deg": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 360,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View Deg"
+        },
+        "range_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 500,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Range M"
+        },
+        "serves_door": {
+          "default": false,
+          "title": "Serves Door",
+          "type": "boolean"
+        },
         "fields": {
           "items": {
             "$ref": "#/$defs/ItemField"

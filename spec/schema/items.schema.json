@@ -221,6 +221,49 @@
           "default": null,
           "description": "the items placed or grouped together with it (format 0.10: a workstation's desk, chair and pedestal; a meeting table and its chairs): a key its group's items share and no other item of the package has; null: in none. A group is a link, not an asset",
           "title": "Group"
+        },
+        "door_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the door it serves (format 0.10: a card reader, a door controller, an exit button, of a type that serves_door): an opening of its floor, a door or an opening, never a window; null: none",
+          "title": "Door Id"
+        },
+        "view_deg": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 360,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "a camera's view (format 0.10: of a type of shape camera): how wide it sees, degrees across, about the way its front faces (360: all round); its own, else its type's; null: not a camera, or not known",
+          "title": "View Deg"
+        },
+        "range_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 500,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "a camera's view: how far it sees, metres from it; its own, else its type's; null as view_deg",
+          "title": "Range M"
         }
       },
       "required": [

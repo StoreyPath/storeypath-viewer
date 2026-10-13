@@ -165,8 +165,9 @@ for (const name of ["campus", "campus-hq"]) test(`the baker writes a floor's ite
     execFileSync(process.execPath, [join(root, "bake.mjs"), join(packages, `${name}.storeypath`), out]);
     const json = gltfJSON(readFileSync(join(out, readdirSync(out).find((f) => f.endsWith("-HQ-F00.glb")))));
     const x = json.scenes[0].extras.storeypath;
-    // campus-hq: and a kiosk, the director's chair, a meeting table and its six chairs, a camera, a smoke detector and an extinguisher (0.10)
-    const held = { campus: 9, "campus-hq": 21 }[name];
+    // campus-hq: and a kiosk, the director's chair, a meeting table and its six chairs, a camera, a smoke detector, an extinguisher
+    // and a card reader (0.10)
+    const held = { campus: 9, "campus-hq": 22 }[name];
     // an item's ID: an asset's tag (format 0.8), the project's number before (campus: 0.6)
     const itemId = name === "campus" ? (id) => /^[A-Z0-9]+-I\d{6}$/.test(id) : isItemId;
     truly(x.builder === BUILDER && x.items.length === held && x.items.every(itemId), JSON.stringify(x.items));
