@@ -29,8 +29,8 @@ register(`data:text/javascript,${encodeURIComponent(`
     return path ? { url: ${JSON.stringify(vendor)} + path, shortCircuit: true } : next(specifier, context);
   }`)}`);
 const { FORMAT_VERSION, loadPackage } = await import("../../src/package.js");
-const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, originOf, outlineRect,
-  planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
+const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, openSlab, originOf,
+  outlineRect, planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
 const { TYPE_COLORS } = await import("../../src/theme.js");
@@ -125,7 +125,7 @@ test("the baker writes each floor as binary glTF: its pieces, rooms, obstacles a
       "glass", "frame", "heads", "sills", "floor:shaft:hidden", "obstacles", "skirting", "trim", "handle", "sillBoard",
       "lights"]) truly(node(name), `no ${name}`);
     truly(!node("wallLow") && !node("wallCut"), "the walls cut low are made from the full ones, not stored");
-    truly(x.builder === BUILDER && BUILDER === 7, `builder ${x.builder}`);
+    truly(x.builder === BUILDER && BUILDER === 8, `builder ${x.builder}`);
     truly(node("lights").extras.view === "walk" && node("trim").extras.view === "full" && !node("skirting").extras.view,
       "panels show walking, architraves not in the cutaway, skirting always");
     // boxes (frames, doors, skirting, …) share their corners and have no normals: flat-shaded, as items are
@@ -201,6 +201,21 @@ test("a building's frame goes on the map as Studio's does, to a millimetre", () 
     const metres = [(lon - v.lonlat[0]) * 111320 * Math.cos((lat * Math.PI) / 180), (lat - v.lonlat[1]) * 110574];
     truly(Math.hypot(...metres) <= tolerance, `${v.local}: ${metres} m off`);
   }
+});
+
+test("a floor's slab is open where the floor is open to below: a hole, what stands in it slab again; a void across the outline, or left out, closed", () => {
+  const square = (x0, n0, x1, n1) => [[x0, n0], [x1, n0], [x1, n1], [x0, n1], [x0, n0]];
+  const outline = [[square(0, 0, 40, 30)]];
+  const atrium = { type: "open_to_below", tucked: false, rings: [[square(10, 10, 30, 20), square(18, 13, 22, 17)]] };
+  const office = { type: "office", tucked: false, rings: [[square(0, 0, 10, 10)]] };
+  const slab = openSlab({ outline, units: [office, atrium] });
+  truly(slab.length === 2 && slab[0].length === 2 && slab[1].length === 1, JSON.stringify(slab.map((p) => p.length)));
+  truly(slab[0][1] === atrium.rings[0][0] && slab[1][0] === atrium.rings[0][1], "the atrium a hole, its island slab");
+  truly(outline[0].length === 1, "the floor's own outline is left as it was");
+  const across = { ...atrium, rings: [[square(30, 10, 50, 20)]] };
+  const ignored = { ...atrium, tucked: true };
+  for (const v of [across, ignored]) truly(openSlab({ outline, units: [v] })[0].length === 1, "closed");
+  truly(openSlab({ outline, units: [office] }) === outline, "no void: the outline as it is");
 });
 
 test("across the antimeridian a building's frame is as anywhere: longitudes in (-180, 180]", () => {

@@ -15,6 +15,10 @@ import { EXTERIOR, defaultFinish, finishOf } from "../finishes.js";
 import { finishes } from "./finishes.js";
 
 const MACRO_EVERY = 7.3; // m: the tint against repetition (not a multiple of any finish's size)
+// the slab drawn a little behind what lies on it, in the depth: a floor's finish (4 mm over
+// it) seen from far off, where the depth cannot tell millimetres apart, is never striped
+// with the slab under it
+const UNDER = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 };
 
 /** A seeded random number generator, for the canvases' noise. */
 function random(seed) {
@@ -79,7 +83,7 @@ export class Materials {
     this.wallPlain = new THREE.MeshStandardMaterial({ color: 0xeae7e1, roughness: 0.9, ...flat }); // no texture coordinates
     this.wallTop = new THREE.MeshStandardMaterial({ color: 0xd9d5cd, roughness: 0.9, ...flat }); // (and over openings: boxes)
     this.wallCut = new THREE.MeshStandardMaterial({ color: 0x3a3a3f, roughness: 0.8 });
-    this.slab = new THREE.MeshStandardMaterial({ color: 0xcfcbc3, roughness: 0.9 });
+    this.slab = new THREE.MeshStandardMaterial({ color: 0xcfcbc3, roughness: 0.9, ...UNDER });
     this.ceiling = new THREE.MeshStandardMaterial({
       color: 0xf7f6f3, roughness: 0.95, side: THREE.DoubleSide, emissive: 0xfff8ee, emissiveIntensity: 0.42,
     });
@@ -193,7 +197,7 @@ export class Materials {
     this.wallPlain = clay(0xedece8);
     this.wallTop = clay(0xdddbd6);
     this.wallCut = clay(0x34363b);
-    this.slab = clay(0xdedcd7);
+    this.slab = clay(0xdedcd7, UNDER);
     this.ceiling = new THREE.MeshStandardMaterial({ color: 0xfbfbfa, roughness: 0.95, side: THREE.DoubleSide,
       emissive: 0xffffff, emissiveIntensity: 0.25 });
     this.glass = new THREE.MeshStandardMaterial({ color: 0xcfe0ea, roughness: 0.1, transparent: true, opacity: 0.32,

@@ -31,8 +31,9 @@ import { toLonLat, wrapLongitude } from "./frame.js";
  * panels and the finer furniture; before 4, without the room each wall's face faces;
  * before 5, without its doors' leaves listed to swing, and its open leaves in the
  * walker's way; before 6, without the steps of its stairs; before 7, its desks and
- * meeting tables drawn with their chairs, as before format 0.10) is built again. */
-export const BUILDER = 7;
+ * meeting tables drawn with their chairs, as before format 0.10; before 8, its slab
+ * whole where the floor is open to the one below) is built again. */
+export const BUILDER = 8;
 
 /** What shapes the geometry; a world built with others builds its floors itself. */
 export const GEOMETRY = {
@@ -214,6 +215,47 @@ function extrude(polygons, depth, y) {
   g.rotateX(-Math.PI / 2);
   g.translate(0, y, 0);
   return g;
+}
+
+/** A floor's outline with its voids taken out: the slab, open where the floor is open to
+ * the floor below (its units of type open_to_below, not left out in review), each a hole
+ * in the outline it lies in, what stands within it (its own holes) slab again. A void
+ * that is not wholly inside an outline, or that the triangulator would not cover as it
+ * is (one across another), is left closed: a floor drawn whole, never one broken. */
+export function openSlab(plan) {
+  const voids = plan.units.filter((u) => u.type === "open_to_below" && !u.tucked);
+  if (!voids.length) return plan.outline;
+  const out = plan.outline.map((rings) => [...rings]);
+  const within = (p, rings) => inside(rings[0], p[0], p[1]) && !rings.slice(1).some((hole) => inside(hole, p[0], p[1]));
+  for (const u of voids) {
+    for (const [outer, ...islands] of u.rings) {
+      const host = out.find((rings) => outer.every((p) => within(p, rings)));
+      if (!host) continue;
+      host.push(outer);
+      if (!covered(host)) {
+        host.pop();
+        continue;
+      }
+      out.push(...islands.map((ring) => [ring]));
+    }
+  }
+  return out;
+}
+
+/** Whether the triangulator covers what a polygon's rings enclose (its outer ring less its
+ * holes), to a half per cent: not when a hole crosses another or its outline. */
+function covered(rings) {
+  const pts = rings.map((ring) => ring.map(([x, n]) => new THREE.Vector2(x, n)));
+  const area = (ring) => Math.abs(THREE.ShapeUtils.area(ring));
+  const faces = THREE.ShapeUtils.triangulateShape(pts[0], pts.slice(1)); // (closing points taken off)
+  const all = pts.flat();
+  let got = 0;
+  for (const [a, b, c] of faces) {
+    const [p, q, r] = [all[a], all[b], all[c]];
+    got += Math.abs((q.x - p.x) * (r.y - p.y) - (r.x - p.x) * (q.y - p.y)) / 2;
+  }
+  const want = area(pts[0]) - pts.slice(1).reduce((sum, hole) => sum + area(hole), 0);
+  return want > 0 && Math.abs(got - want) <= want * 0.005 + 0.01;
 }
 
 /** Polygons laid flat at height ``y``, facing up. */
@@ -437,13 +479,14 @@ export function buildPieces(plan, options = {}) {
   // the faces of the wall over and under openings, as the walls' own (wallFace)
   const faces = { position: [], normal: [], uv: [], room: [] };
 
-  // the slab
+  // the slab, open where the floor is open to the one below
+  const slabPolys = openSlab(plan);
   if (solid) {
-    const slab = extrude(plan.outline, o.slab, e - o.slab);
+    const slab = extrude(slabPolys, o.slab, e - o.slab);
     slab?.clearGroups();
     put("slab", slab);
   }
-  if (lined) outlineEdges(set("slab").edges, plan.outline, e - o.slab, e);
+  if (lined) outlineEdges(set("slab").edges, slabPolys, e - o.slab, e);
 
   // the rooms: an x-ray volume each, and a floor finish for each of their units
   const roofed = []; // under the ceiling: every room but terraces and balconies
