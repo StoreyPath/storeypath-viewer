@@ -266,7 +266,7 @@ Like every ID, an item's is never issued again once it is retired.
     "display_point": [46.67, 24.71], "heading": 270.0,          // its front faces west
     "width_m": 1.8, "depth_m": 0.9, "height_m": 0.75,
     "mount": "floor", "elevation_m": 0.0,                        // wall: its bottom; ceiling: null
-    "values": { } } }
+    "values": { }, "group": "G4K7QX2MD" } }                      // placed with its chair and pedestal
 ```
 
 - `type` is a code of `catalogue.json`; `name` is that type's English name, for a reader
@@ -284,6 +284,11 @@ Like every ID, an item's is never issued again once it is retired.
   from north (a desk's front is where its user sits): (the placement's `bearing` + 180
   − `rotation_deg`) mod 360, which readers check to half a degree.
 - `values` are its details entered in StoreyPath, by the catalogue's field keys.
+- `group` (0.10) says which items were placed or grouped together: a workstation's desk,
+  its chair and its pedestal; a meeting table and its chairs. It is a key the items of one
+  group share and no other item of the package has; null, or absent, in none. A group is a
+  link, not an asset: it has no tag, each of its items keeps its own ID, and taken out of
+  the group an item keeps that ID. Studio moves and turns a group's items together.
 
 `catalogue.json` (`schema/catalogue.schema.json`) lists the types: a `code` that is
 kept for good and never given to another type (a type no longer used is `retired`),
@@ -838,6 +843,8 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   `appliance` is read as `appliances`.
 - Every piece of furniture an item of its own: a desk (`desk`) and a table (`table`, in
   place of `meeting_table`) are drawn alone, their chairs types and items of their own.
+- Items' `group`: the items placed or grouped together (a workstation, a meeting table and
+  its chairs), a key they share.
   New shapes: `table`, `chair`, `side_chair`, `armchair`, `storage`, `camera`.
 - A minor version: a reader of 0.9 refuses a 0.10 package (Versioning), as what a desk
   and a meeting table are drawn with changed.

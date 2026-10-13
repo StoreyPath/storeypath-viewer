@@ -177,9 +177,12 @@ type Item struct {
 	// type's English name, for a reader that does not read the catalogue.
 	Type     string `json:"type"`
 	Category string `json:"category"` // one of ItemCategories (format 0.10)
-	Name     string `json:"name"`
-	Floor    string `json:"floor_id"`
-	Building string `json:"building_id"`
+	// Group is the key the items placed or grouped together share (format 0.10: a
+	// workstation's desk, chair and pedestal; a meeting table and its chairs); nil: none.
+	Group    *string `json:"group"`
+	Name     string  `json:"name"`
+	Floor    string  `json:"floor_id"`
+	Building string  `json:"building_id"`
 	// Space, and Zone when the space is divided, are where its middle stood when
 	// the package was exported: nil when it is in none.
 	Space *string `json:"space_id"`

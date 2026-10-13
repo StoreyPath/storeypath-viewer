@@ -1697,3 +1697,29 @@ func TestAnItemOfTwoProjectsIsRefusedInTheLaterPackage(t *testing.T) {
 		t.Errorf("the other way round: %v", got)
 	}
 }
+
+func TestItemsPlacedTogetherShareTheirGroup(t *testing.T) {
+	// Format 0.10: a set placed (a meeting table and its chairs) is its pieces, each an item
+	// with its own ID, sharing a group; other items are in none.
+	p := open(t, "campus-hq.storeypath")
+	groups := map[string][]string{}
+	for _, it := range p.Items {
+		if it.Group != nil {
+			groups[*it.Group] = append(groups[*it.Group], it.Type)
+		}
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups: %v", groups)
+	}
+	for key, types := range groups {
+		chairs := 0
+		for _, ty := range types {
+			if ty == "CHAIR-MEETING" {
+				chairs++
+			}
+		}
+		if len(types) != 7 || !slices.Contains(types, "MEETING-TABLE-6") || chairs != 6 {
+			t.Errorf("%s: %v", key, types)
+		}
+	}
+}

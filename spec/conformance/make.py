@@ -14,7 +14,7 @@ review, finish below), exported a building at a time:
   reception, a TV on a meeting room's wall, an open office's desks and access
   point, a king-size bed in an office, a wayfinding kiosk in the reception, the
   director's chair at the director's desk, a meeting table for six with its six
-  chairs, a dome camera, a smoke detector and a fire extinguisher in the corridor; the
+  chairs (one group, as a set is placed), a dome camera, a smoke detector and a fire extinguisher in the corridor; the
   Annex, turned 110° on the map, with the president's desk;
 - packages/campus-hq-2.storeypath (export 3): the Headquarters' next export after
   it was moved on the map (shifted and turned), a junior staff desk carried to the
@@ -367,9 +367,10 @@ def furnish(ws) -> None:
         r = next(r for r in ws.floor_objects(f_id) if r.kind == "space" and ws.effective(r)["number"] == number)
         return f_id, shape(r.geometry).bounds
 
-    def place(code, f_id, x, y, rotation=0, **values):
+    def place(code, f_id, x, y, rotation=0, group=None, **values):
         # rotation 0: its front (where its user sits) faces the plan's -y; 90: +x
-        ws.add_item(code, f_id, round(x, 3), round(y, 3), rotation=rotation, values=values)
+        it = ws.add_item(code, f_id, round(x, 3), round(y, 3), rotation=rotation, values=values)
+        it.group = group  # (placed together, as a set is: 0.10)
 
     f_id, (x0, y0, x1, y1) = room("HQ-F00", "001")  # an office on the south side, its door north
     place("DESK-DIRECTOR", f_id, (x0 + x1) / 2, y0 + 2.0)  # room behind its chair for its cabinet
@@ -418,12 +419,13 @@ def furnish(ws) -> None:
     # each facing it (0: its front the plan's -y; 90: +x; 180: +y; 270: -x)
     f_id, (x0, y0, x1, y1) = room("HQ-F00", "004")
     mx, my = (x0 + x1) / 2 + 0.3, (y0 + y1) / 2
-    place("MEETING-TABLE-6", f_id, mx, my)
+    meeting = "G0MEET1NG"  # the table and its chairs, one group (a set placed: 0.10)
+    place("MEETING-TABLE-6", f_id, mx, my, group=meeting)
     for dx in (-0.45, 0.45):
-        place("CHAIR-MEETING", f_id, mx + dx, my + 0.8)
-        place("CHAIR-MEETING", f_id, mx + dx, my - 0.8, rotation=180)
-    place("CHAIR-MEETING", f_id, mx + 1.25, my, rotation=270)
-    place("CHAIR-MEETING", f_id, mx - 1.25, my, rotation=90)
+        place("CHAIR-MEETING", f_id, mx + dx, my + 0.8, group=meeting)
+        place("CHAIR-MEETING", f_id, mx + dx, my - 0.8, rotation=180, group=meeting)
+    place("CHAIR-MEETING", f_id, mx + 1.25, my, rotation=270, group=meeting)
+    place("CHAIR-MEETING", f_id, mx - 1.25, my, rotation=90, group=meeting)
     f_id, (x0, y0, x1, y1) = room("HQ-F00", "005")
     place("CCTV-DOME", f_id, x0 - 1.2, (cy0 + cy1) / 2, rotation=90, view_deg=90, range_m=12)
     place("SMOKE-DETECTOR", f_id, x0 - 3.4, (cy0 + cy1) / 2)

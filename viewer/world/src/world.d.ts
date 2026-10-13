@@ -577,8 +577,9 @@ export declare class StoreyPathWorld extends EventTarget {
 	/** Replace one floor's furniture and equipment without building anything else again. */
 	setFloorItems(floorId: string, items: GivenItem[]): boolean;
 	/** Where an item would go, see-through (red when `ok` is false), with the magnet's guides
-	 * ([[x, y], [x, y]] each, building frame); null takes it away. */
-	ghost(spec: (GivenItem & { floor?: string; ok?: boolean; guides?: [[number, number], [number, number]][] }) | null): void;
+	 * ([[x, y], [x, y]] each, building frame); or several placed together (`pieces`: a set, a
+	 * group carried); null takes it away. */
+	ghost(spec: ((GivenItem | { pieces: GivenItem[] }) & { floor?: string; ok?: boolean; guides?: [[number, number], [number, number]][] }) | null): void;
 	/** Mark lightly what a click would act on (not the choice's highlight): a space's or zone's floor, the faces of a
 	 * space's walls towards it (a zone's: its space's), those along one wall of it (`line`, building frame), or an item; null: nothing. */
 	mark(target: { floor: string } | { walls: string; line?: [[number, number], [number, number]] } | { item: string } | null): void;
@@ -621,8 +622,9 @@ export declare class StoreyPathWorld extends EventTarget {
 	/** Walking: open the door under the pointer (within reach) if shut, shut it if open; else the nearest ahead
 	 * (as E does). Its new state, or null when there is none. */
 	useDoor(): { id: string; open: boolean } | null;
-	/** Highlight a space, zone or item (null: none); `go` (default true) takes the view to it. */
-	select(id: string | null, options?: { go?: boolean }): void;
+	/** Highlight a space, zone or item (null: none); `go` (default true) takes the view to it.
+	 * A list of items' IDs lights each of them (items chosen together: a group), going nowhere. */
+	select(id: string | string[] | null, options?: { go?: boolean }): void;
 	/** Up (+1) or down (−1) a floor from where the walker stands. */
 	changeFloor(step: number): boolean;
 	toLocal(lonlat: LonLat): { x: number; z: number };

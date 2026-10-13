@@ -209,6 +209,7 @@ export class StoreyPathWorld extends EventTarget {
   #xray = false;
   #cutaway = false;
   #selected = null;
+  #together = []; // the other items chosen with it (select with a list: a group)
   #lit = null; // the selected space's highlight
   #room = null; // the space the walker is in
   #timer = new THREE.Timer();
@@ -647,7 +648,7 @@ export class StoreyPathWorld extends EventTarget {
   #relight() {
     if (!this.#selected) return;
     const found = this.#findSpace(this.#selected) ?? this.#findItem(this.#selected);
-    this.#highlight(found);
+    this.#highlight(found, this.#together.map((x) => this.#findItem(x)).filter(Boolean));
     if (!found) this.#selected = null;
   }
 
@@ -997,8 +998,9 @@ export class StoreyPathWorld extends EventTarget {
   /** Show where an item would go (placed, or carried): see-through over its floor, green,
    * or red when it may not go there (``ok: false``), its footprint outlined, with the
    * lines it is drawn to (``guides``: [[x, y], [x, y]] each). ``spec``: an item as
-   * setFloorItems takes one (no ID needed), on ``floor`` (default: the floor shown, or
-   * walked on). Null takes it away. */
+   * setFloorItems takes one (no ID needed), or several placed together (``pieces``: a list
+   * of them, a set or a group carried), on ``floor`` (default: the floor shown, or walked
+   * on). Null takes it away. */
   ghost(spec) {
     this.#aimFrom = null; // (walking: the ring under the pointer, not with a ghost)
     if (this.#ghost) {
@@ -1008,22 +1010,25 @@ export class StoreyPathWorld extends EventTarget {
     }
     if (!spec) return;
     const f = this.#floors.get(spec.floor ?? (this.#mode === "walk" ? this.#walkFloor : this.#floor ?? this.#topShown()?.id));
-    const it = f && this.#placement() ? this.#itemOf(f, { id: "ghost", ...spec }) : null;
-    if (!it) return;
+    const given = Array.isArray(spec.pieces) ? spec.pieces : [spec];
+    const items = f && this.#placement() ? given.map((g, k) => this.#itemOf(f, { id: `ghost${k}`, ...g })).filter(Boolean) : [];
+    if (!items.length) return;
     const look = spec.ok === false ? this.#ghostLook.refused : this.#ghostLook.ok;
     const group = new THREE.Group();
     group.name = "ghost";
-    for (const p of buildItems({ elevation: f.elevation, items: [it] }, "detailed", this.#o)) {
+    for (const p of buildItems({ elevation: f.elevation, items }, "detailed", this.#o)) {
       const mesh = new THREE.Mesh(p.geometry, look.solid);
       mesh.renderOrder = 6;
       group.add(mesh);
     }
     const y = f.elevation + 0.02;
     const v = ([x, z]) => new THREE.Vector3(x, y, z);
-    const ring = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => v(itemPoint(it, (a * it.width) / 2, (b * it.depth) / 2)));
-    const outline = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring), look.line);
-    outline.renderOrder = 7;
-    group.add(outline);
+    for (const it of items) {
+      const ring = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => v(itemPoint(it, (a * it.width) / 2, (b * it.depth) / 2)));
+      const outline = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring), look.line);
+      outline.renderOrder = 7;
+      group.add(outline);
+    }
     const guides = (spec.guides ?? []).map(([a, b]) => [this.worldPoint(a), this.worldPoint(b)]).filter(([p, q]) => p && q);
     if (guides.length) {
       const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(
@@ -1481,9 +1486,19 @@ export class StoreyPathWorld extends EventTarget {
 
   /** Select a space, a zone or an item (highlight it); in the walk view, go there. */
   select(id, { go = true } = {}) {
+    if (Array.isArray(id)) { // several items, chosen together (a group): each lit, none flown to
+      const all = id.map((x) => this.#findItem(x)).filter(Boolean);
+      this.#highlight(all[0] ?? null, all.slice(1));
+      this.#selected = all.length ? id.find((x) => this.#findItem(x)) : null;
+      this.#together = id.filter((x) => x !== this.#selected);
+      this.#emit("select", { id: this.#selected, ids: id.filter((x) => this.#findItem(x)),
+        feature: this.#selected ? this.#pkg.get(this.#selected) : null });
+      return;
+    }
     const found = id ? this.#findSpace(id) ?? this.#findItem(id) : null;
     this.#highlight(found);
     this.#selected = found ? id : null;
+    this.#together = [];
     if (found && go) {
       const { x, z } = found.space?.centre ?? found.at;
       if (this.#mode === "walk") this.#walkTo(found.floor.id, x, z);
@@ -2464,7 +2479,7 @@ export class StoreyPathWorld extends EventTarget {
    * a space's or zone's floor tinted and its edge drawn, and the faces of its walls
    * towards it tinted (the room, not its floor alone); an item's box tinted and its
    * edges drawn. */
-  #highlight(found) {
+  #highlight(found, more = []) {
     if (this.#lit) {
       this.#lit.removeFromParent();
       this.#lit.traverse((o) => o.geometry?.dispose());
@@ -2480,9 +2495,11 @@ export class StoreyPathWorld extends EventTarget {
       lit.add(part);
     };
     if (found.item) {
-      const box = itemBox(found.floor.plan, found.item);
-      add(box, look.item, 3);
-      add(new THREE.EdgesGeometry(box), look.line, 4, THREE.LineSegments);
+      for (const one of [found, ...more.filter((m) => m.item && m.floor === found.floor)]) { // (a group: each of its items)
+        const box = itemBox(one.floor.plan, one.item);
+        add(box, look.item, 3);
+        add(new THREE.EdgesGeometry(box), look.line, 4, THREE.LineSegments);
+      }
     } else {
       const y = found.floor.elevation + 0.02;
       add(flat(found.space.rings, y), look.fill, 3);
@@ -3130,12 +3147,13 @@ export class StoreyPathWorld extends EventTarget {
     this.#emit("glide", { state: "refused", x: p?.x ?? null, z: p?.z ?? null });
   }
 
-  /** Walking: a press as it starts (the walker asks): on the item chosen, where items may
-   * be carried, the item taken up (the press is not a look). */
+  /** Walking: a press as it starts (the walker asks): on the item chosen (or one of those
+   * chosen with it: a group), where items may be carried, the item taken up (the press is
+   * not a look). */
   #claim(e) {
     if (!this.#draggable || this.#mode !== "walk" || !this.#selected) return false;
     const p = this.pointAt(e.clientX, e.clientY);
-    if (!p?.item || p.item !== this.#selected) return false;
+    if (!p?.item || (p.item !== this.#selected && !this.#together.includes(p.item))) return false;
     this.#takeUp(e, p);
     return true;
   }
