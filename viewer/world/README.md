@@ -75,6 +75,18 @@ world.addEventListener("pick", (e) => console.log(e.detail.item ?? e.detail.spac
 world.addEventListener("menu", (e) => showMenu(e.detail.clientX, e.detail.clientY, e.detail));
 ```
 
+The world stands the building as it stands on the map, north its −z. A compass reads
+which way the view faces (`viewBearing`, degrees clockwise from north; `viewturn` says when
+it turns) and which way the plan's up faces (`bearing`: the building's placement);
+`turnTo(bearing)` turns the view round what it looks at, and `topView()` looks straight
+down, the plan's up at the top as a plan is drawn (`topView(false)`: tilted back).
+
+```ts
+world.addEventListener("viewturn", (e) => (needle.style.rotate = `${-e.detail.bearing}deg`));
+world.turnTo(0);    // facing north
+world.topView();    // straight down: world.top is true
+```
+
 Walking, doors open and shut: a click on a door within 2 m, or <kbd>E</kbd> (the door
 under the pointer, else the nearest ahead: `useDoor()`), swings it, a shut door stops the walker until walked into (with
 `doors: "manual"`, until opened), and a page does the same by the door's ID (the

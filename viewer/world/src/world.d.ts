@@ -378,6 +378,9 @@ export interface WorldEvents {
 	glide: { state: 'going' | 'there' | 'stopped' | 'refused'; x: number | null; z: number | null };
 	/** A door asked to open or shut (by the walker, walking into it, or the page): it swings. */
 	doorchange: { id: string; open: boolean; floor: string };
+	/** The view turned (a twentieth of a degree) or came to look straight down or across: `bearing`, the compass
+	 * bearing the screen's up faces (`viewBearing`), and whether it looks straight down (`top`). Each frame at most. */
+	viewturn: { bearing: number; top: boolean };
 	/** Walking: the door E works (useDoor) changed, or what it would do (`open`: as it is now): the door under
 	 * the pointer (`under`), else the nearest ahead within reach; `id` null when none. */
 	dooraim: { id: string | null; open: boolean | null; under: boolean };
@@ -556,6 +559,19 @@ export declare class StoreyPathWorld extends EventTarget {
 	lookSensitivity: number;
 	/** Where the dollhouse view looks (the point it turns around), local metres. */
 	readonly target: { x: number; z: number };
+	/** Which way the plan's up faces: the compass bearing (degrees clockwise from north) of the building's drawings'
+	 * +Y, its placement's; 0 when not placed. The world stands the building as on the map: north is −z. */
+	readonly bearing: number;
+	/** Which way the view faces: the compass bearing (degrees clockwise from north) of the screen's up, looking
+	 * across or straight down; walking, the way the walker looks. A compass's needle is turned by minus this. */
+	readonly viewBearing: number;
+	/** Whether the dollhouse view looks straight down (`topView`). */
+	readonly top: boolean;
+	/** The dollhouse view turned round what it looks at to face `bearing` (degrees: 0 north), as tilted as it is. */
+	turnTo(bearing: number, options?: { animate?: boolean }): void;
+	/** The dollhouse view looking straight down at what it looks at, the plan's up (`bearing`, default the
+	 * building's) at the top of the screen; or, `on` false, tilted back as it was (else a three-quarter view). */
+	topView(on?: boolean, options?: { bearing?: number; animate?: boolean }): void;
 	/** Stop drawing for a while (the world kept); `resume` draws again at once. */
 	pause(): void;
 	resume(): void;

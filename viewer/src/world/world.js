@@ -127,6 +127,11 @@ const ROUTE = { order: 20, faded: 0.3,
 const RIDE_WORDS = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ramp: "Ramp" };
 // a floor faded back while a way is shown: its floors and its walls, a light shell
 const FLOORISH = new Set(["floor", "slab"]);
+// looking straight down (topView): the camera this little off upright (radians), so that which
+// way is up on the screen stays known; tilted back to a three-quarter view (radians from
+// upright) when it was not tilted before
+const TOP_PHI = 1e-4, TILT = (58 * Math.PI) / 180;
+const DEG = 180 / Math.PI;
 const CHOSEN = 0xffb347; // what is chosen: a light amber, over its own colour (#highlight)
 const ALONG = { reach: 0.35, facing: 0.35 }; // a wall's face along a line: this near it (m), and turned this little off it
 
@@ -214,6 +219,9 @@ export class StoreyPathWorld extends EventTarget {
   #room = null; // the space the walker is in
   #timer = new THREE.Timer();
   #flight = null;
+  #turn = null; // the camera turning round what it looks at (turnTo, topView): { from, to, t }
+  #tilt = null; // how tilted the view was before it looked straight down (radians from upright)
+  #viewWas = { bearing: NaN, top: false }; // as last said ("viewturn")
   #paused = false;
   #draggable = false; // items carried across their floor by a drag (setDraggable)
   #ghost = null; // an item's ghost (ghost)
@@ -297,6 +305,7 @@ export class StoreyPathWorld extends EventTarget {
     orbit.enableDamping = true;
     orbit.maxPolarAngle = Math.PI * 0.49;
     orbit.screenSpacePanning = true;
+    orbit.addEventListener("start", () => { this.#turn = null; }); // a person turning it: theirs
     this.#orbit = orbit;
 
     this.#o.doors = DOOR_MODES.has(this.#o.doors) ? this.#o.doors : "auto";
@@ -759,6 +768,50 @@ export class StoreyPathWorld extends EventTarget {
   /** Where the dollhouse view looks: the point it turns around, { x, z } in local metres. */
   get target() {
     return { x: this.#orbit.target.x, z: this.#orbit.target.z };
+  }
+
+  /** Which way the plan's up faces: the compass bearing (degrees clockwise from north) of
+   * the building's drawings' +Y, its placement's (format 0.7); 0 when it is not placed. The
+   * world stands the building as it stands on the map: north is the world's −z. */
+  get bearing() {
+    return (((this.#placement()?.bearing ?? 0) % 360) + 360) % 360;
+  }
+
+  /** Which way the view faces: the compass bearing (degrees clockwise from north) of the
+   * screen's up, looking across or straight down; walking, the way the walker looks. A
+   * compass's needle is turned by minus this. "viewturn" says when it changes. */
+  get viewBearing() {
+    this.#camera.updateMatrixWorld();
+    const e = this.#camera.matrixWorld.elements; // its columns: right, up, back
+    let x = -e[8], z = -e[10]; // ahead, along the ground
+    if (Math.hypot(x, z) < 0.05) [x, z] = [e[4], e[6]]; // looking down: the screen's up
+    return (Math.atan2(x, -z) * DEG + 360) % 360;
+  }
+
+  /** Whether the dollhouse view looks straight down (topView). */
+  get top() {
+    return this.#mode === "dollhouse" && this.#angles().phi < 0.01;
+  }
+
+  /** The dollhouse view turned round what it looks at to face ``bearing`` (a compass
+   * bearing, degrees: 0 north), as tilted as it is; at once when ``animate`` is false. */
+  turnTo(bearing, { animate = true } = {}) {
+    if (this.#mode !== "dollhouse" || !Number.isFinite(bearing)) return;
+    this.#turnCamera({ theta: -bearing / DEG }, animate);
+  }
+
+  /** The dollhouse view looking straight down at what it looks at (``on``), the plan's up
+   * (``bearing``: the building's) at the top of the screen, as a plan is drawn; or, ``on``
+   * false, tilted back as it was before (else to a three-quarter view). */
+  topView(on = true, { bearing = this.bearing, animate = true } = {}) {
+    if (this.#mode !== "dollhouse") return;
+    if (!on) {
+      this.#turnCamera({ phi: this.#tilt ?? TILT }, animate);
+      return;
+    }
+    const { phi } = this.#angles();
+    if (phi > 0.01) this.#tilt = phi;
+    this.#turnCamera({ theta: -bearing / DEG, phi: TOP_PHI }, animate);
   }
 
   /** Where to stand on a floor, near ``at``: there, in a room; else the middle of the
@@ -2794,6 +2847,51 @@ export class StoreyPathWorld extends EventTarget {
     }
   }
 
+  /** The dollhouse camera round what it looks at: { theta (round the upright, from +z
+   * towards +x), phi (from upright), radius }, as the orbit has them. */
+  #angles() {
+    const s = this.#spherical.setFromVector3(this.#offsetNow.subVectors(this.#camera.position, this.#orbit.target));
+    return { theta: s.theta, phi: s.phi, radius: s.radius };
+  }
+
+  #spherical = new THREE.Spherical(); // (each frame: kept, not made)
+  #offsetNow = new THREE.Vector3();
+
+  /** The camera turned round what it looks at to ``theta`` and ``phi`` (those not given as
+   * they are), the short way round, as far off; at once when ``animate`` is false. */
+  #turnCamera({ theta, phi }, animate) {
+    const from = this.#angles();
+    const to = { theta: theta ?? from.theta, phi: phi ?? from.phi, radius: from.radius };
+    const turn = (((to.theta - from.theta) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    to.theta = from.theta + turn;
+    this.#flight = null;
+    this.#turn = { from, to, t: 0 };
+    if (!animate) this.#turnFrame(1);
+  }
+
+  /** The turn ``dt`` seconds on (it takes 0.6 s, eased in and out). */
+  #turnFrame(dt) {
+    const s = this.#turn;
+    s.t = Math.min(1, s.t + dt / 0.6);
+    const k = s.t < 0.5 ? 2 * s.t * s.t : 1 - (-2 * s.t + 2) ** 2 / 2;
+    const at = (key) => s.from[key] + (s.to[key] - s.from[key]) * k;
+    this.#camera.position.copy(this.#orbit.target)
+      .add(new THREE.Vector3().setFromSphericalCoords(s.to.radius, at("phi"), at("theta")));
+    this.#camera.lookAt(this.#orbit.target);
+    if (s.t >= 1) this.#turn = null;
+  }
+
+  /** "viewturn" ({ bearing, top }) when the view turned (a twentieth of a degree) or came
+   * to look straight down or across. */
+  #sayTurn() {
+    const bearing = this.viewBearing, top = this.top, was = this.#viewWas;
+    const turned = Math.abs(((bearing - was.bearing + 540) % 360) - 180);
+    if (!(turned < 0.05) || top !== was.top) {
+      this.#viewWas = { bearing, top };
+      this.#emit("viewturn", { bearing, top });
+    }
+  }
+
   #flyTo(centre, y, size) {
     const target = new THREE.Vector3(centre.x, y, centre.z);
     // from high up, so the room's walls do not hide it
@@ -2883,7 +2981,8 @@ export class StoreyPathWorld extends EventTarget {
       this.#camera.position.lerpVectors(f.from, f.to, k);
       this.#orbit.target.lerpVectors(f.fromT, f.toT, k);
       if (f.t >= 1) this.#flight = null;
-    }
+      this.#turn = null; // (flown elsewhere)
+    } else if (this.#turn && this.#mode === "dollhouse") this.#turnFrame(dt);
     if (this.#mode === "walk") {
       this.#walker.update(dt);
       this.#walkDoors();
@@ -2899,6 +2998,7 @@ export class StoreyPathWorld extends EventTarget {
     } else {
       this.#orbit.update();
     }
+    this.#sayTurn();
     this.#animateRoute(dt);
     this.#lightPanels();
     this.#fitSun();

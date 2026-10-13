@@ -25,6 +25,13 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 		console.log(detail.id, detail.feature?.properties['number']);
 	});
 	world.setMode('dollhouse');
+	// a compass: its needle turned as the view turns; the view turned to north, then straight down
+	world.addEventListener('viewturn', (e) => {
+		const turned: number = -e.detail.bearing;
+		console.log(turned, e.detail.top, world.bearing, world.viewBearing === e.detail.bearing);
+	});
+	world.turnTo(0, { animate: false });
+	world.topView(!world.top, { bearing: world.bearing });
 	await world.setBuilding(pkg.buildings[0]!.id);
 	const floor = pkg.floorsOf(pkg.buildings[0]!.id)[0]?.id ?? null;
 	const prebuilt: boolean = floor !== null && pkg.hasWorld(floor) && world.prebuilt.includes(floor);
