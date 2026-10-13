@@ -75,11 +75,11 @@ export interface PlanItem {
   /** Its colour (its type's), a CSS colour. */
   color?: string;
   /** Who a desk is for (its type's grade: president, c_level, director, manager,
-   * section_head, senior, junior): drawn with what goes with it, as Studio draws it. */
+   * section_head, senior, junior). */
   grade?: string | null;
-  /** How it is drawn, its type's shape (format 0.9.1): desk, meeting_table, sofa, screen,
-   * copier, bed, kiosk, access_point or box; null (or one this viewer does not know): by its
-   * type's code. */
+  /** How it is drawn, its type's shape (format 0.10): desk, table, chair, side_chair, armchair,
+   * sofa, storage, screen, copier, bed, kiosk, access_point, camera or box (meeting_table, of
+   * 0.9: a table); null (or one this viewer does not know): by its type's code. */
   shape?: string | null;
 }
 

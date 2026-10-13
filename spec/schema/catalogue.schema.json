@@ -69,9 +69,19 @@
         "category": {
           "default": "furniture",
           "enum": [
+            "workstations",
+            "seating",
+            "tables",
+            "storage",
+            "soft_seating",
+            "beds",
             "furniture",
-            "equipment",
-            "appliance"
+            "security",
+            "fire_safety",
+            "it_av",
+            "building_services",
+            "appliances",
+            "equipment"
           ],
           "title": "Category",
           "type": "string"
@@ -123,13 +133,18 @@
             {
               "enum": [
                 "desk",
-                "meeting_table",
+                "table",
+                "chair",
+                "side_chair",
+                "armchair",
                 "sofa",
+                "storage",
                 "screen",
                 "copier",
                 "bed",
                 "kiosk",
                 "access_point",
+                "camera",
                 "box"
               ],
               "type": "string"
@@ -210,7 +225,7 @@
       "type": "string"
     },
     "format_version": {
-      "default": 1,
+      "default": 2,
       "title": "Format Version",
       "type": "integer"
     },

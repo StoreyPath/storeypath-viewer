@@ -244,15 +244,16 @@ func TestA091CatalogueSaysHowEachTypeIsDrawn(t *testing.T) {
 			return *ty.Shape
 		}
 	}
-	if got := [...]string{shape("DESK-MANAGER"), shape("SOFA"), shape("COPIER"), shape("TV")}; got != [...]string{"box", "hammock", "(none)", "(none)"} {
+	if got := [...]string{shape("DESK-MANAGER"), shape("SOFA"), shape("COPIER"), shape("TV")}; got != [...]string{"box", "hammock", "(none)", "screen"} {
 		t.Errorf("shapes: %v", got)
 	}
-	for _, ty := range open(t, "campus-hq.storeypath").Catalogue.Types {
+	for _, ty := range open(t, "campus.storeypath").Catalogue.Types {
 		if ty.Shape != nil {
-			t.Errorf("a 0.9.0 package's %s has a shape: %s", ty.Code, *ty.Shape)
+			t.Errorf("a 0.6 package's %s has a shape: %s", ty.Code, *ty.Shape)
 		}
 	}
-	if len(ItemShapes) != 9 || !slices.Contains(ItemShapes, "meeting_table") || !slices.Contains(ItemShapes, "box") {
+	if len(ItemShapes) != 14 || slices.Contains(ItemShapes, "meeting_table") || !slices.Contains(ItemShapes, "table") ||
+		!slices.Contains(ItemShapes, "camera") || !slices.Contains(ItemShapes, "box") {
 		t.Errorf("the shapes: %v", ItemShapes)
 	}
 }
@@ -1475,7 +1476,8 @@ func TestSeating(t *testing.T) {
 				}
 			}
 		}
-		if ty := p.ItemType("DESK-PRESIDENT"); ty == nil || ty.Workplaces != 1 || ty.Grade == nil || *ty.Grade != "president" {
+		// (a package holds the types its items use: the President's desk is the Annex's)
+		if ty := p.ItemType("DESK-PRESIDENT"); name == "campus-annex.storeypath" && (ty == nil || ty.Workplaces != 1 || ty.Grade == nil || *ty.Grade != "president") {
 			t.Errorf("%s: DESK-PRESIDENT %+v", name, ty)
 		}
 	}
@@ -1506,15 +1508,15 @@ func TestAPackageNewerThanTheReaderIsRefused(t *testing.T) {
 	// Before 1.0 a minor version may change what a package means: a newer one is
 	// refused with a message to update the reader; older ones and newer patches are read.
 	for v, ok := range map[string]bool{FormatVersion: true, "0.7.0": true, "0.6.0": true, "0.4.1": true, "0.8.9": true,
-		"0.9.7": true, "0.10.0": false, "1.0.0": false} {
+		"0.9.7": true, "0.10.4": true, "0.11.0": false, "1.0.0": false} {
 		if err := CheckVersion(v); (err == nil) != ok {
 			t.Errorf("%s: %v", v, err)
 		}
 	}
-	newer := rewriteFrom(t, "campus-hq.storeypath", editJSON(FileManifest, func(doc map[string]any) { doc["format_version"] = "0.10.0" }))
+	newer := rewriteFrom(t, "campus-hq.storeypath", editJSON(FileManifest, func(doc map[string]any) { doc["format_version"] = "0.11.0" }))
 	problems := newer.Validate()
 	if !slices.Contains(codes(problems), ProblemVersion) || !strings.Contains(problems[0].Message, "update the reader") {
-		t.Errorf("0.10.0: %v", problems)
+		t.Errorf("0.11.0: %v", problems)
 	}
 }
 
@@ -1525,7 +1527,8 @@ func TestAFormatVersionIsReadStrictly(t *testing.T) {
 	for v, want := range map[string]string{
 		"0.7.0": "", "0.6.0": "", "0.4.1": "", "0.7.9": "", "0.7": "", "0.7.0-rc1": "", "0.7.0+build.5": "", "0.07.0": "",
 		"0.8.0": "", "0.8": "", "0.8-rc1": "", "0.8.1+build.2": "", "0.9.0": "", "0.9": "", "0.9-rc1": "", "0.9.1+build.2": "",
-		"0.10.0": "newer", "0.10": "newer", "0.10-rc1": "newer", "0.11.0": "newer", "0.99999999999999999999.0": "newer",
+		"0.10.0": "", "0.10": "", "0.10-rc1": "", "0.10.2+build.1": "",
+		"0.11.0": "newer", "0.11": "newer", "0.11-rc1": "newer", "0.12.0": "newer", "0.99999999999999999999.0": "newer",
 		"1.0.0": "unsupported", "99999999999999999999.0.0": "unsupported",
 		"0.8a.0": "not a format version", "0.x": "not a format version", "0.-1.0": "not a format version",
 		"0. 8.0": "not a format version", "0.1_0.0": "not a format version", "": "not a format version",
@@ -1540,8 +1543,8 @@ func TestAFormatVersionIsReadStrictly(t *testing.T) {
 		}
 	}
 	// campus (0.6: two buildings, items with no position in their building) labelled
-	// so: not read as 0.0, but refused, and held to 0.9's rules
-	for _, v := range []string{"0.10a.0", "0.10-rc1"} {
+	// so: not read as 0.0, but refused, and held to 0.10's rules
+	for _, v := range []string{"0.11a.0", "0.11-rc1"} {
 		p := rewriteFrom(t, "campus.storeypath", editJSON(FileManifest, func(doc map[string]any) { doc["format_version"] = v }))
 		if got := codes(p.Validate()); !slices.Contains(got, ProblemVersion) || !slices.Contains(got, ProblemScope) {
 			t.Errorf("campus as %s: %v", v, got)
@@ -1560,7 +1563,7 @@ func TestTheManifestAloneTellsWhetherToReadAPackage(t *testing.T) {
 		case FileManifest:
 			var doc map[string]any
 			json.Unmarshal(d, &doc)
-			doc["format_version"] = "0.10.0"
+			doc["format_version"] = "0.11.0"
 			d, _ = json.Marshal(doc)
 		}
 		return d
@@ -1569,7 +1572,7 @@ func TestTheManifestAloneTellsWhetherToReadAPackage(t *testing.T) {
 		t.Fatalf("Read: %v", err)
 	}
 	m, err := ReadManifest(bytes.NewReader(data), int64(len(data)), DefaultLimits)
-	if err != nil || m.Project.ID != open(t, "campus-hq.storeypath").Manifest.Project.ID || m.FormatVersion != "0.10.0" ||
+	if err != nil || m.Project.ID != open(t, "campus-hq.storeypath").Manifest.Project.ID || m.FormatVersion != "0.11.0" ||
 		CheckVersion(m.FormatVersion) == nil {
 		t.Errorf("ReadManifest: %+v %v", m, err)
 	}

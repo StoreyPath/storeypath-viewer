@@ -1,8 +1,8 @@
 """The conformance corpus: what every reader of the format (Studio's Python, the Go
 module in go/, the viewer's JavaScript) must read the same way.
 
-Packages of this format (0.9: one building per package, with its walking network and
-its rooms' finishes), made by ``campus``: one project, the demo campus (two buildings
+Packages of this format (0.10: one building per package, with its walking network, its
+rooms' finishes, and each piece of furniture an item of its own), made by ``campus``: one project, the demo campus (two buildings
 placed on the map, with lifts and stairs through their floors, one floor's corridor
 divided into two zones by a line drawn in review and named there, CORRIDOR and HALL,
 furniture and equipment, furnish below, and some rooms' floors and walls finished in
@@ -12,7 +12,9 @@ review, finish below), exported a building at a time:
   the Headquarters with desks of several grades in offices (two in one office, one
   in a zone), a photocopier and an access point in a corridor, a sofa in the
   reception, a TV on a meeting room's wall, an open office's desks and access
-  point, a king-size bed in an office, a wayfinding kiosk in the reception; the
+  point, a king-size bed in an office, a wayfinding kiosk in the reception, the
+  director's chair at the director's desk, a meeting table for six with its six
+  chairs, a dome camera, a smoke detector and a fire extinguisher in the corridor; the
   Annex, turned 110° on the map, with the president's desk;
 - packages/campus-hq-2.storeypath (export 3): the Headquarters' next export after
   it was moved on the map (shifted and turned), a junior staff desk carried to the
@@ -350,7 +352,10 @@ def furnish(ws) -> None:
     the open office's three desks and its access point (its capacity set to 8 in
     review), and a desk in a zone of the divided hall. In the Annex, turned 110° on the map: the president's desk. Back on
     the Headquarters' ground floor: a king-size bed in an office, and a wayfinding
-    kiosk in the reception, facing its door."""
+    kiosk in the reception, facing its door; and each piece its own item (format 0.10):
+    the director's chair at the director's desk, a meeting table for six in the meeting
+    room with its six chairs round it, facing it, and in the corridor a dome camera and
+    a smoke detector under the ceiling and a fire extinguisher against its wall."""
     from shapely.geometry import shape
 
     from storeypath.workspace import Override
@@ -405,6 +410,24 @@ def furnish(ws) -> None:
     place("BED-KING", f_id, (x0 + x1) / 2, y0 + 0.05 + 1.05, rotation=180)
     f_id, (x0, y0, x1, y1) = room("HQ-F00", "017")  # the reception: a kiosk facing its door, beside the way in
     place("KIOSK", f_id, (x0 + x1) / 2 + 2.0, y0 + 2.0, model="TS-32")
+    # each piece its own item (0.10): the director's chair, 0.4 m out from the desk's front
+    # (the desk 1 m deep, its user's side the plan's -y), facing it
+    f_id, (x0, y0, x1, y1) = room("HQ-F00", "001")
+    place("CHAIR-EXECUTIVE", f_id, (x0 + x1) / 2, y0 + 2.0 - 0.5 - 0.4, rotation=180)
+    # a table for six (1.8 by 0.9 m) and its chairs: two along each side, one at each end,
+    # each facing it (0: its front the plan's -y; 90: +x; 180: +y; 270: -x)
+    f_id, (x0, y0, x1, y1) = room("HQ-F00", "004")
+    mx, my = (x0 + x1) / 2 + 0.3, (y0 + y1) / 2
+    place("MEETING-TABLE-6", f_id, mx, my)
+    for dx in (-0.45, 0.45):
+        place("CHAIR-MEETING", f_id, mx + dx, my + 0.8)
+        place("CHAIR-MEETING", f_id, mx + dx, my - 0.8, rotation=180)
+    place("CHAIR-MEETING", f_id, mx + 1.25, my, rotation=270)
+    place("CHAIR-MEETING", f_id, mx - 1.25, my, rotation=90)
+    f_id, (x0, y0, x1, y1) = room("HQ-F00", "005")
+    place("CCTV-DOME", f_id, x0 - 1.2, (cy0 + cy1) / 2, rotation=90, view_deg=90, range_m=12)
+    place("SMOKE-DETECTOR", f_id, x0 - 3.4, (cy0 + cy1) / 2)
+    place("FIRE-EXTINGUISHER", f_id, x0 - 3.4, cy1 - 0.15, agent="CO2", capacity_kg=5)
 
 
 def simple_office(work: Path) -> None:

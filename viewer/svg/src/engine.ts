@@ -152,39 +152,16 @@ export interface SelectDetail {
   item: PlanItem | null;
 }
 
-/** How an item is drawn: by its type's shape (format 0.9.1), else by its type code's
- * first part (DESK-MANAGER is a desk); others by how they are mounted. */
-const ITEM_SHAPES: Record<string, string> = { desk: "desk", meeting_table: "table", sofa: "sofa", screen: "tv", copier: "copier",
-  bed: "bed", kiosk: "kiosk", access_point: "ap", box: "plain" };
+/** How an item is drawn: by its type's shape (format 0.9.1; 0.10: a desk's and a table's
+ * chairs are items of their own, so a desk and a table are drawn alone), else by its type
+ * code's first part (DESK-MANAGER is a desk); others by how they are mounted. */
+const ITEM_SHAPES: Record<string, string> = { desk: "desk", table: "table", chair: "chair", side_chair: "sidechair",
+  armchair: "armchair", sofa: "sofa", storage: "storage", screen: "tv", copier: "copier", bed: "bed", kiosk: "kiosk",
+  access_point: "ap", camera: "camera", box: "plain", meeting_table: "table" };
 const ITEM_KINDS: Record<string, string> = { DESK: "desk", MEETING: "table", SOFA: "sofa", TV: "tv", SCREEN: "tv", COPIER: "copier",
   PRINTER: "copier", ACCESS: "ap", BED: "bed", KIOSK: "kiosk" };
-/** What goes with a desk, by the grade it is for: visitors' chairs across it
- * (armchairs for the president's), a return at its side (an L-shaped desk), a
- * cabinet behind its chair, and a high-backed chair. Studio's 3D draws the same. */
-interface DeskSet { visitors: number; armchairs?: boolean; return?: boolean; cabinet?: boolean; executive?: boolean }
-const DESK_SETS: Record<string, DeskSet> = {
-  junior: { visitors: 0 },
-  senior: { visitors: 0, return: true },
-  section_head: { visitors: 1, return: true },
-  manager: { visitors: 2, return: true },
-  director: { visitors: 2, return: true, cabinet: true, executive: true },
-  c_level: { visitors: 2, return: true, cabinet: true, executive: true },
-  president: { visitors: 2, armchairs: true, return: true, cabinet: true, executive: true },
-};
-/** Where a meeting table's chairs stand, the table ``w`` long and ``d`` across: one in
- * each 0.65 m of its long sides (its ends' 0.1 m aside), spread evenly, and one at each
- * end of a table at least 0.8 m across; each its middle on the table's edge and the way
- * out from it. A board table's (3.6 m long or more) are high-backed. Studio's 3D and
- * Review seat it the same. */
-function tableChairs(w: number, d: number): { at: [number, number, XY][]; board: boolean } {
-  const n = Math.max(1, Math.floor((w - 0.2) / 0.65 + 1e-9)), at: [number, number, XY][] = [];
-  for (let i = 0; i < n; i++) {
-    const x = (i - (n - 1) / 2) * (w / n);
-    at.push([x, d / 2, [0, 1]], [x, -d / 2, [0, -1]]);
-  }
-  if (d >= 0.8 - 1e-9) at.push([w / 2, 0, [1, 0]], [-w / 2, 0, [-1, 0]]);
-  return { at, board: w >= 3.6 - 1e-9 };
-}
+/** A camera's view drawn ahead of it: this wide (degrees) and this far (metres). */
+const CAMERA_VIEW = { deg: 60, reach: 1.6 };
 const itemKind = (it: PlanItem): string => {
   const own = (table: Record<string, string>, key: string | null | undefined): string | undefined =>
     key && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
@@ -736,39 +713,28 @@ export class FloorPlanEngine extends EventTarget {
       ring = Array.from({ length: 24 }, (_, i): XY => [it.at[0] + r * Math.cos((i * Math.PI) / 12), it.at[1] + r * Math.sin((i * Math.PI) / 12)]);
     } else {
       g.setAttribute("transform", `matrix(${fine(u[0])} ${fine(u[1])} ${fine(f[0])} ${fine(f[1])} ${round(it.at[0])} ${round(it.at[1])})`);
-      body("rect", { x: round(-w / 2), y: round(-d / 2), width: round(w), height: round(d) });
-      if (kind === "desk") { // its chair, before it, and what goes with a desk of its grade
-        const set = DESK_SETS[it.grade ?? ""] ?? DESK_SETS.junior!;
-        // the return, at its side towards its user; the cabinet behind the chair
-        if (set.return) body("rect", { x: round(w / 2 - Math.min(0.45, w / 3)), y: round(d / 2), width: round(Math.min(0.45, w / 3)), height: 0.8 });
-        if (set.cabinet) body("rect", { x: round(-w * 0.45), y: round(d / 2 + 0.95), width: round(w * 0.9), height: 0.45 });
-        const chair = (x: number, y: number, cw: number, cd: number, back: number) => { // its back at y + cd
-          mark("rect", { x: round(x - cw / 2), y: round(y), width: round(cw), height: round(cd), rx: 0.08 }, "sp-item-chair");
-          mark("rect", { x: round(x - cw / 2), y: round(y + cd - back), width: round(cw), height: round(back), rx: 0.04 }, "sp-item-chair sp-item-back");
-        };
-        if (set.executive) chair(0, d / 2 + 0.08, 0.6, 0.62, 0.14);
-        else mark("rect", { x: -0.22, y: round(d / 2 + 0.1), width: 0.44, height: 0.42, rx: 0.1 }, "sp-item-chair");
-        // visitors across it, facing its user: their backs away from it
-        const vw = set.armchairs ? 0.7 : 0.46, vd = set.armchairs ? 0.62 : 0.46;
-        const xs = set.visitors === 1 ? [0] : set.visitors === 2 ? [-1, 1].map((s) => s * Math.max(vw / 2 + 0.06, Math.min(w / 4, 0.6))) : [];
-        for (const x of xs) {
-          mark("rect", { x: round(x - vw / 2), y: round(-d / 2 - 0.15 - vd), width: round(vw), height: round(vd), rx: 0.08 }, "sp-item-chair sp-item-visitor");
-          mark("rect", { x: round(x - vw / 2), y: round(-d / 2 - 0.15 - vd), width: round(vw), height: 0.12, rx: 0.04 }, "sp-item-chair sp-item-back");
+      const dome = kind === "camera" && it.mount === "ceiling"; // (a dome: round, turned to where it looks)
+      if (dome) body("circle", { r: round(Math.max(Math.min(w, d) / 2, 0.15)) });
+      else body("rect", { x: round(-w / 2), y: round(-d / 2), width: round(w), height: round(d) });
+      if (kind === "chair" || kind === "sidechair" || kind === "armchair") { // its back, away from its front; an armchair's arms
+        const back = Math.min(kind === "chair" ? 0.14 : 0.1, d / 4), m = Math.min(0.04, w / 10);
+        mark("rect", { x: round(-w / 2 + m), y: round(-d / 2), width: round(w - 2 * m), height: round(back), rx: 0.04 }, "sp-item-chair sp-item-back");
+        if (kind === "armchair") {
+          const arm = Math.min(0.12, w / 6);
+          for (const x of [-w / 2, w / 2 - arm]) mark("rect", { x: round(x), y: round(-d / 2), width: round(arm), height: round(d * 0.8), rx: 0.04 }, "sp-item-chair sp-item-back");
         }
-      } else if (kind === "table") { // its chairs round it, their backs away from it
-        const { at, board } = tableChairs(w, d);
-        const cw = board ? 0.6 : 0.44, cd = board ? 0.62 : 0.42, gap = board ? 0.08 : 0.1, back = board ? 0.14 : 0.1;
-        for (const [x, y, [ox, oy]] of at) {
-          // from ``near`` to ``far`` metres out from the edge, ``cw`` along it: the chair, its back
-          const part = (near: number, far: number): Record<string, number> => {
-            const out0 = gap + near, out1 = gap + far;
-            const [x0, x1] = ox ? [x + ox * out0, x + ox * out1].sort((p, q) => p - q) : [x - cw / 2, x + cw / 2];
-            const [y0, y1] = oy ? [y + oy * out0, y + oy * out1].sort((p, q) => p - q) : [y - cw / 2, y + cw / 2];
-            return { x: round(x0!), y: round(y0!), width: round(x1! - x0!), height: round(y1! - y0!) };
-          };
-          mark("rect", { ...part(0, cd), rx: board ? 0.08 : 0.1 }, "sp-item-chair");
-          mark("rect", { ...part(cd - back, cd), rx: 0.04 }, "sp-item-chair sp-item-back");
+      } else if (kind === "storage") { // its doors along its front, and where they meet
+        const t = Math.min(0.05, d / 6), doors = w > 1.4 ? 3 : w > 0.65 ? 2 : 1;
+        mark("line", { x1: round(-w / 2), y1: round(d / 2 - t), x2: round(w / 2), y2: round(d / 2 - t) });
+        for (let k = 1; k < doors; k++) {
+          const x = -w / 2 + (k * w) / doors;
+          mark("line", { x1: round(x), y1: round(d / 2 - t), x2: round(x), y2: round(d / 2) });
         }
+      } else if (kind === "camera") { // what it looks at
+        const half = (CAMERA_VIEW.deg / 2) * (Math.PI / 180), r = CAMERA_VIEW.reach, from = it.mount === "ceiling" ? 0 : d / 2;
+        const sx = r * Math.sin(half), sy = from + r * Math.cos(half);
+        mark("path", { d: `M0,${round(from)}L${round(-sx)},${round(sy)}A${round(r)},${round(r)} 0 0 0 ${round(sx)},${round(sy)}Z` },
+          "sp-item-mark sp-item-view");
       } else if (kind === "sofa") { // its seat, between the arms and before the back
         const arm = Math.min(0.2, w / 6), back = Math.min(0.22, d / 3);
         mark("rect", { x: round(-w / 2 + arm), y: round(-d / 2 + back), width: round(w - 2 * arm), height: round(d - back) });
@@ -792,7 +758,7 @@ export class FloorPlanEngine extends EventTarget {
         const m = Math.min(0.08, w / 8, d / 8);
         mark("rect", { x: round(-w / 2 + m), y: round(-d / 2 + m), width: round(w - 2 * m), height: round((d - 2 * m) * 0.6) });
       }
-      mark("line", { x1: round(-w / 2), y1: round(d / 2), x2: round(w / 2), y2: round(d / 2) }, "sp-item-front");
+      if (!dome) mark("line", { x1: round(-w / 2), y1: round(d / 2), x2: round(w / 2), y2: round(d / 2) }, "sp-item-front");
       ring = ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).map(([a, b]): XY => [
         it.at[0] + (a * w * u[0] + b * d * f[0]) / 2, it.at[1] + (a * w * u[1] + b * d * f[1]) / 2]);
     }

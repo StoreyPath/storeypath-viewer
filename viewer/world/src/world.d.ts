@@ -74,7 +74,7 @@ export interface ItemProperties {
 	kind: 'item';
 	/** A code of the catalogue (DESK-MANAGER, COPIER, …). */
 	type: string;
-	category: 'furniture' | 'equipment' | 'appliance';
+	category: ItemCategory;
 	/** Its type's English name. */
 	name: string;
 	floor_id: string;
@@ -109,16 +109,23 @@ export interface ItemField {
 	owner: 'storeypath' | 'system';
 }
 
-/** How a type of item is drawn (catalogue.json `shape`, format 0.9.1); a later version may add
- * more, drawn as if a type had none. */
-export type ItemShape = 'desk' | 'meeting_table' | 'sofa' | 'screen' | 'copier' | 'bed' | 'kiosk' | 'access_point' | 'box';
+/** How a type of item is drawn (catalogue.json `shape`, format 0.9.1; 0.10: a desk and a table
+ * alone, their chairs types of their own; 0.9's meeting_table read as a table); a later version
+ * may add more, drawn as if a type had none. */
+export type ItemShape = 'desk' | 'table' | 'chair' | 'side_chair' | 'armchair' | 'sofa' | 'storage' | 'screen' | 'copier' | 'bed'
+	| 'kiosk' | 'access_point' | 'camera' | 'box' | 'meeting_table';
+
+/** What a type of item is (catalogue.json and items.geojson `category`, format 0.10); 0.9's
+ * appliance is read as appliances. */
+export type ItemCategory = 'workstations' | 'seating' | 'tables' | 'storage' | 'soft_seating' | 'beds' | 'furniture'
+	| 'security' | 'fire_safety' | 'it_av' | 'building_services' | 'appliances' | 'equipment' | 'appliance';
 
 /** A type of item (catalogue.json). */
 export interface ItemType {
 	code: string;
 	name_en: string;
 	name_ar: string;
-	category: 'furniture' | 'equipment' | 'appliance';
+	category: ItemCategory;
 	/** Metres: along its front, front to back, and tall. */
 	width: number;
 	depth: number;

@@ -16,7 +16,7 @@
 //
 // What every look draws is here: skirting along the walls, architraves and lever
 // handles on doors, window boards, ceiling panels (ceilingPanels: where the walker's
-// lights are), furniture with its chairs; and, asked for (`edges`, the "model"
+// lights are), furniture, each piece its own; and, asked for (`edges`, the "model"
 // look), the lines along their edges. How they are drawn is materials.js's.
 //
 // Local metres: x east, y up, z south, from the building's origin (originOf). A
@@ -30,8 +30,9 @@ import { toLonLat, wrapLongitude } from "./frame.js";
  * items; before 3, without skirting, architraves, handles, window boards, ceiling
  * panels and the finer furniture; before 4, without the room each wall's face faces;
  * before 5, without its doors' leaves listed to swing, and its open leaves in the
- * walker's way; before 6, without the steps of its stairs) is built again. */
-export const BUILDER = 6;
+ * walker's way; before 6, without the steps of its stairs; before 7, its desks and
+ * meeting tables drawn with their chairs, as before format 0.10) is built again. */
+export const BUILDER = 7;
 
 /** What shapes the geometry; a world built with others builds its floors itself. */
 export const GEOMETRY = {
@@ -1257,7 +1258,7 @@ export function planItem(id, p, { origin, placement, wallHeight, type, model = n
   const it = { id, type: p.type, mount: p.mount ?? "floor", x, n, fx: Math.sin(h), fn: Math.cos(h),
     width: p.width_m || 1, depth: p.depth_m || 0.6, height: p.height_m || 0.75,
     color: typeof color === "string" && COLOR.test(color) ? color : ITEM_COLOR,
-    grade: typeof grade === "string" && grade in DESK_SETS ? grade : null,
+    grade: GRADES.includes(grade) ? grade : null,
     shape: typeof shape === "string" ? shape : null, model: model?.position ? model : null };
   it.y = it.mount === "ceiling" ? wallHeight - it.height - 0.01 : p.elevation_m ?? (it.mount === "wall" ? WALL_ITEM : 0);
   return it;
@@ -1473,39 +1474,12 @@ const FIN = {
   plastic: [115, 0], screen: [25, 0], linen: [235, 0], leather: [140, 0],
 };
 
-/** What goes with a desk, by the grade it is for (its type's, format 0.7): visitors'
- * chairs across it (armchairs for the president's), a return at its side (an
- * L-shaped desk), a credenza behind its chair, and an executive chair. The SVG plan
- * draws the same. */
-export const DESK_SETS = {
-  junior: { visitors: 0 },
-  senior: { visitors: 0, return: true },
-  section_head: { visitors: 1, return: true },
-  manager: { visitors: 2, return: true },
-  director: { visitors: 2, return: true, cabinet: true, executive: true },
-  c_level: { visitors: 2, return: true, cabinet: true, executive: true },
-  president: { visitors: 2, armchairs: true, return: true, cabinet: true, executive: true },
-};
-// where a desk's chair and its visitors' chairs stand (DRAW.DESK, itemExtent)
-const CHAIR = { behind: 0.4, reach: 0.335 }; // its middle behind the desk's back edge, and its base's reach
-const VISITOR = { side: { half: 0.235, depth: 0.24, back: 0.245 }, arm: { half: 0.36, depth: 0.31, back: 0.31 }, gap: 0.2 };
-// a meeting table's chairs (tableChairs): one in each 0.65 m of its long sides (its ends'
-// 0.1 m aside), one at each end of a table at least 0.8 m across, their middles 0.35 m
-// out from its edge; a board table's (3.6 m long or more) high-backed, in leather
-const TABLE = { pitch: 0.65, ends: 0.8, out: 0.35, board: 3.6 };
-
-/** Where a meeting table's chairs stand, the table ``w`` long and ``d`` across, in its
- * own frame: [across, ahead, turn] each, facing the table; and whether it is a board
- * table. The SVG plan and Studio (fit.js) seat it the same. */
-export function tableChairs(w, d) {
-  const n = Math.max(1, Math.floor((w - 0.2) / TABLE.pitch + 1e-9)), at = [];
-  for (let i = 0; i < n; i++) {
-    const x = (i - (n - 1) / 2) * (w / n);
-    at.push([x, d / 2 + TABLE.out, 0], [x, -d / 2 - TABLE.out, Math.PI]);
-  }
-  if (d >= TABLE.ends - 1e-9) at.push([w / 2 + TABLE.out, 0, -Math.PI / 2], [-w / 2 - TABLE.out, 0, Math.PI / 2]);
-  return { at, board: w >= TABLE.board - 1e-9 };
-}
+/** The grades a desk may be for (its type's, format 0.7), and those whose desk is an
+ * executive's (on panel ends, with a drawer pedestal: deskTop). */
+export const GRADES = ["president", "c_level", "director", "manager", "section_head", "senior", "junior"];
+const EXECUTIVE = new Set(["president", "c_level", "director"]);
+// a table this long or more is a board table: on wooden panels, its top thicker (DRAW.TABLE)
+const TABLE_BOARD = 3.6;
 
 /** An office chair facing -ahead: five spokes on castors, a gas lift, a seat, a back
  * and arms; ``exec``, wider, in leather, its back up to the head. */
@@ -1578,69 +1552,50 @@ function pedestal(s, [x0, x1], [y0, y1], [z0, z1], c, drawers = 3) {
   });
 }
 
+/** A desk's top on its frame, facing ahead (by its grade: an executive's on panel ends,
+ * with a drawer pedestal; else a steel frame with a modesty panel): DRAW.DESK's desk without
+ * its chairs and what goes with its grade, and a desk drawn alone (TABLE, format 0.9.4). */
+function deskTop(s, it, c) {
+  const { width: w, depth: d, height: h } = it;
+  const top = 0.03, wood = rgb(c), dark = rgb(c, { dark: 0.25 });
+  s.in(FIN.wood, () => s.rbox([-w / 2, w / 2], [h - top, h], [-d / 2, d / 2], wood, 0.006));
+  if (EXECUTIVE.has(it.grade)) {
+    s.in(FIN.wood, () => {
+      for (const side of [-1, 1]) {
+        const x = side * (w / 2 - 0.035);
+        s.rbox([x - 0.03, x + 0.03], [0, h - top], [-d / 2 + 0.02, d / 2 - 0.02], dark, 0.006);
+      }
+      s.rbox([-w / 2 + 0.06, w / 2 - 0.06], [0.15, h - top], [-d / 2 + 0.03, -d / 2 + 0.055], dark, 0.004);
+    });
+    pedestal(s, [w / 2 - 0.5, w / 2 - 0.07], [0.04, h - top - 0.005], [-d / 2 + 0.08, d / 2 - 0.03], dark);
+  } else {
+    const frame = rgb(POWDER);
+    s.in(FIN.dark, () => {
+      for (const side of [-1, 1]) {
+        const x = side * (w / 2 - 0.06);
+        for (const z of [-d / 2 + 0.06, d / 2 - 0.06]) s.box([x - 0.025, x + 0.025], [0, h - top], [z - 0.025, z + 0.025], frame);
+        s.box([x - 0.025, x + 0.025], [h - top - 0.05, h - top], [-d / 2 + 0.06, d / 2 - 0.06], frame);
+        s.box([x - 0.025, x + 0.025], [0, 0.03], [-d / 2 + 0.03, d / 2 - 0.03], frame);
+      }
+      s.box([-w / 2 + 0.08, w / 2 - 0.08], [h - top - 0.05, h - top], [-d / 2 + 0.05, -d / 2 + 0.08], frame);
+    });
+    s.in(FIN.plastic, () => s.box([-w / 2 + 0.1, w / 2 - 0.1], [0.3, h - top - 0.05], [-d / 2 + 0.06, -d / 2 + 0.075], rgb(PALE)));
+  }
+}
+
 /** How each kind of item is drawn, by its type code's first part (DESK-MANAGER is a
  * desk); others by how they are mounted. Each gets the item (its width, depth, height
  * and grade) and its colour, and draws it in its own frame, its front ahead. */
 const DRAW = {
-  // a top on a steel frame with a modesty panel (an executive's: on panel ends, with a
-  // drawer pedestal), its chair pulled up to it; and what goes with its grade (DESK_SETS)
+  // a desk alone, its user's side ahead (deskTop): its chairs, a return, a credenza are
+  // items of their own (format 0.10)
   DESK(s, it, c) {
-    const { width: w, depth: d, height: h } = it;
-    const set = DESK_SETS[it.grade] ?? DESK_SETS.junior;
-    const top = 0.03, wood = rgb(c), dark = rgb(c, { dark: 0.25 });
-    s.in(FIN.wood, () => s.rbox([-w / 2, w / 2], [h - top, h], [-d / 2, d / 2], wood, 0.006));
-    if (set.executive) {
-      s.in(FIN.wood, () => {
-        for (const side of [-1, 1]) {
-          const x = side * (w / 2 - 0.035);
-          s.rbox([x - 0.03, x + 0.03], [0, h - top], [-d / 2 + 0.02, d / 2 - 0.02], dark, 0.006);
-        }
-        s.rbox([-w / 2 + 0.06, w / 2 - 0.06], [0.15, h - top], [-d / 2 + 0.03, -d / 2 + 0.055], dark, 0.004);
-      });
-      pedestal(s, [w / 2 - 0.5, w / 2 - 0.07], [0.04, h - top - 0.005], [-d / 2 + 0.08, d / 2 - 0.03], dark);
-    } else {
-      const frame = rgb(POWDER);
-      s.in(FIN.dark, () => {
-        for (const side of [-1, 1]) {
-          const x = side * (w / 2 - 0.06);
-          for (const z of [-d / 2 + 0.06, d / 2 - 0.06]) s.box([x - 0.025, x + 0.025], [0, h - top], [z - 0.025, z + 0.025], frame);
-          s.box([x - 0.025, x + 0.025], [h - top - 0.05, h - top], [-d / 2 + 0.06, d / 2 - 0.06], frame);
-          s.box([x - 0.025, x + 0.025], [0, 0.03], [-d / 2 + 0.03, d / 2 - 0.03], frame);
-        }
-        s.box([-w / 2 + 0.08, w / 2 - 0.08], [h - top - 0.05, h - top], [-d / 2 + 0.05, -d / 2 + 0.08], frame);
-      });
-      s.in(FIN.plastic, () => s.box([-w / 2 + 0.1, w / 2 - 0.1], [0.3, h - top - 0.05], [-d / 2 + 0.06, -d / 2 + 0.075], rgb(PALE)));
-    }
-    if (set.return) { // an L: a return at the user's right, on a pedestal turned to the chair
-      const r = Math.min(0.5, w / 3);
-      s.in(FIN.wood, () => {
-        s.rbox([w / 2 - r, w / 2], [h - top, h], [d / 2 - 0.002, d / 2 + 0.8], wood, 0.006);
-        s.rbox([w / 2 - r + 0.03, w / 2 - 0.03], [0, h - top], [d / 2 + 0.73, d / 2 + 0.78], dark, 0.006);
-      });
-      const half = (r - 0.08) / 2;
-      s.at(w / 2 - r / 2, d / 2 + 0.5, Math.PI / 2, () => pedestal(s, [-0.2, 0.2], [0.04, h - top - 0.005], [-half, half], dark));
-    }
-    if (set.cabinet) { // a credenza behind the chair, its doors towards the desk
-      const y1 = Math.min(0.72, h), z0 = d / 2 + 0.95, z1 = d / 2 + 1.4, hd = (z1 - z0) / 2;
-      s.at(0, (z0 + z1) / 2, Math.PI, () => {
-        s.box([-w * 0.44, w * 0.44], [0, 0.05], [-hd + 0.03, hd - 0.03], rgb("#1f1d1b"));
-        s.in(FIN.wood, () => s.rbox([-w * 0.45, w * 0.45], [0.05, y1], [-hd, hd], dark, 0.008));
-        for (const x of [-w * 0.15, w * 0.15]) s.box([x - 0.002, x + 0.002], [0.07, y1 - 0.03], [hd, hd + 0.002], rgb("#1a1817"), false);
-        s.in(FIN.metal, () => {
-          for (const x of [-w * 0.3, -w * 0.18, w * 0.18, w * 0.3]) s.box([x - 0.006, x + 0.006], [y1 - 0.2, y1 - 0.08], [hd + 0.002, hd + 0.018], rgb(STEEL));
-        });
-      });
-    }
-    s.at(0, d / 2 + CHAIR.behind, 0, () => officeChair(s, set.executive));
-    // visitors across it, facing its user
-    const v = set.armchairs ? VISITOR.arm : VISITOR.side;
-    for (const x of visitorsAt(set, w)) s.at(x, -d / 2 - VISITOR.gap - v.depth, Math.PI, () => (set.armchairs ? armchair(s, c) : sideChair(s)));
+    deskTop(s, it, c);
   },
-  // a top on a steel frame (a board table's on wooden panels, a box for its cables in
-  // its middle) and its chairs round it (tableChairs)
-  MEETING(s, it, c) {
-    const { width: w, depth: d, height: h } = it;
-    const { at, board } = tableChairs(w, d);
+  // a table alone (format 0.10: its chairs are items of their own): a top on a steel frame
+  // (a board table's, 3.6 m long or more, on wooden panels), a box for its cables in its middle
+  TABLE(s, it, c) {
+    const { width: w, depth: d, height: h } = it, board = w >= TABLE_BOARD - 1e-9;
     const top = board ? 0.05 : 0.035, wood = rgb(c), dark = rgb(c, { dark: 0.3 });
     s.in(FIN.wood, () => s.rbox([-w / 2, w / 2], [h - top, h], [-d / 2, d / 2], wood, board ? 0.012 : 0.006));
     if (board) { // panels across it, inset from its ends (and one in the middle of the longest), a beam between them
@@ -1661,7 +1616,60 @@ const DRAW = {
       s.in(FIN.metal, () => s.box([-0.16, 0.16], [h - 0.002, h + 0.004], [-0.06, 0.06], rgb(STEEL), false));
       s.box([-0.14, 0.14], [h + 0.004, h + 0.005], [-0.045, 0.045], rgb("#1b1c1f"), false);
     }
-    for (const [x, z, a] of at) s.at(x, z, a, () => officeChair(s, board));
+  },
+  // a chair, facing ahead (its front: where its sitter looks): an office chair on castors, a
+  // high-backed one in leather when it is 0.66 m wide or more; a visitor's chair; an armchair
+  CHAIR(s, it, c) {
+    s.at(0, 0, Math.PI, () => officeChair(s, it.width >= 0.66 - 1e-9, c));
+  },
+  SIDECHAIR(s, it, c) {
+    s.at(0, 0, Math.PI, () => sideChair(s, c));
+  },
+  ARMCHAIR(s, it, c) {
+    s.at(0, 0, Math.PI, () => armchair(s, c));
+  },
+  // a drawer pedestal (low and narrow), else a cupboard on a plinth: its doors ahead, their
+  // joins and handles
+  STORAGE(s, it, c) {
+    const { width: w, depth: d, height: h } = it;
+    const body = rgb(c), dark = rgb(c, { dark: 0.3 }), groove = rgb("#1f1d1b");
+    if (h <= 0.8 + 1e-9 && w <= 0.6 + 1e-9) return pedestal(s, [-w / 2, w / 2], [0.03, h], [-d / 2, d / 2], body);
+    const plinth = Math.min(0.06, h / 12), doors = w > 1.4 ? 3 : w > 0.65 ? 2 : 1, dw = w / doors;
+    s.box([-w / 2 + 0.02, w / 2 - 0.02], [0, plinth], [-d / 2 + 0.02, d / 2 - 0.03], dark);
+    s.in(FIN.wood, () => s.rbox([-w / 2, w / 2], [plinth, h], [-d / 2, d / 2], body, 0.006));
+    for (let i = 1; i < doors; i++) {
+      const x = -w / 2 + i * dw;
+      s.box([x - 0.002, x + 0.002], [plinth + 0.01, h - 0.01], [d / 2, d / 2 + 0.002], groove, false);
+    }
+    const hy = h > 1.2 ? [h * 0.45, h * 0.55] : [h - 0.16, h - 0.06];
+    s.in(FIN.metal, () => {
+      for (let i = 0; i < doors; i++) { // by the join it opens at (a door alone: at its side)
+        const x = -w / 2 + (i + (doors === 1 || i % 2 ? 0.12 : 0.88)) * dw;
+        s.box([x - 0.006, x + 0.006], hy, [d / 2 + 0.002, d / 2 + 0.02], rgb(STEEL));
+      }
+    });
+  },
+  // a camera looking ahead: under the ceiling a dark dome on its plate; on a wall (or
+  // standing), a body on a bracket from the wall, its hood over its lens
+  CAMERA(s, it, c) {
+    const { width: w, depth: d, height: h } = it;
+    const body = rgb(c), lens = rgb("#121317");
+    if (it.mount === "ceiling") {
+      const r = Math.min(w, d) / 2, plate = Math.min(0.025, h / 4), dome = h - plate;
+      s.in(FIN.plastic, () => s.cyl(0, 0, r, [dome, h], body, 20));
+      for (let i = 0; i < 4; i++) { // a half sphere in bands
+        const a0 = (i / 4) * (Math.PI / 2), a1 = ((i + 1) / 4) * (Math.PI / 2);
+        s.in(FIN.screen, () => s.cyl(0, 0, r * 0.85 * Math.cos(a0), [dome - dome * Math.sin(a1), dome - dome * Math.sin(a0)], lens, 16, false));
+      }
+      return;
+    }
+    const back = -d / 2, arm = Math.min(0.08, d / 3), lip = Math.min(0.015, h / 6);
+    s.in(FIN.plastic, () => {
+      s.rbox([-w * 0.2, w * 0.2], [h * 0.35, h * 0.65], [back, back + arm], body, 0.008);
+      s.rbox([-w / 2, w / 2], [0, h], [back + arm, d / 2], body, Math.min(0.02, w / 4));
+      s.rbox([-w / 2 - 0.006, w / 2 + 0.006], [h - lip, h + 0.004], [back + arm, d / 2 + 0.03], body, 0.004);
+    });
+    s.in(FIN.screen, () => s.box([-w * 0.32, w * 0.32], [h * 0.18, h * 0.82], [d / 2, d / 2 + 0.003], lens, false));
   },
   // a base on short feet, a back and arms, and its cushions
   SOFA(s, it, c) {
@@ -1754,14 +1762,18 @@ const DRAW = {
     });
   },
 };
-DRAW.SCREEN = DRAW.TV;
-DRAW.PRINTER = DRAW.COPIER;
 
 /** The shapes a type may say it is drawn as (catalogue.json `shape`, format 0.9.1), and
  * the kind of DRAW each is; "box" the plain box (drawPlain). The SVG plan and Studio know
  * the same names. */
-export const SHAPES = { desk: "DESK", meeting_table: "MEETING", sofa: "SOFA", screen: "TV", copier: "COPIER", bed: "BED",
-  kiosk: "KIOSK", access_point: "ACCESS", box: "plain" };
+export const SHAPES = { desk: "DESK", table: "TABLE", chair: "CHAIR", side_chair: "SIDECHAIR", armchair: "ARMCHAIR",
+  sofa: "SOFA", storage: "STORAGE", screen: "TV", copier: "COPIER", bed: "BED", kiosk: "KIOSK", access_point: "ACCESS",
+  camera: "CAMERA", box: "plain",
+  meeting_table: "TABLE" }; // (before 0.10, a table with its chairs: read as a table)
+// a type without a shape: by its code's first part, as before 0.9.1 (a MEETING- table is a
+// table); any other code, a box
+const BY_CODE = { DESK: "DESK", MEETING: "TABLE", SOFA: "SOFA", TV: "TV", SCREEN: "TV", COPIER: "COPIER", PRINTER: "COPIER",
+  ACCESS: "ACCESS", BED: "BED", KIOSK: "KIOSK" };
 
 /** How an item is drawn: as its type's shape, when this viewer knows it; else by its type
  * code's first part (DESK-MANAGER is a desk, as before 0.9.1); else as a plain box
@@ -1769,7 +1781,7 @@ export const SHAPES = { desk: "DESK", meeting_table: "MEETING", sofa: "SOFA", sc
 export function kindOf(it) {
   if (typeof it.shape === "string" && Object.hasOwn(SHAPES, it.shape)) return SHAPES[it.shape];
   const part = String(it.type ?? "").split("-")[0];
-  return Object.hasOwn(DRAW, part) ? part : "plain";
+  return Object.hasOwn(BY_CODE, part) ? BY_CODE[part] : "plain";
 }
 
 /** Anything else: a box; on the ceiling, a disc when it is round enough. */
@@ -1778,18 +1790,12 @@ function drawPlain(s, it, c) {
   s.box([-it.width / 2, it.width / 2], [0, it.height], [-it.depth / 2, it.depth / 2], rgb(c), true);
 }
 
-/** Where a desk's visitors sit across it (DESK_SETS): across, from its middle. */
-function visitorsAt(set, w) {
-  const vw = set.armchairs ? 0.72 : 0.47;
-  return set.visitors === 1 ? [0] : set.visitors === 2 ? [-1, 1].map((q) => q * Math.max(vw / 2 + 0.08, Math.min(w / 4, 0.62))) : [];
-}
-
 /** An item's template (Shapes.done), made once for its kind (kindOf) and size: ``form``
  * "detailed" (as DRAW draws it, or as its type's model is: modelTemplate) or "light" (a box). */
 function template(cache, it, form) {
   const model = form === "light" ? null : it.model;
   const kind = form === "light" ? "light" : model ? `model ${model.id}` : kindOf(it);
-  const key = [kind, it.width, it.depth, it.height, it.color, it.grade, kind === "plain" ? it.mount : ""].join("|");
+  const key = [kind, it.width, it.depth, it.height, it.color, it.grade, kind === "plain" || kind === "CAMERA" ? it.mount : ""].join("|");
   let t = cache.get(key);
   if (!t) {
     if (model) t = modelTemplate(model, it);
@@ -1938,23 +1944,11 @@ function placedLines(list) {
 }
 
 /** What an item takes in its own frame, as DRAW draws it: [across0, ahead0, across1,
- * ahead1, top] (metres from its middle and its bottom): its footprint and height, and
- * for a desk its chair and what goes with its grade; for a meeting table its chairs. One
- * drawn as its type's model (0.9.2) takes its box: the model is made its size. */
+ * ahead1, top] (metres from its middle and its bottom): its footprint and height (since
+ * format 0.10 a desk's and a table's chairs are items of their own). One drawn as its
+ * type's model (0.9.2) takes its box too: the model is made its size. */
 export function itemExtent(it) {
-  const w = it.width, d = it.depth, kind = it.model ? "model" : kindOf(it);
-  if (kind === "MEETING") {
-    const { board } = tableChairs(w, d), reach = TABLE.out + CHAIR.reach;
-    const ends = d >= TABLE.ends - 1e-9 ? reach : 0;
-    return [-w / 2 - ends, -d / 2 - reach, w / 2 + ends, d / 2 + reach, Math.max(it.height, board ? 1.22 : 1.0)];
-  }
-  if (kind !== "DESK") return [-w / 2, -d / 2, w / 2, d / 2, it.height];
-  const set = DESK_SETS[it.grade] ?? DESK_SETS.junior;
-  const v = set.armchairs ? VISITOR.arm : VISITOR.side, xs = visitorsAt(set, w);
-  const side = Math.max(w / 2, CHAIR.reach, ...xs.map((x) => Math.abs(x) + v.half));
-  const front = xs.length ? d / 2 + VISITOR.gap + v.depth + v.back : d / 2;
-  const behind = Math.max(CHAIR.behind + CHAIR.reach, set.return ? 0.8 : 0, set.cabinet ? 1.4 : 0);
-  return [-side, -front, side, d / 2 + behind, Math.max(it.height, set.executive ? 1.22 : 1.0)];
+  return [-it.width / 2, -it.depth / 2, it.width / 2, it.depth / 2, it.height];
 }
 
 /** A box round an item (``it``, of plan.items), ``pad`` metres wider each way: its

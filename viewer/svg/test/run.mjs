@@ -145,9 +145,11 @@ test("a package of a newer minor version, or of no version, is refused; older on
       return e.message;
     }
   };
-  for (const v of ["0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.9.1-rc.1", "0.9.0+build.5"]) equal(await said(v), "read", v);
-  for (const v of ["0.10.0", "0.10", "0.99.0", "0.10.0-rc1", "1.0.0", "2.7.0"]) {
-    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.9: update the viewer.`, v);
+  for (const v of ["0.10.0", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.10.1-rc.1", "0.9.0+build.5"]) {
+    equal(await said(v), "read", v);
+  }
+  for (const v of ["0.11.0", "0.11", "0.99.0", "0.11.0-rc1", "1.0.0", "2.7.0"]) {
+    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.10: update the viewer.`, v);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
     "٠.٧", "０.７", 0.7, null, undefined]) {
@@ -419,50 +421,34 @@ inChrome("draws the items over the spaces and under the labels, each with a mark
   });
   equal(got.layers.indexOf("sp-items"), got.layers.indexOf("sp-containers") + 1, "over the spaces");
   truly(got.layers.indexOf("sp-items") < got.layers.indexOf("sp-walls") && got.labelsLast, `under the walls and labels: ${got.layers}`);
-  equal([got.items, got.desks, got.chairs, got.sofa, got.tv, got.copier, got.fronts, got.buttons], [9, 4, 4, 1, 1, 1, 8, 9], "drawn");
+  // (a desk alone, format 0.10: its chair an item of its own)
+  equal([got.items, got.desks, got.chairs, got.sofa, got.tv, got.copier, got.fronts, got.buttons], [9, 4, 0, 1, 1, 1, 8, 9], "drawn");
   equal(got.bed, 4, "the bed: its headboard, two pillows and where its covers turn down");
   equal(got.ap, [true, 2, true], "the access point: overhead, a wifi mark, upright on the screen");
   equal(got.fill, "rgb(59, 110, 165)", "the copier in its type's colour");
 });
 
-inChrome("a desk is drawn with what goes with its grade: visitors' chairs, a return, a cabinet, a high-backed chair", async (page) => {
-  const plans = [`${HQ}-F00`, `${HQ}-F01`].map((id) => floorFromPackage(hq, id));
-  equal(plans[0].items.find((i) => i.type === "DESK-DIRECTOR").grade, "director", "its type's grade");
-  const drawn = {};
-  for (const plan of plans) {
-    await page.run((p) => window.fresh({}, p), plan);
-    Object.assign(drawn, await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-item-desk")].map((g) => [
-      g.querySelector("title").textContent, [g.querySelectorAll(".sp-item-body").length, g.querySelectorAll(".sp-item-visitor").length,
-        g.querySelectorAll(".sp-item-back").length]]))));
-  }
-  // [desk, return, cabinet], visitors, chairs' backs (a high-backed one's and the visitors'),
-  // by name (they are drawn in the order of their IDs, which is no order)
-  const byName = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
-  equal(byName(drawn), byName({ "Director's desk": [3, 2, 3], "Senior staff desk": [2, 0, 0], "Junior staff desk": [1, 0, 0],
-    "Manager's desk": [2, 2, 2], "Head of section desk": [2, 1, 1] }), "by grade");
-  const older = floorFromPackage(pkg, "EWBSSN-DEMO-HQ-F00"); // 0.6: no grades in its catalogue
-  truly(older.items.every((i) => i.grade === null), "an older package's desks are plain");
-});
-
-inChrome("a meeting table is drawn with its chairs round it, as many as its size seats; a board table's high-backed", async (page) => {
-  const plan = floorFromPackage(hq, `${HQ}-F00`), first = plan.items.find((i) => i.mount === "floor");
-  const sizes = [[4, 1.2, 1.2], [6, 1.8, 0.9], [8, 2.4, 1.2], [12, 3.6, 1.4], [14, 4.2, 1.4], [16, 4.8, 1.5], [3, 1.6, 0.6]];
-  plan.items = sizes.map(([seats, w, d], i) => ({ ...first, id: `T${seats}`, type: `MEETING-TABLE-${seats}`, name: `${seats} seats`,
-    width: w, depth: d, grade: null, at: [first.at[0], first.at[1] + 4 * i] }));
+inChrome("a desk and a table are drawn alone (format 0.10: their chairs are items of their own); chairs, storage and a camera each with their mark", async (page) => {
+  const plan = floorFromPackage(hq, `${HQ}-F00`);
+  equal(plan.items.find((i) => i.type === "DESK-DIRECTOR").grade, "director", "its type's grade");
   await page.run((p) => window.fresh({}, p), plan);
-  const got = await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-item-table")].map((g) => {
-    const box = (r) => ["x", "y", "width", "height"].map((k) => +r.getAttribute(k));
-    const [tx, ty, tw, th] = box(g.querySelector(".sp-item-body"));
-    const chairs = [...g.querySelectorAll(".sp-item-chair:not(.sp-item-back)")].map(box);
-    return [g.dataset.spItem, {
-      chairs: chairs.length, backs: g.querySelectorAll(".sp-item-back").length,
-      clear: chairs.every(([x, y, w, h]) => x >= tx + tw - 1e-6 || x + w <= tx + 1e-6 || y >= ty + th - 1e-6 || y + h <= ty + 1e-6),
-      high: chairs.every(([, , w, h]) => Math.min(w, h) >= 0.6) }];
-  })));
-  // (a 1.6 by 0.6 table: two along each side, none at its narrow ends)
-  const want = Object.fromEntries(sizes.map(([seats, w]) => [`T${seats}`, { chairs: seats === 3 ? 4 : seats, backs: seats === 3 ? 4 : seats,
-    clear: true, high: w >= 3.6 }]));
-  equal(got, want, "by size");
+  const alone = await page.run(() => [...document.querySelectorAll(".sp-item-desk, .sp-item-table")].map((g) =>
+    g.querySelectorAll(".sp-item-body").length + g.querySelectorAll(".sp-item-chair").length));
+  truly(alone.length >= 2 && alone.every((n) => n === 1), `each desk and table its body alone: ${alone}`);
+  const first = plan.items.find((i) => i.mount === "floor");
+  const kinds = [["CHAIR-TASK", "chair", 0.62, 0.62, "floor"], ["CHAIR-VISITOR", "side_chair", 0.5, 0.5, "floor"],
+    ["ARMCHAIR", "armchair", 0.75, 0.75, "floor"], ["CUPBOARD", "storage", 0.9, 0.45, "floor"], ["CCTV-BULLET", "camera", 0.1, 0.25, "wall"],
+    ["CCTV-DOME", "camera", 0.15, 0.15, "ceiling"]];
+  plan.items = kinds.map(([type, shape, w, d, mount], i) => ({ ...first, id: `K${i}`, type, shape, width: w, depth: d, mount, grade: null,
+    at: [first.at[0], first.at[1] + 3 * i] }));
+  await page.run((p) => window.fresh({}, p), plan);
+  const got = await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-items [data-sp-item]")].map((g) => [g.dataset.spItem,
+    [[...g.classList].find((c) => /^sp-item-[a-z]+$/.test(c) && c !== "sp-item-overhead"), g.querySelectorAll(".sp-item-back").length,
+      g.querySelectorAll(".sp-item-mark:not(.sp-item-view)").length, g.querySelectorAll(".sp-item-view").length,
+      g.querySelector(".sp-item-body").tagName]])));
+  // [kind, backs (a chair's, an armchair's arms), marks (a cupboard's doors), views (what a camera looks at), its body]
+  equal(got, { K0: ["sp-item-chair", 1, 0, 0, "rect"], K1: ["sp-item-sidechair", 1, 0, 0, "rect"], K2: ["sp-item-armchair", 3, 0, 0, "rect"],
+    K3: ["sp-item-storage", 0, 2, 0, "rect"], K4: ["sp-item-camera", 0, 0, 1, "rect"], K5: ["sp-item-camera", 0, 0, 1, "circle"] }, "by shape");
 });
 
 inChrome("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or one not known, its code does", async (page) => {
@@ -472,7 +458,7 @@ inChrome("a type's shape (0.9.1) says how it is drawn, whatever its code; none, 
   }));
   const plan = floorFromPackage(shaped, `${HQ}-F00`);
   equal(plan.items.find((i) => i.type === "DESK-DIRECTOR").shape, "box", "a 0.9.1 package: the type's shape on the plan");
-  equal(floorFromPackage(hq, `${HQ}-F00`).items.every((i) => i.shape === null), true, "a 0.9.0 package's: none");
+  equal(floorFromPackage(hq, `${HQ}-F00`).items.every((i) => typeof i.shape === "string"), true, "a package's items: their types' shapes");
   const first = plan.items.find((i) => i.mount === "floor");
   const kinds = [["WORKSTATION-A", "desk", 1.4, 0.7], ["CONF-10", "meeting_table", 3.0, 1.2], ["DESK-MANAGER", "box", 1.8, 0.9],
     ["SOFA", "hammock", 2.0, 0.9], ["LOCKER-TALL", null, 0.6, 0.5]];
@@ -481,7 +467,8 @@ inChrome("a type's shape (0.9.1) says how it is drawn, whatever its code; none, 
   await page.run((p) => window.fresh({}, p), plan);
   const got = await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-items [data-sp-item]")].map((g) => [g.dataset.spItem,
     [[...g.classList].find((c) => c.startsWith("sp-item-")), g.querySelectorAll(".sp-item-chair:not(.sp-item-back)").length]])));
-  equal(got, { S0: ["sp-item-desk", 1], S1: ["sp-item-table", 10], S2: ["sp-item-plain", 0], S3: ["sp-item-sofa", 0],
+  // (0.9's meeting_table: a table, alone since 0.10, as a desk is)
+  equal(got, { S0: ["sp-item-desk", 0], S1: ["sp-item-table", 0], S2: ["sp-item-plain", 0], S3: ["sp-item-sofa", 0],
     S4: ["sp-item-plain", 0] }, "by its shape, else by its code");
 });
 
@@ -949,13 +936,16 @@ inChrome("a way draws itself in over frames, its end dropping in as the line get
 
 inChrome("a way's animation asks for frames only while it draws in or plays: none once it is still", async (page) => {
   await page.run((pkg) => (window.hq = pkg), hq);
-  const counts = await page.run(async () => {
+  // its way from the reception's kiosk to an office (003)
+  const ground = floorFromPackage(hq, `${HQ}-F00`), kiosk = ground.items.find((i) => i.type === "KIOSK").id;
+  const office = ground.spaces.find((x) => x.number === "003").id;
+  const counts = await page.run(async (kiosk, office) => {
     const raf = window.requestAnimationFrame.bind(window);
     let asked = 0;
     window.requestAnimationFrame = (fn) => { asked++; return raf(fn); };
     try {
-      await window.fresh({ motion: true }, window.sp.floorFromPackage(window.hq, window.sp.route(window.hq, "E33G-XX6M-4W4", "PZG39S-DEMO-HQ-F00-0003").legs[0].floor_id));
-      const way = window.sp.route(window.hq, "E33G-XX6M-4W4", "PZG39S-DEMO-HQ-F00-0003");
+      await window.fresh({ motion: true }, window.sp.floorFromPackage(window.hq, window.sp.route(window.hq, kiosk, office).legs[0].floor_id));
+      const way = window.sp.route(window.hq, kiosk, office);
       window.engine.showRoute(way);
       for (let i = 0; i < 600 && document.querySelector(".sp-route").dataset.spRouteDrawn !== "1"; i++) await new Promise((r) => raf(r));
       const drawing = asked;
@@ -965,7 +955,7 @@ inChrome("a way's animation asks for frames only while it draws in or plays: non
     } finally {
       window.requestAnimationFrame = raf;
     }
-  });
+  }, kiosk, office);
   truly(counts.drawing > 3, `frames while it drew in: ${counts.drawing}`);
   equal(counts.still, 0, "frames asked for once still (the dots flow by CSS alone)");
 });

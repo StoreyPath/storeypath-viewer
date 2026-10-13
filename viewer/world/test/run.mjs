@@ -30,7 +30,7 @@ register(`data:text/javascript,${encodeURIComponent(`
   }`)}`);
 const { FORMAT_VERSION, loadPackage } = await import("../../src/package.js");
 const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, originOf, outlineRect,
-  planFloor, roomFinder, setItems, stairFlights, tableChairs, toLocal } = await import("../../src/world/build.js");
+  planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
 const { TYPE_COLORS } = await import("../../src/theme.js");
@@ -92,11 +92,11 @@ test("a package of a newer minor version, or of no version, is refused; older on
     return loadPackage(bytes).then((pkg) => (pkg.manifest.format_version === version ? "read" : "read, another version"),
       (e) => e.message);
   };
-  for (const v of ["0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.9.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.10.0", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.10.1-rc.1", "0.9.0+build.5"]) {
     truly(await said(v) === "read", `${v}: ${await said(v)}`);
   }
-  for (const v of ["0.10.0", "0.10", "0.99.0", "0.10.0-rc1", "1.0.0", "2.7.0"]) {
-    const want = `This package is format ${v}, newer than this viewer's 0.9: update the viewer.`;
+  for (const v of ["0.11.0", "0.11", "0.99.0", "0.11.0-rc1", "1.0.0", "2.7.0"]) {
+    const want = `This package is format ${v}, newer than this viewer's 0.10: update the viewer.`;
     truly(await said(v) === want, `${v}: ${await said(v)}`);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
@@ -125,7 +125,7 @@ test("the baker writes each floor as binary glTF: its pieces, rooms, obstacles a
       "glass", "frame", "heads", "sills", "floor:shaft:hidden", "obstacles", "skirting", "trim", "handle", "sillBoard",
       "lights"]) truly(node(name), `no ${name}`);
     truly(!node("wallLow") && !node("wallCut"), "the walls cut low are made from the full ones, not stored");
-    truly(x.builder === BUILDER && BUILDER === 6, `builder ${x.builder}`);
+    truly(x.builder === BUILDER && BUILDER === 7, `builder ${x.builder}`);
     truly(node("lights").extras.view === "walk" && node("trim").extras.view === "full" && !node("skirting").extras.view,
       "panels show walking, architraves not in the cutaway, skirting always");
     // boxes (frames, doors, skirting, …) share their corners and have no normals: flat-shaded, as items are
@@ -165,7 +165,8 @@ for (const name of ["campus", "campus-hq"]) test(`the baker writes a floor's ite
     execFileSync(process.execPath, [join(root, "bake.mjs"), join(packages, `${name}.storeypath`), out]);
     const json = gltfJSON(readFileSync(join(out, readdirSync(out).find((f) => f.endsWith("-HQ-F00.glb")))));
     const x = json.scenes[0].extras.storeypath;
-    const held = { campus: 9, "campus-hq": 10 }[name]; // campus-hq: and a kiosk
+    // campus-hq: and a kiosk, the director's chair, a meeting table and its six chairs, a camera, a smoke detector and an extinguisher (0.10)
+    const held = { campus: 9, "campus-hq": 21 }[name];
     // an item's ID: an asset's tag (format 0.8), the project's number before (campus: 0.6)
     const itemId = name === "campus" ? (id) => /^[A-Z0-9]+-I\d{6}$/.test(id) : isItemId;
     truly(x.builder === BUILDER && x.items.length === held && x.items.every(itemId), JSON.stringify(x.items));
@@ -291,77 +292,55 @@ test("with no `local` (before 0.7) an item is placed by its point and heading on
   }
 });
 
-test("a desk is built with what goes with its grade: visitors' chairs, a return, a credenza, an executive chair", async () => {
-  const seen = {}; // a type's desk, as built: what is round it, in its own frame
-  for (const name of ["campus-hq", "campus-annex"]) {
-    const pkg = await loadPackage(readFileSync(join(packages, `${name}.storeypath`)));
-    const b = pkg.buildings[0].id;
-    for (const floor of pkg.floorsOf(b)) {
-      const plan = planFloor(pkg, floor, originOf(pkg, b));
-      const g = buildItems(plan).find((p) => p.name === "items")?.geometry;
-      if (!g) continue;
-      const item = g.getAttribute("_item"), pos = g.getAttribute("position");
-      plan.items.forEach((it, k) => {
-        if (!it.type.startsWith("DESK-")) return;
-        const at = []; // [across, ahead, up]
-        for (let i = 0; i < item.count; i++) {
-          if (item.getX(i) !== k) continue;
-          const x = pos.getX(i) - it.x, n = -pos.getZ(i) - it.n;
-          at.push([-x * it.fn + n * it.fx, x * it.fx + n * it.fn, pos.getY(i) - plan.elevation - it.y]);
-        }
-        const d = it.depth, [a0, b0, a1, b1, top] = itemExtent(it), front = at.filter(([, ahead]) => ahead < -d / 2 - 0.2);
-        seen[it.type] = {
-          return: at.some(([, ahead, up]) => ahead > d / 2 + 0.75 && ahead < d / 2 + 0.85 && up > it.height - 0.05),
-          cabinet: at.some(([, ahead]) => ahead > d / 2 + 1.3),
-          visitors: !front.length ? 0 : Math.max(...front.map(([across]) => Math.abs(across))) < 0.3 ? 1 : 2, // (in the middle, or two)
-          armchairs: front.some(([, ahead]) => ahead < -d / 2 - 0.75),
-          executive: at.some(([, , up]) => up > 1.15),
-          // what a click or the walker meets: all of it
-          within: at.every(([across, ahead, up]) => across >= a0 - 1e-3 && across <= a1 + 1e-3 && ahead >= b0 - 1e-3
-            && ahead <= b1 + 1e-3 && up >= -1e-3 && up <= top + 1e-3),
-        };
-      });
-    }
+/** An item built alone, facing the drawing's +y: its vertices in its own frame [across, ahead, up]. */
+function builtAlone(type, shape, [w, d, h], more = {}) {
+  const it = { id: "T", type, mount: "floor", x: 0, n: 0, fx: 0, fn: 1, width: w, depth: d, height: h, color: "#a8845e", grade: null,
+    shape, y: 0, ...more };
+  const g = buildItems({ elevation: 0, items: [it] }).find((p) => p.name === "items").geometry, pos = g.getAttribute("position");
+  const at = [];
+  for (let i = 0; i < pos.count; i++) at.push([-pos.getX(i), -pos.getZ(i), pos.getY(i)]);
+  return { it, at, kind: kindOf(it) };
+}
+// within its box (itemExtent), give or take what stands proud of its front (a handle, a hood)
+const withinBox = ({ it, at }, slack = 1e-3) => {
+  const [a0, b0, a1, b1, top] = itemExtent(it);
+  return at.every(([u, v, y]) => u >= a0 - slack && u <= a1 + slack && v >= b0 - slack && v <= b1 + slack && y >= -slack && y <= top + slack);
+};
+
+test("a desk and a table are built alone (format 0.10: their chairs are items of their own), within their footprint; an executive's desk otherwise", async () => {
+  const desks = [["DESK-JUNIOR", "junior", 1.2, 0.6], ["DESK-SENIOR", "senior", 1.4, 0.7], ["DESK-MANAGER", "manager", 1.8, 0.9],
+    ["DESK-DIRECTOR", "director", 2.0, 1.0], ["DESK-PRESIDENT", "president", 2.4, 1.2]];
+  const got = desks.map(([type, grade, w, d]) => {
+    const b = builtAlone(type, "desk", [w, d, 0.75], { grade });
+    return { type, alone: withinBox(b), vertices: b.at.length };
+  });
+  truly(got.every((g) => g.alone), `each desk within its footprint: ${JSON.stringify(got)}`);
+  const plain = builtAlone("DESK-X", "desk", [2.0, 1.0, 0.75], { grade: "manager" }).at.length;
+  const executive = builtAlone("DESK-X", "desk", [2.0, 1.0, 0.75], { grade: "director" }).at.length;
+  truly(plain !== executive, `an executive's desk on panel ends, not a frame: ${plain} ${executive}`);
+  for (const [w, d] of [[1.2, 1.2], [1.8, 0.9], [2.4, 1.2], [3.6, 1.4], [4.8, 1.5], [0.5, 0.5]]) {
+    const t = builtAlone("MEETING-TABLE-X", "table", [w, d, 0.75]);
+    // (its cables' box, in a long one's top, 5 mm proud of it)
+    truly(t.kind === "TABLE" && withinBox(t, 0.006) && !t.at.some(([, , y]) => y > 0.76), `a ${w} by ${d} table alone: ${t.kind}`);
   }
-  const of = (has) => ({ return: false, cabinet: false, visitors: 0, armchairs: false, executive: false, within: true, ...has });
-  const want = { "DESK-DIRECTOR": of({ return: true, cabinet: true, visitors: 2, executive: true }), "DESK-JUNIOR": of({}),
-    "DESK-MANAGER": of({ return: true, visitors: 2 }),
-    "DESK-PRESIDENT": of({ return: true, cabinet: true, visitors: 2, armchairs: true, executive: true }),
-    "DESK-SECTION-HEAD": of({ return: true, visitors: 1 }), "DESK-SENIOR": of({ return: true }) };
-  const got = Object.fromEntries(Object.entries(seen).sort(([a], [b]) => a.localeCompare(b)));
-  truly(JSON.stringify(got) === JSON.stringify(want), `by grade: ${JSON.stringify(got)}`);
 });
 
-// the catalogue's meeting tables: [seats, length, across] (Studio's catalogue.py)
-const TABLES = [[4, 1.2, 1.2], [6, 1.8, 0.9], [8, 2.4, 1.2], [12, 3.6, 1.4], [14, 4.2, 1.4], [16, 4.8, 1.5]];
-
-test("a meeting table is built with its chairs round it, as many as its size seats, facing it; a board table's high-backed", async () => {
-  const got = {};
-  for (const [seats, w, d] of TABLES) {
-    const it = { id: "T", type: `MEETING-TABLE-${seats}`, mount: "floor", x: 0, n: 0, fx: 0, fn: 1, width: w, depth: d, height: 0.75,
-      color: "#a8845e", grade: null, y: 0 };
-    const g = buildItems({ elevation: 0, items: [it] }).find((p) => p.name === "items").geometry, pos = g.getAttribute("position");
-    const at = []; // [across, ahead, up]: its own frame (here facing the drawing's +y)
-    for (let i = 0; i < pos.count; i++) at.push([-pos.getX(i), -pos.getZ(i), pos.getY(i)]);
-    const { at: chairs, board } = tableChairs(w, d), [a0, b0, a1, b1, top] = itemExtent(it);
-    got[seats] = {
-      chairs: chairs.length,
-      // each clear of the table: a seat where it stands, its back's top on the far side from the table
-      seated: chairs.every(([x, z, turn]) => {
-        const ox = -Math.sin(turn), oz = Math.cos(turn), near = at.filter(([u, v]) => Math.hypot(u - x, v - z) < 0.45);
-        return (Math.abs(x) > w / 2 || Math.abs(z) > d / 2) && near.some(([, , y]) => y > 0.4 && y < 0.5)
-          && near.some(([u, v, y]) => y > 0.95 && (u - x) * ox + (v - z) * oz > 0.15);
-      }),
-      board,
-      high: at.some(([, , y]) => y > 1.15),
-      // what a click or the walker meets: all of it
-      within: at.every(([u, v, y]) => u >= a0 - 1e-3 && u <= a1 + 1e-3 && v >= b0 - 1e-3 && v <= b1 + 1e-3 && y >= -1e-3 && y <= top + 1e-3),
-    };
+test("the shapes of 0.10 each build within their box: chairs facing ahead (high-backed when wide), storage, a camera", async () => {
+  const back = ({ at }) => at.filter(([, , y]) => y > 0.8); // a chair's back, above its seat
+  for (const [shape, size, kind, high] of [["chair", [0.62, 0.62, 1.0], "CHAIR", false], ["chair", [0.7, 0.7, 1.25], "CHAIR", true],
+    ["side_chair", [0.5, 0.5, 0.88], "SIDECHAIR", false], ["armchair", [0.75, 0.75, 0.88], "ARMCHAIR", false]]) {
+    const c = builtAlone("CHAIR-X", shape, size);
+    truly(c.kind === kind && withinBox(c, 0.01), `${shape} ${size}: within its box`);
+    truly(back(c).length && back(c).every(([, ahead]) => ahead < 0.05), `${shape}: facing ahead, its back behind it`);
+    truly(c.at.some(([, , y]) => y > 1.15) === high, `${shape} ${size}: high-backed ${high}`);
   }
-  const want = Object.fromEntries(TABLES.map(([seats, w]) => [seats, { chairs: seats, seated: true, board: w >= 3.6, high: w >= 3.6, within: true }]));
-  truly(JSON.stringify(got) === JSON.stringify(want), `by size: ${JSON.stringify(got)}`);
-  const narrow = tableChairs(1.6, 0.6).at;
-  truly(narrow.length === 4 && narrow.every(([x]) => Math.abs(x) < 0.8), `a narrow table has none at its ends: ${JSON.stringify(narrow)}`);
+  const pedestal = builtAlone("PEDESTAL", "storage", [0.42, 0.55, 0.6]), cupboard = builtAlone("CUPBOARD", "storage", [0.9, 0.45, 2.0]);
+  truly(pedestal.kind === "STORAGE" && withinBox(pedestal, 0.025) && withinBox(cupboard, 0.025)
+    && pedestal.at.length !== cupboard.at.length, "storage: drawers, or a cupboard with doors");
+  const dome = builtAlone("CCTV-DOME", "camera", [0.15, 0.15, 0.12], { mount: "ceiling" });
+  const bullet = builtAlone("CCTV-BULLET", "camera", [0.1, 0.25, 0.1], { mount: "wall" });
+  truly(dome.kind === "CAMERA" && withinBox(dome) && withinBox(bullet, 0.035) && dome.at.length !== bullet.at.length,
+    "a camera: a dome under the ceiling, a body on a bracket on a wall");
 });
 
 test("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or one not known, its code does; a box is a box", async () => {
@@ -375,15 +354,16 @@ test("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or o
   const desk = drawn("WORKSTATION-A", "desk", 1.4, 0.7), junior = drawn("DESK-JUNIOR", null, 1.4, 0.7);
   truly(desk.kind === "DESK" && same(desk, junior), `a workstation shaped as a desk, drawn as one: ${JSON.stringify([desk, junior])}`);
   const conf = drawn("CONF-10", "meeting_table", 3.0, 1.2), meeting = drawn("MEETING-TABLE-X", null, 3.0, 1.2);
-  truly(conf.kind === "MEETING" && same(conf, meeting) && tableChairs(3.0, 1.2).at.length === 10,
-    `a conference table shaped as a meeting table, its ten chairs round it: ${JSON.stringify([conf, meeting])}`);
+  const table = drawn("CONF-10", "table", 3.0, 1.2);
+  truly(conf.kind === "TABLE" && same(conf, meeting) && same(conf, table) && same(conf.extent, [-1.5, -0.6, 1.5, 0.6, 0.75]),
+    `0.9's meeting_table, and a MEETING- code: a table alone (0.10): ${JSON.stringify([conf, meeting, table])}`);
   const box = drawn("DESK-MANAGER", "box", 1.8, 0.9);
   truly(box.kind === "plain" && box.vertices === 8 && same(box.extent, [-0.9, -0.45, 0.9, 0.45, 0.75]), `a desk shaped as a box: ${JSON.stringify(box)}`);
   const unknown = drawn("SOFA", "hammock", 2, 0.9), sofa = drawn("SOFA", null, 2, 0.9);
   truly(sofa.kind === "SOFA" && same(unknown, sofa), `a shape not known: by its code: ${JSON.stringify([unknown, sofa])}`);
   truly(drawn("LOCKER-TALL", null, 0.6, 0.5).kind === "plain" && kindOf({ type: "X", shape: "constructor" }) === "plain"
     && kindOf({ type: "TOSTRING" }) === "plain", "a code it does not know, and no shape: a box");
-  // a 0.9.1 package: the floor's items have their types' shapes; a 0.9.0 package's, none
+  // a package's items have their types' shapes (0.9.1), a shape changed there the item's
   const f0 = (pkg) => planFloor(pkg, pkg.floorsOf(HQ).find((f) => f.id.endsWith("-F00")), originOf(pkg, HQ));
   const shaped = await loadPackage(repack(join(packages, "campus-hq.storeypath"), (files) => {
     files.get("manifest.json").format_version = "0.9.1";
@@ -391,7 +371,7 @@ test("a type's shape (0.9.1) says how it is drawn, whatever its code; none, or o
   }));
   const director = f0(shaped).items.find((i) => i.type === "DESK-DIRECTOR");
   const plain = f0(await loadPackage(readFileSync(join(packages, "campus-hq.storeypath"))));
-  truly(director?.shape === "box" && kindOf(director) === "plain" && plain.items.every((i) => i.shape === null),
+  truly(director?.shape === "box" && kindOf(director) === "plain" && plain.items.every((i) => typeof i.shape === "string"),
     `the package's shapes: ${director?.shape}, ${plain.items.map((i) => i.shape)}`);
 });
 
@@ -739,7 +719,7 @@ test("items of a kind and size are copies of one template: a thousand desks in m
   const [piece] = buildItems(plan);
   const took = performance.now() - t;
   const one = triangles(piece) / 1000;
-  truly(Number.isInteger(one) && one > 300, `${one} triangles a desk`);
+  truly(Number.isInteger(one) && one > 100, `${one} triangles a desk`); // (alone, 0.10: a top on its frame)
   truly(took < 60, `a thousand desks in ${took.toFixed(1)} ms`);
 });
 

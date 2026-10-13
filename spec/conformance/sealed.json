@@ -3,7 +3,7 @@
   "password": "correct horse battery staple",
   "rounds": 1000,
   "piece": 16384,
-  "pieces": 4,
+  "pieces": 5,
   "plain": "packages/campus-hq.storeypath",
-  "plain_sha256": "19bdfb06b7ef706f960fad7677dacf04407feac43205a3be454f4026b9e5a351"
+  "plain_sha256": "693cc6fcde80ac3e66e789b8371f803bd6d55edd0b6f9ebe17bbeb9970aff99b"
 }

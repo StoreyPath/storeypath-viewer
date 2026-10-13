@@ -117,9 +117,10 @@ quality, drawn, why }`: below), `doors` (`"auto"` or `"manual"`), `aimedDoor` (w
 the door <kbd>E</kbd> works: `{ id, open, under }`, under the pointer within reach, else the
 nearest ahead; or null).
 
-Items (format 0.6: desks, photocopiers, access points, sofas, TVs, …) are drawn
-in their type's colour as shapes of their kind (a desk with its chair on five
-spokes, and what goes with its grade: visitors' chairs, a return, a credenza), or as
+Items (format 0.6: desks, chairs, tables, cupboards, cameras, access points, sofas, TVs,
+…) are drawn in their type's colour as shapes of their kind (format 0.10: a desk or a
+table alone, an office chair on five spokes, a visitor's chair, a cupboard with its
+doors, a camera's dome or body), or as
 their type's 3D model when it has one (format 0.9.2: `models/<CODE>.glb`, made the
 item's size; one that cannot be read leaves the type its shape), on
 their floor, where they

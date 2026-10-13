@@ -70,10 +70,21 @@
           "type": "string"
         },
         "category": {
+          "description": "its type's category (format 0.10): what it is for, of the catalogue's",
           "enum": [
+            "workstations",
+            "seating",
+            "tables",
+            "storage",
+            "soft_seating",
+            "beds",
             "furniture",
-            "equipment",
-            "appliance"
+            "security",
+            "fire_safety",
+            "it_av",
+            "building_services",
+            "appliances",
+            "equipment"
           ],
           "title": "Category",
           "type": "string"

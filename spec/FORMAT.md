@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.9.3
+# StoreyPath package format — version 0.10.0
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -243,9 +243,11 @@ the manifest's `export.previous_sequence`.
 
 ## Items
 
-Items are the furniture and equipment people place on floors: desks (by grade:
-a manager's, a junior staff member's), meeting tables, central photocopiers, wireless
-access points, sofas, TVs. `items.geojson` holds them; `catalogue.json` says what each type is.
+Items are the furniture and the building's equipment people place on floors, each piece
+an item of its own: desks (by grade: a manager's, a junior staff member's), chairs,
+meeting tables, cupboards, sofas; cameras, card readers, smoke detectors, fire
+extinguishers, wireless access points, photocopiers, air-conditioning units.
+`items.geojson` holds them; `catalogue.json` says what each type is.
 
 **An item's ID does not say where it is, nor whose it is.** It is an asset ID, the
 tag on the asset: ten random symbols and a check symbol, `7K2Q-XM9F-4DP` (Asset IDs,
@@ -257,7 +259,7 @@ Like every ID, an item's is never issued again once it is retired.
 { "type": "Feature", "id": "7K2Q-XM9F-4DP",
   "geometry": { "type": "Polygon", "coordinates": [ … ] },     // its footprint, on the map
   "properties": {
-    "kind": "item", "type": "DESK-MANAGER", "category": "furniture", "name": "Manager's desk",
+    "kind": "item", "type": "DESK-MANAGER", "category": "workstations", "name": "Manager's desk",
     "floor_id": "K7Q2XM-RUH-HQ-F02", "building_id": "K7Q2XM-RUH-HQ",
     "space_id": "K7Q2XM-RUH-HQ-F02-0142", "zone_id": null,       // where its middle stands
     "local": { "x_m": 31.25, "y_m": 12.4, "rotation_deg": 90 },  // where it stands in its building
@@ -285,7 +287,7 @@ Like every ID, an item's is never issued again once it is retired.
 
 `catalogue.json` (`schema/catalogue.schema.json`) lists the types: a `code` that is
 kept for good and never given to another type (a type no longer used is `retired`),
-English and Arabic names, a `category` (furniture, equipment, appliance), a size, how
+English and Arabic names, a `category` (Categories, below), a size, how
 it is mounted (`floor`, `wall`, `ceiling`), a colour (`#rrggbb`), `workplaces` (how many people work
 at one: a desk, 1; 0 for most else), `grade` (who a desk is for, 0.7), `shape` (how it is
 drawn, 0.9.1: Shapes, below), `model` (its 3D model, 0.9.2: Models, below), and its `fields`. Each field
@@ -298,17 +300,34 @@ while an item has it), or, exported so, the whole catalogue (0.9.1; before, alwa
 whole). A type a package does not hold is not removed: a reader keeping types adds new
 ones and updates those it has, and takes none away.
 
-**Shapes (0.9.1).** A type's `shape` says how its items are drawn, whatever its code:
-`desk` (a desk with its chair, and what goes with its `grade`), `meeting_table` (a table
-with as many chairs round it as its size seats), `sofa`, `screen` (a TV or a display on a
-wall), `copier`, `bed`, `kiosk`, `access_point` (a disc under the ceiling), or `box` (a
-box of its size). Absent or null, a type is drawn by its code's first part, as before
-0.9.1: `DESK`, `MEETING`, `SOFA`, `TV` or `SCREEN`, `COPIER` or `PRINTER`, `ACCESS`, `BED`,
-`KIOSK`; any other code as a box (on the ceiling, a disc when it is about as wide as it is
-deep). A shape a reader does not know (a later version's) is drawn as if the type had
-none. Its size, colour and grade are the type's whatever its shape. The shape says only
-how a type looks: what it is stays with its code (a wayfinding kiosk is a `KIOSK` type,
-below, whatever its shape).
+**Categories (0.10).** A type's `category`, and its items', says what it is: furniture
+by what it is for, `workstations` (desks), `seating` (chairs), `tables`, `storage`
+(drawers, cupboards, lockers), `soft_seating` (sofas, armchairs), `beds`; the building's
+equipment by the system it is part of, `security` (cameras, card readers, door
+controllers), `fire_safety` (detectors, call points, extinguishers, emergency lights,
+first aid), `it_av` (access points, network racks, printers, screens, kiosks),
+`building_services` (air conditioning, electrical panels, water heaters), `appliances`
+(fridges, coffee machines); and `furniture` or `equipment`, anything else of either. A
+package of 0.9 has `furniture`, `equipment` or `appliance` (read as `appliances`).
+
+**Shapes (0.9.1; 0.10).** A type's `shape` says how its items are drawn, whatever its code:
+`desk` (a desk alone: on panel ends with a drawer pedestal when its `grade` is director,
+c_level or president, else on a steel frame), `table` (a table alone), `chair` (an office
+chair on castors, high-backed when it is 0.66 m wide or more), `side_chair` (a visitor's
+chair), `armchair`, `sofa`, `storage` (a drawer pedestal when it is low and narrow, else
+a cupboard, its doors at its front), `screen` (a TV or a display on a wall), `copier`,
+`bed`, `kiosk`, `access_point` (a disc under the ceiling), `camera` (looking the way its
+front faces: a dome under the ceiling, else a body on a bracket), or `box` (a box of its
+size). Since 0.10 every piece is an item of its own: a desk's chair, a return, a credenza
+and visitors' chairs, a meeting table's chairs, each have a type and an ID, and a desk or a
+table is drawn without them; a chair's front is where its sitter looks. A package of 0.9
+may say `meeting_table`, drawn as a `table`. Absent or null, a type is drawn by its code's
+first part, as before 0.9.1: `DESK`, `MEETING` (a table), `SOFA`, `TV` or `SCREEN`, `COPIER`
+or `PRINTER`, `ACCESS`, `BED`, `KIOSK`; any other code as a box (on the ceiling, a disc
+when it is about as wide as it is deep). A shape a reader does not know (a later
+version's) is drawn as if the type had none. Its size, colour and grade are the type's
+whatever its shape. The shape says only how a type looks: what it is stays with its code
+(a wayfinding kiosk is a `KIOSK` type, below, whatever its shape).
 
 **Models (0.9.2).** A type may come with a 3D model of what it is: a supplier's model of
 that sofa, that copier. Its `model` is the model's path in the package, always `models/`,
@@ -811,6 +830,18 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
 
+## Changes from 0.9.3
+
+- Categories (Items): a type's and an item's `category` is one of `workstations`,
+  `seating`, `tables`, `storage`, `soft_seating`, `beds`, `furniture`, `security`,
+  `fire_safety`, `it_av`, `building_services`, `appliances`, `equipment`; 0.9's
+  `appliance` is read as `appliances`.
+- Every piece of furniture an item of its own: a desk (`desk`) and a table (`table`, in
+  place of `meeting_table`) are drawn alone, their chairs types and items of their own.
+  New shapes: `table`, `chair`, `side_chair`, `armchair`, `storage`, `camera`.
+- A minor version: a reader of 0.9 refuses a 0.10 package (Versioning), as what a desk
+  and a meeting table are drawn with changed.
+
 ## Changes from 0.9.2
 
 - Spaces' `wall_finishes` (Finishes): walls finished otherwise than the rest, one by
@@ -929,7 +960,7 @@ newer than it, and ignores unknown files, properties, and `objects.csv` rows of 
 does not know (as 0.6 added items), with the IDs of those rows where `changes.json` lists
 them. Before 1.0 a minor version may change what a package means (0.4's `scope`, 0.7's
 one building per package), so a reader refuses a package of a newer minor version
-(0.10 for a reader of 0.9), saying it must be updated; a newer patch version (0.9.1)
+(0.11 for a reader of 0.10), saying it must be updated; a newer patch version (0.10.1)
 only adds properties and is read. From 1.0, a reader reads any package of its major
 version. A format version is ASCII `major.minor`, an optional `.patch`, and an optional
 `-` or `+` suffix (`^[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.-]+)?$`); a reader refuses

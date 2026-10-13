@@ -176,7 +176,7 @@ type Item struct {
 	// Type is a code of the catalogue (DESK-MANAGER, COPIER, …); Name is that
 	// type's English name, for a reader that does not read the catalogue.
 	Type     string `json:"type"`
-	Category string `json:"category"` // furniture, equipment or appliance
+	Category string `json:"category"` // one of ItemCategories (format 0.10)
 	Name     string `json:"name"`
 	Floor    string `json:"floor_id"`
 	Building string `json:"building_id"`
@@ -289,7 +289,8 @@ type ItemType struct {
 	Grade      *string `json:"grade"`
 	// Shape is how it is drawn (format 0.9.1), one of ItemShapes; nil: by its code's
 	// first part (DESK-MANAGER as a desk), else as a box. A shape a later version adds
-	// is kept as it is written (a viewer that does not know it draws by the code).
+	// is kept as it is written (a viewer that does not know it draws by the code); 0.9's
+	// meeting_table (a table with its chairs) is a table since 0.10.
 	Shape *string `json:"shape"`
 	// Model is the path of its 3D model in the package (format 0.9.2): always
 	// models/<CODE>.glb, binary glTF in the type's own frame (FORMAT.md, Models); nil:
@@ -299,10 +300,18 @@ type ItemType struct {
 	Retired bool        `json:"retired"`
 }
 
-// ItemShapes are the shapes an item type may be drawn as (catalogue.json, format 0.9.1).
-// The shape says only how it is drawn; what a type is stays with its code (a KIOSK is a
-// wayfinding kiosk whatever its shape).
-var ItemShapes = []string{"desk", "meeting_table", "sofa", "screen", "copier", "bed", "kiosk", "access_point", "box"}
+// ItemShapes are the shapes an item type may be drawn as (catalogue.json, format 0.9.1;
+// 0.10: a desk and a table alone, their chairs types of their own). The shape says only
+// how it is drawn; what a type is stays with its code (a KIOSK is a wayfinding kiosk
+// whatever its shape).
+var ItemShapes = []string{"desk", "table", "chair", "side_chair", "armchair", "sofa", "storage", "screen", "copier", "bed",
+	"kiosk", "access_point", "camera", "box"}
+
+// ItemCategories are what an item type may be (catalogue.json and items.geojson, format
+// 0.10), in order: furniture by what it is for, the building's equipment by the system it
+// is part of; "furniture" and "equipment", anything else of either.
+var ItemCategories = []string{"workstations", "seating", "tables", "storage", "soft_seating", "beds", "furniture",
+	"security", "fire_safety", "it_av", "building_services", "appliances", "equipment"}
 
 // ItemField is a detail the items of a type carry, and who enters it.
 type ItemField struct {

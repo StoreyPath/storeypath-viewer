@@ -30,7 +30,7 @@ of this repository, so a package and the code that reads it always agree.
 
 `StoreyPathWorld` builds a building from its package alone: walls at the thickness they
 were drawn, doors with architraves and handles, windows with glass, skirting, stairs with their steps, furniture
-with its chairs (each desk with what its grade has, a meeting table as many as it seats;
+and equipment, each piece an item of its own (format 0.10: a desk, a table, each chair;
 each type drawn as its 3D model when it has one, else as its catalogue's shape says, else
 as its code's first part does),
 floors and walls in their finishes,

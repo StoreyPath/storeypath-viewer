@@ -85,8 +85,9 @@ var (
 	grades        = []string{"president", "c_level", "director", "manager", "section_head", "senior", "junior"}
 	capacityFroms = []string{"review", "items"}
 	mounts        = []string{"floor", "wall", "ceiling"}
-	categories    = []string{"furniture", "equipment", "appliance"}
-	colourRE      = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	// Categories (format 0.10); "appliance", 0.9's, still read in an older package
+	categories = append(slices.Clone(ItemCategories), "appliance")
+	colourRE   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
 
 // maxWorkplaces: the most people who work at one item (a bench of desks).
@@ -388,7 +389,7 @@ func (p *Package) Validate() []Problem {
 			add(ProblemValue, itemsFile, it.ID, "%s: mount %q is not floor, wall or ceiling", it.ID, it.Mount)
 		}
 		if !slices.Contains(categories, it.Category) {
-			add(ProblemValue, itemsFile, it.ID, "%s: category %q is not furniture, equipment or appliance", it.ID, it.Category)
+			add(ProblemValue, itemsFile, it.ID, "%s: category %q is not one of the format's (%s)", it.ID, it.Category, strings.Join(ItemCategories, ", "))
 		}
 		geometryOf(it.ID, it.Geometry, itemsFile, false, add)
 		if it.Geometry != nil && it.Geometry.Type != "Polygon" {
@@ -403,7 +404,7 @@ func (p *Package) Validate() []Problem {
 				add(ProblemValue, file, ty.Code, "%s: type %s: colour %q is not #rrggbb", file, ty.Code, ty.Color)
 			}
 			if ty.Category != "" && !slices.Contains(categories, ty.Category) {
-				add(ProblemValue, file, ty.Code, "%s: type %s: category %q is not furniture, equipment or appliance", file, ty.Code, ty.Category)
+				add(ProblemValue, file, ty.Code, "%s: type %s: category %q is not one of the format's (%s)", file, ty.Code, ty.Category, strings.Join(ItemCategories, ", "))
 			}
 			if ty.Mount != "" && !slices.Contains(mounts, ty.Mount) {
 				add(ProblemValue, file, ty.Code, "%s: type %s: mount %q is not floor, wall or ceiling", file, ty.Code, ty.Mount)
