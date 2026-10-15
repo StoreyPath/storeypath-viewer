@@ -1,7 +1,7 @@
 export { FloorPlanEngine } from "./engine.js";
 export type { EngineOptions, PlayRouteOptions, RouteProgressDetail, RouteStepDetail, SelectDetail, ShowRouteOptions } from "./engine.js";
 export { ROUTE_GLYPHS, glyphOf } from "./glyphs.js";
-export { floorFromPackage } from "./package.js";
+export { byLevel, floorFromPackage, inOrder } from "./package.js";
 export type { FromPackageOptions, PackageLike } from "./package.js";
 export { readPackage, checkVersion, FORMAT, FORMAT_VERSION, SUPPORTED_MAJOR_VERSION } from "./read.js";
 export type { PackageRead } from "./read.js";

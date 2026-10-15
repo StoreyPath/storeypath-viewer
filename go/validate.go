@@ -62,7 +62,9 @@ const (
 	ProblemValue         = "VALUE"          // a value the format does not allow: a type the manifest's types do not list, a negative capacity, a grade, mount, category or colour not of the format, a finish's code not of the form of a floor's or a wall's (format 0.9), a camera's view past all round or of no range (0.10)
 	ProblemNavigation    = "NAVIGATION"     // (0.8) the walking network names a building, floor, space or zone not in the package, holds a node twice, or an edge joins a node it does not have (or two nodes another edge joins), or has no line
 	ProblemItemElsewhere = "ITEM_ELSEWHERE" // (ValidateAcross) an item's ID is an item of another project, in another package
-	ProblemDrawing       = "DRAWING"        // (0.10.1) a floor's drawing: a source names one not at drawings/<floor-id>.view, of a floor not in the package, or not in it; it is not a drawing view this reader reads (gzip, SPDV, its head, format 1, its arrays and batches whole), or not in metres; the manifest lists drawings/ with none named, or names some without listing it; a file under drawings/ no source names
+	ProblemMezzanine     = "MEZZANINE"      // (0.11) a mezzanine's host is not a floor of its building that is not a mezzanine, of its ordinal; its above_host_m is not more than 0, or its elevation is not its host's and above_host_m; a floor that is not a mezzanine names a host or an above_host_m
+	ProblemFloorOrdinal  = "FLOOR_ORDINAL"  // (0.11) two floors of a building that are not mezzanines have one ordinal, or two floors of a building one code
+	ProblemDrawing       = "DRAWING"        // (0.11) a floor's drawing: a source names one not at drawings/<floor-id>.view, of a floor not in the package, or not in it; it is not a drawing view this reader reads (gzip, SPDV, its head, format 1, its arrays and batches whole), or not in metres; the manifest lists drawings/ with none named, or names some without listing it; a file under drawings/ no source names
 )
 
 var kindLevel = map[string]string{
@@ -102,6 +104,10 @@ const maxRangeM = 500.0
 var knownKinds = map[string]bool{"project": true, "location": true, "building": true, "floor": true,
 	"space": true, "zone": true, "opening": true, "item": true}
 
+// elevationAgreesM: how far a mezzanine's elevation may be from its host's and its
+// height above it (each kept to the millimetre).
+const elevationAgreesM = 0.01
+
 // localAgreesM: how far an item's map position may be from its position in its
 // building (the package keeps 7 decimals of a degree, about a centimetre), and
 // headingAgreesDeg how far its heading may be from the way it faces in its building
@@ -124,7 +130,7 @@ var kindRoles = map[string]string{
 // (0.7) their position in their building, which their map position must agree
 // with through the building's placement. From 0.7 a package holds one building.
 // The walking network (0.8), when there is one: what its nodes are on and in, and
-// what its edges join. The floors' drawings (0.10.1), when it carries them: each
+// what its edges join. The floors' drawings (0.11), when it carries them: each
 // where its source says, a drawing view read whole, in metres.
 // No problems means the package can be linked to as it is.
 func (p *Package) Validate() []Problem {
@@ -311,6 +317,57 @@ func (p *Package) Validate() []Problem {
 	for _, f := range p.Floors {
 		parent(f.ID, f.Building, "building", floorsFile)
 	}
+	// floors (0.11): one of each ordinal in a building that is not a mezzanine, and any
+	// mezzanines on it; each code once in a building
+	ordinals, floorCodes := map[string]string{}, map[string]string{}
+	for _, f := range p.Floors {
+		if !f.Mezzanine {
+			key := fmt.Sprintf("%s %d", f.Building, f.Ordinal)
+			if other, ok := ordinals[key]; ok {
+				add(ProblemFloorOrdinal, floorsFile, f.ID, "%s: floor %d of building %s, as %s is (only a mezzanine shares a floor's ordinal)",
+					f.ID, f.Ordinal, f.Building, other)
+			} else {
+				ordinals[key] = f.ID
+			}
+		}
+		key := f.Building + " " + f.Code
+		if other, ok := floorCodes[key]; ok {
+			add(ProblemFloorOrdinal, floorsFile, f.ID, "%s: code %s, as floor %s of its building has", f.ID, f.Code, other)
+		} else {
+			floorCodes[key] = f.ID
+		}
+	}
+	// a mezzanine (0.11) stands in a floor of its building that is not a mezzanine (its
+	// host), of the same ordinal, above_host_m above it
+	for _, f := range p.Floors {
+		if !f.Mezzanine {
+			if f.Host != nil || f.AboveHost != nil {
+				add(ProblemMezzanine, floorsFile, f.ID, "%s: not a mezzanine, yet it names a host floor or a height above one", f.ID)
+			}
+			continue
+		}
+		var host *Floor
+		if f.Host != nil {
+			host = p.Floor(*f.Host)
+		}
+		switch {
+		case f.Host == nil:
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: a mezzanine with no host floor", f.ID)
+		case host == nil || *f.Host == f.ID || host.Building != f.Building:
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: its host %s is not another floor of its building in the package", f.ID, *f.Host)
+		case host.Mezzanine:
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: its host %s is a mezzanine", f.ID, host.ID)
+		case host.Ordinal != f.Ordinal:
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: ordinal %d, its host %s's is %d", f.ID, f.Ordinal, host.ID, host.Ordinal)
+		}
+		switch {
+		case f.AboveHost == nil || !(*f.AboveHost > 0):
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: a mezzanine's above_host_m is more than 0", f.ID)
+		case host != nil && math.Abs(host.Elevation+*f.AboveHost-f.Elevation) > elevationAgreesM:
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: elevation %.3f m is not its host's (%.3f m) and above_host_m (%.3f m)",
+				f.ID, f.Elevation, host.Elevation, *f.AboveHost)
+		}
+	}
 	zonesOf := map[string]map[string]bool{}
 	for _, s := range p.Spaces {
 		parent(s.ID, s.Floor, "floor", spacesFile)
@@ -487,7 +544,7 @@ func (p *Package) Validate() []Problem {
 		}
 	}
 
-	// the floors' drawings (0.10.1): named by their floor's source, in the folder the
+	// the floors' drawings (0.11): named by their floor's source, in the folder the
 	// manifest lists, each a drawing view of a format this reader reads, in metres (the
 	// building's own frame)
 	folder, listed := m.Files["drawings"]

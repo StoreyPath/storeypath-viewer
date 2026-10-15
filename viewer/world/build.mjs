@@ -32,7 +32,7 @@ copyFileSync(join(here, "src/world.d.ts"), join(dist, "world.d.ts"));
 copyFileSync(join(here, "src/support.d.ts"), join(dist, "support.d.ts"));
 copyFileSync(join(here, "../src/navigation.d.ts"), join(dist, "navigation.d.ts")); // the way (format 0.8), shared
 copyFileSync(join(here, "../src/ids.d.ts"), join(dist, "ids.d.ts")); // items' IDs (format 0.8), shared
-for (const name of ["drawing.d.ts", "view.d.ts", "drawing.css"]) { // a floor's drawing (format 0.10.1)
+for (const name of ["drawing.d.ts", "view.d.ts", "drawing.css"]) { // a floor's drawing (format 0.11)
   copyFileSync(join(here, "../src/drawing", name), join(dist, name));
 }
 

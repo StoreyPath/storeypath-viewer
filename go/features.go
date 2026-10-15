@@ -32,11 +32,18 @@ type Floor struct {
 	Code     string `json:"code"`
 	Name     string `json:"name"`
 	Building string `json:"building_id"`
-	// Ordinal: 0 the ground floor, negative below ground.
+	// Ordinal: 0 the ground floor, negative below ground; a mezzanine's is its host's.
 	Ordinal int `json:"ordinal"`
 	// Elevation above the building's ground floor, and floor-to-floor height (m).
 	Elevation float64 `json:"elevation"`
 	Height    float64 `json:"height"`
+	// Mezzanine (format 0.11): a floor standing in another floor of its building,
+	// its Host (that floor's ID, a floor that is not a mezzanine), over part of it,
+	// AboveHost metres above it: its Elevation is the host's and AboveHost. Host and
+	// AboveHost are nil for any other floor (and in packages before 0.11).
+	Mezzanine bool     `json:"mezzanine"`
+	Host      *string  `json:"host_floor_id"`
+	AboveHost *float64 `json:"above_host_m"`
 	// Walls as drawn, with their door and window gaps; full height except the
 	// parapets, which are ParapetHeight high.
 	Walls         *Geometry `json:"walls"`

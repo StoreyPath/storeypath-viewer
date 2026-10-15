@@ -1,7 +1,7 @@
 """The conformance corpus: what every reader of the format (Studio's Python, the Go
 module in go/, the viewer's JavaScript) must read the same way.
 
-Packages of this format (0.10: one building per package, with its walking network, its
+Packages of this format (0.11: one building per package, with its walking network, its
 rooms' finishes, and each piece of furniture an item of its own), made by ``campus``: one project, the demo campus (two buildings
 placed on the map, with lifts and stairs through their floors, one floor's corridor
 divided into two zones by a line drawn in review and named there, CORRIDOR and HALL,
@@ -41,7 +41,7 @@ F0-322 retyped, the open office's south half divided again);
 simple-office-world.storeypath (``world``: simple-office pre-built in 3D, as Studio
 exports it when Node.js is there).
 
-packages/drawn-office.storeypath (``drawings``, format 0.10.1): a package that carries its
+packages/drawn-office.storeypath (``drawings``, format 0.11): a package that carries its
 drawings (FORMAT.md, Drawings), all of it made up. One sheet holds two floors of an office
 side by side, GROUND FLOOR PLAN and FIRST FLOOR PLAN (each 48 by 20 m, 70 m apart), and
 notes beside them; the first floor's region of the sheet is moved 70 m onto the ground
@@ -51,8 +51,19 @@ floor or the notes. The first floor's region holds two texts beside its plan tha
 privacy rules change: a telephone number (left out) and an office with a person's name
 (SITE OFFICE MR. JOHN DOE: SITE OFFICE is kept).
 
-routes.json (``routes``, which ``campus`` runs too): ways on campus-hq and
-campus-annex (format 0.8, Navigation) that every reader must find the same, each
+packages/mezzanine-warehouse.storeypath (``mezzanine``, format 0.11): a made-up warehouse
+with a mezzanine (FORMAT.md, Mezzanines). Its ground floor, 7 m high, and its first floor
+are office floors, each 48 by 20 m; the mezzanine (M00) stands in the ground floor, 3.5 m
+above it: a block of rooms 20 by 8.5 m at the west end (a corridor, an office and a store),
+at the top of the stairs, which are drawn where they are on all three floors (one stack:
+Ground to Mezzanine to First). The lifts pass the mezzanine (Ground to First). Its drawing
+holds the building's outline too, alone on a layer of its own: the mezzanine's outline is
+its block, not the building's. The floors are listed Ground, Mezzanine, First, the
+mezzanine with the ground floor's ordinal.
+
+routes.json (``routes``, which ``campus`` and ``mezzanine`` run too): ways on campus-hq,
+campus-annex and mezzanine-warehouse (format 0.8, Navigation) that every reader must find
+the same, each
 from a place to a place (a kiosk's item, an entrance, a room, a zone, a desk), some
 on lifts alone (accessible), with the way Studio finds: its nodes, legs, changes of
 floor, length, time and steps. Kept to the packages as they are: run ``routes``
@@ -73,7 +84,7 @@ Readers make their own broken variants of these packages to test their checks.
 Run from studio/ after a format change, and commit the result:
 
     uv run python ../spec/conformance/make.py campus           # one step: campus, simple-office, world, routes, asset-ids,
-                                                               # drawings
+                                                               # drawings, mezzanine
 
 Every run makes new projects, so new IDs: remake only what changed. ``world`` makes
 no project: it bakes simple-office as it is (it needs Node.js), so run it after a
@@ -90,7 +101,7 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-STEPS = ("campus", "simple-office", "world", "routes", "asset-ids", "drawings")
+STEPS = ("campus", "simple-office", "world", "routes", "asset-ids", "drawings", "mezzanine")
 
 
 def main(names: list[str]) -> None:
@@ -107,7 +118,9 @@ def main(names: list[str]) -> None:
             simple_office(work)
         if "world" in names:
             world()
-        if "campus" in names or "routes" in names:
+        if "mezzanine" in names:
+            mezzanine_warehouse(work)
+        if {"campus", "routes", "mezzanine"} & set(names):
             routes()
         if "asset-ids" in names:
             asset_ids()
@@ -258,8 +271,26 @@ def routes() -> None:
     entrance_a = next(n["id"] for n in nav_a["nodes"] if n["kind"] == "entrance" and n["floor_id"].endswith("-F00"))
     cases.append(("the Annex's entrance to the president's desk", "campus-annex.storeypath", entrance_a, president,
                   False))
+    # through a mezzanine (0.11): the stairs serve it (Ground to Mezzanine to First), the lifts pass it
+    nav_w, items_w, spaces_w = read("mezzanine-warehouse.storeypath")
+
+    def room(floor: str, number: str | None = None, kind: str = "office") -> str:
+        return next(i for i, f in sorted(spaces_w.items()) if f["properties"]["floor_id"].endswith(floor)
+                    and f["properties"]["type"] == kind and number in (None, f["properties"]["number"]))
+
+    entrance_w = next(n["id"] for n in nav_w["nodes"] if n["kind"] == "entrance" and n["floor_id"].endswith("-F00"))
+    warehouse = "mezzanine-warehouse.storeypath"
+    cases += [
+        ("an office to an office upstairs, up the stairs by the mezzanine", warehouse, room("-F00", "001"),
+         room("-F01", "112"), False),
+        ("an office to an office upstairs, by lift past the mezzanine", warehouse, room("-F00", "001"),
+         room("-F01", "112"), True),
+        ("the entrance to the office on the mezzanine", warehouse, entrance_w, room("-M00"), False),
+        ("the office on the mezzanine to an office upstairs", warehouse, room("-M00"), room("-F01", "112"), False),
+    ]
     out = []
-    graphs = {"campus-hq.storeypath": (Graph(nav), items), "campus-annex.storeypath": (Graph(nav_a), items_a)}
+    graphs = {"campus-hq.storeypath": (Graph(nav), items), "campus-annex.storeypath": (Graph(nav_a), items_a),
+              warehouse: (Graph(nav_w), items_w)}
     for name, package, start, end, accessible in cases:
         graph, its = graphs[package]
         out.append({"name": name, "package": package, "from": start, "to": end, "accessible": accessible,
@@ -488,6 +519,17 @@ def drawn_office(work: Path) -> None:
         convert_floor(ws, f_id, work)
     out = HERE / "packages" / "drawn-office.storeypath"
     export_package(ws, out, bake=False, drawings=FloorViews(lambda src: work / src.path))
+    print(f"wrote {out}")
+
+
+def mezzanine_warehouse(work: Path) -> None:
+    """mezzanine-warehouse.storeypath: a made-up warehouse with a mezzanine (format 0.11);
+    see the module."""
+    from storeypath.export import export_package
+    from storeypath.samples import mezzanine_warehouse as warehouse
+
+    out = HERE / "packages" / "mezzanine-warehouse.storeypath"
+    export_package(warehouse(work / "warehouse"), out, bake=False)
     print(f"wrote {out}")
 
 

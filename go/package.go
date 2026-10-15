@@ -18,7 +18,7 @@ import (
 // does not know are ignored.
 const (
 	FormatName    = "storeypath-package"
-	FormatVersion = "0.10.1"
+	FormatVersion = "0.11.0"
 )
 
 // oneBuildingFrom: from format 0.7 a package holds exactly one building.
@@ -102,7 +102,7 @@ type Source struct {
 	Floor  string  `json:"floor_id"`
 	File   string  `json:"file"`
 	SHA256 *string `json:"sha256"`
-	// View (format 0.10.1) is the floor's drawing as drawn, in the package
+	// View (format 0.11) is the floor's drawing as drawn, in the package
 	// (drawings/<floor-id>.view: Drawing), when its export carried the drawings; nil
 	// when it did not.
 	View *string `json:"view"`
@@ -222,7 +222,7 @@ type Package struct {
 	Catalogue *Catalogue
 
 	navigation *Navigation // navigation.json (format 0.8): Navigation()
-	// drawings: each floor's drawing the manifest's sources name (format 0.10.1):
+	// drawings: each floor's drawing the manifest's sources name (format 0.11):
 	// Drawing, HasDrawing; limits: those it was read within (DrawingView.Arrays)
 	drawings map[string]*drawingFile
 	limits   Limits
@@ -473,7 +473,7 @@ func Read(r io.ReaderAt, size int64, limits Limits) (*Package, error) {
 			p.read[f.role] = true
 		}
 	}
-	// each floor's drawing (format 0.10.1), as its source names it
+	// each floor's drawing (format 0.11), as its source names it
 	if err := p.readDrawings(a); err != nil {
 		return nil, err
 	}
@@ -627,7 +627,9 @@ func (p *Package) KiosksOn(floorID string) []*Item {
 // package has no catalogue or no such type.
 func (p *Package) ItemType(code string) *ItemType { return p.Catalogue.Type(code) }
 
-// FloorsOf is a building's floors, lowest first.
+// FloorsOf is a building's floors, lowest first: by ordinal, then elevation (format
+// 0.11: a mezzanine, of its host's ordinal, comes above its host and below the next
+// floor up), then ID.
 func (p *Package) FloorsOf(buildingID string) []*Floor {
 	var out []*Floor
 	for _, f := range p.Floors {
@@ -635,8 +637,35 @@ func (p *Package) FloorsOf(buildingID string) []*Floor {
 			out = append(out, f)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Ordinal < out[j].Ordinal })
+	sort.SliceStable(out, func(i, j int) bool { return FloorBefore(out[i], out[j]) })
 	return out
+}
+
+// FloorBefore says whether floor a comes before floor b in their building's order
+// (format 0.11): by ordinal, then elevation, then ID.
+func FloorBefore(a, b *Floor) bool {
+	if a.Ordinal != b.Ordinal {
+		return a.Ordinal < b.Ordinal
+	}
+	if a.Elevation != b.Elevation {
+		return a.Elevation < b.Elevation
+	}
+	return a.ID < b.ID
+}
+
+// GroundFloor is a building's ground floor: its floor of ordinal 0 that is not a
+// mezzanine, else its lowest; nil when it has none.
+func (p *Package) GroundFloor(buildingID string) *Floor {
+	floors := p.FloorsOf(buildingID)
+	for _, f := range floors {
+		if f.Ordinal == 0 && !f.Mezzanine {
+			return f
+		}
+	}
+	if len(floors) > 0 {
+		return floors[0]
+	}
+	return nil
 }
 
 // SpacesOn is a floor's spaces, ZonesOf a space's zones, OpeningsOn a floor's

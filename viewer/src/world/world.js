@@ -887,7 +887,7 @@ export class StoreyPathWorld extends EventTarget {
     const ray = this.#caster.ray;
     const walking = this.#mode === "walk";
     const floors = walking ? [this.#floors.get(this.#walkFloor)].filter(Boolean)
-      : [...this.#floors.values()].filter((f) => f.group.visible).sort((a, b) => b.ordinal - a.ordinal);
+      : [...this.#floors.values()].filter((f) => f.group.visible).sort((a, b) => b.level - a.level);
     let best = null, plane = null;
     for (const f of floors) {
       const got = this.#aimOn(f, ray);
@@ -1581,11 +1581,16 @@ export class StoreyPathWorld extends EventTarget {
     }
   }
 
-  /** Go up (+1) or down (−1) a floor, from where the walker stands. */
+  /** Go up (+1) or down (−1) a floor, from where the walker stands: on stairs or in a lift,
+   * to the next floor that way they serve (stairs that pass a mezzanine, 0.11, go past
+   * it); elsewhere, to the next floor in the building's order. */
   changeFloor(step) {
     const list = this.#floorList();
     const current = this.#walkFloor ? list.findIndex((f) => f.id === this.#walkFloor) : -1;
-    const next = list[current + step];
+    const stack = current >= 0 ? this.#stackAt(list[current].id) : null;
+    const served = stack ? list.filter((f, i) => (step > 0 ? i > current : i < current)
+      && this.#pkg.spacesOn(f.id).some((s) => s.properties.stack === stack)) : [];
+    const next = (step > 0 ? served[0] : served.at(-1)) ?? list[current + step];
     if (!next) return false;
     const p = this.#camera.position;
     this.#walkTo(next.id, p.x, p.z);
@@ -1594,6 +1599,15 @@ export class StoreyPathWorld extends EventTarget {
     this.#applyVisibility();
     this.#emit("floorchange", { id: next.id, floors: this.floors });
     return true;
+  }
+
+  /** The stack (0.8) of the lift, stairs, escalator or ramp the walker stands in on a
+   * floor, or null. */
+  #stackAt(floorId) {
+    const f = this.#floors.get(floorId);
+    const here = f && this.#spaceAt(f, this.#camera.position.x, this.#camera.position.z);
+    if (!here || !VERTICAL.has(here.type)) return null;
+    return this.#pkg.get(here.space ?? here.id)?.properties.stack ?? null; // (a zone's: its space's)
   }
 
   /** Whether the walker stands where floors can be changed: stairs or a lift, or
@@ -2387,7 +2401,8 @@ export class StoreyPathWorld extends EventTarget {
     pieces.push(...cutPieces(pieces, e, o));
     const group = new THREE.Group();
     group.name = floor.id;
-    const built = { id: floor.id, group, elevation: e, height: plan.height, ordinal: plan.ordinal, prebuilt: Boolean(baked),
+    const built = { id: floor.id, group, elevation: e, height: plan.height, ordinal: plan.ordinal, level: this.#levelOf(floor),
+      prebuilt: Boolean(baked),
       spaces: [], pieces: [], rooms, wallRings: plan.wallRings, bounds: plan.bounds, bounds3: new THREE.Box3(),
       // the furniture and equipment: as planned, the IDs their geometry indexes, the
       // pre-built pieces of each form, and each form's meshes once shown
@@ -2603,7 +2618,16 @@ export class StoreyPathWorld extends EventTarget {
   // ---- what is shown -------------------------------------------------------------
 
   #offset(floor) {
-    return this.#mode === "dollhouse" && !this.#floor ? floor.ordinal * this.#o.explode : 0;
+    return this.#mode === "dollhouse" && !this.#floor ? floor.level * this.#o.explode : 0;
+  }
+
+  /** Where a floor is in its building's order (by ordinal, then elevation: a mezzanine,
+   * format 0.11, of its host's ordinal, above it), counted from the ground floor: the
+   * ground floor 0, a mezzanine on it 1, the first floor 2, a basement -1. What is
+   * stacked, shown up to and exploded apart by, as floors may share an ordinal. */
+  #levelOf(floor) {
+    const list = this.#pkg.floorsOf(floor.properties.building_id);
+    return list.indexOf(floor) - Math.max(0, list.indexOf(this.#pkg.groundFloor(floor.properties.building_id)));
   }
 
   /** How many floors are shown: walking, the walker's (the floors under it are seen
@@ -2627,7 +2651,7 @@ export class StoreyPathWorld extends EventTarget {
     const form = one ? "detailed" : "light";
     // a way shown, over the whole building: the floors above the highest it goes to are left out
     const top = !walking && !this.#floor && this.#route
-      ? Math.max(...this.#route.legs.map((l) => l.floor.ordinal)) : Infinity;
+      ? Math.max(...this.#route.legs.map((l) => l.floor.level)) : Infinity;
     // a way over the whole building: the floors it does not walk on faded back; on a way of
     // several floors, those but the one it is at too (so that it shows through them); and,
     // all asked for, the floors it only goes past in a lift or up the stairs left out
@@ -2641,7 +2665,7 @@ export class StoreyPathWorld extends EventTarget {
     const s = STYLES[this.#style], q = QUALITY[this.#drawn];
     for (const f of this.#floors.values()) {
       // Walking: the floors up to yours, open to the sky. Dollhouse: one or all.
-      const shown = walking ? Boolean(wf) && f.ordinal <= wf.ordinal : (walked ? walked.has(f) : this.#askedFor(f)) && f.ordinal <= top;
+      const shown = walking ? Boolean(wf) && f.level <= wf.level : (walked ? walked.has(f) : this.#askedFor(f)) && f.level <= top;
       f.group.visible = shown;
       if (shown && way && (!onWay.has(f) || (at && f !== at))) faded.add(f);
       f.group.position.y = this.#offset(f);
@@ -2724,7 +2748,7 @@ export class StoreyPathWorld extends EventTarget {
    * for the top one only: a lower one's would show through it. */
   #topShown() {
     const list = [...this.#floors.values()].filter((f) => !this.#set || this.#set.has(f.id));
-    return list.length ? list.reduce((a, b) => (b.ordinal > a.ordinal ? b : a)) : null;
+    return list.length ? list.reduce((a, b) => (b.level > a.level ? b : a)) : null;
   }
 
   // ---- walking -----------------------------------------------------------------------

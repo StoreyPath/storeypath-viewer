@@ -10,7 +10,7 @@ lines, triangles, points and texts they come to.
 StoreyPath Studio makes one of a whole drawing for its drawing viewer. A package may carry
 each floor's part of its drawing, cut to the floor's region of it and in the building's
 own frame, so that a reader shows the real drawing under the plan (FORMAT.md, "Drawings",
-format 0.10.1). The viewer reads both (`viewer/src/drawing/`: `readDrawingView`, and
+format 0.11). The viewer reads both (`viewer/src/drawing/`: `readDrawingView`, and
 `DrawingView` draws one); the Go module reads a package's (`Package.Drawing`).
 
 ## The file

@@ -6,7 +6,7 @@ import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, loadPackage
 import { webglSupport as check } from '@storeypath/viewer-world/support';
 import { DrawingView, readDrawingView, type DrawingCamera, type DrawingMark } from '@storeypath/viewer-world';
 
-/** A floor's drawing (format 0.10.1) under a plan: its own view, following the plan's camera. */
+/** A floor's drawing (format 0.11) under a plan: its own view, following the plan's camera. */
 export async function drawingOf(element: HTMLElement, data: ArrayBuffer, floor: string): Promise<number> {
 	const pkg = await loadPackage(data);
 	if (!pkg.hasDrawing(floor)) return 0;

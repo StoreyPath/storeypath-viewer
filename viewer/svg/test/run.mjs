@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launch, movedEast, readPackage, repack, serve, wrapped } from "./harness.mjs";
 import { LocalFrame } from "../dist/frame.js";
-import { floorFromPackage } from "../dist/package.js";
+import { byLevel, floorFromPackage } from "../dist/package.js";
 import { inside } from "../dist/geometry.js";
 import { FORMAT_VERSION, readPackage as readInBrowsers } from "../dist/read.js";
 import { Graph, route } from "../dist/navigation.js";
@@ -133,6 +133,31 @@ test("readPackage reads a package file as the test's own ZIP reader does", async
   truly(/not a StoreyPath package/.test(said), `a file that is not a package: ${said}`);
 });
 
+/** campus-hq (floors 0, 1 and 2) as a made-up warehouse with a mezzanine (format 0.11): the
+ * floor two up made a mezzanine 2.5 m over the ground floor, of its ordinal, and the
+ * floors listed backwards in the file. */
+const withMezzanine = (path) => repack(path, (files) => {
+  const floors = files.get("floors.geojson").features;
+  const at = (n) => floors.find((f) => f.properties.ordinal === n);
+  const ground = at(0), mezz = at(2);
+  Object.assign(mezz.properties, { name: "Mezzanine", mezzanine: true, host_floor_id: ground.id, above_host_m: 2.5,
+    ordinal: 0, elevation: ground.properties.elevation + 2.5 });
+  floors.reverse();
+});
+
+// spec/FORMAT.md, "Floors" (0.11): floors may share an ordinal; a building's are in order by ordinal, then elevation
+test("readPackage gives a building's floors in its order: a mezzanine (0.11) between its host and the floor above", async () => {
+  const read = await readInBrowsers(withMezzanine(join(conformance, "packages/campus-hq.storeypath")));
+  equal(read.floors.map((f) => [f.properties.ordinal, f.properties.mezzanine ?? false]), [[0, false], [0, true], [1, false]],
+    "Ground, Mezzanine, First");
+  equal(read.floors.map((f) => f.properties.elevation), [...read.floors].sort(byLevel).map((f) => f.properties.elevation),
+    "byLevel: the same order");
+  const [ground, mezz, first] = read.floors;
+  truly(!ground.properties.mezzanine && mezz.properties.host_floor_id === ground.id && first.properties.ordinal === 1,
+    `${ground.id}, ${mezz.id} of ${mezz.properties.host_floor_id}, ${first.id}`);
+  truly(floorFromPackage(read, mezz.id).spaces.length > 0, "the mezzanine's plan is read as any floor's");
+});
+
 // spec/FORMAT.md, "Versioning": a reader reads its own major version, not newer than it
 test("a package of a newer minor version, or of no version, is refused; older ones and newer patches are read", async () => {
   const path = join(conformance, "packages/campus-hq.storeypath");
@@ -147,11 +172,11 @@ test("a package of a newer minor version, or of no version, is refused; older on
       return e.message;
     }
   };
-  for (const v of ["0.10.0", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.10.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.11.1-rc.1", "0.9.0+build.5"]) {
     equal(await said(v), "read", v);
   }
-  for (const v of ["0.11.0", "0.11", "0.99.0", "0.11.0-rc1", "1.0.0", "2.7.0"]) {
-    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.10: update the viewer.`, v);
+  for (const v of ["0.12.0", "0.12", "0.99.0", "0.12.0-rc1", "1.0.0", "2.7.0"]) {
+    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.11: update the viewer.`, v);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
     "٠.٧", "０.７", 0.7, null, undefined]) {
@@ -164,8 +189,8 @@ test("a package with its floors pre-built in 3D (0.5, world/) reads as one witho
   equal(floorFromPackage(read, FLOOR), floorFromPackage(pkg, FLOOR), "the same floor");
 });
 
-// spec/FORMAT.md, "Drawings" (0.10.1): a floor's drawing as drawn, where its plan is
-test("a floor's drawing (0.10.1) lies on its plan: its walls on the floor's walls, in the building's own metres", async () => {
+// spec/FORMAT.md, "Drawings" (0.11): a floor's drawing as drawn, where its plan is
+test("a floor's drawing (0.11) lies on its plan: its walls on the floor's walls, in the building's own metres", async () => {
   const read = await readInBrowsers(readFileSync(join(conformance, "packages/drawn-office.storeypath")));
   const floors = read.floors.map((f) => f.id).sort();
   equal(floors.length, 2, "two floors");

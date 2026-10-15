@@ -6,7 +6,7 @@ export { webglSupport, type WebGLSupport } from './support.js';
 // finding the way (format 0.8): the module both viewers share
 export { route, shortest, Graph } from './navigation.js';
 export { ITEM_ID_ALPHABET, itemCheckSymbol, isItemId, normalizeItemId } from './ids.js';
-// a floor's drawing as drawn (format 0.10.1): read (view.js) and drawn (drawing.js); its CSS is dist/drawing.css
+// a floor's drawing as drawn (format 0.11): read (view.js) and drawn (drawing.js); its CSS is dist/drawing.css
 export { DrawingView, DRAWING_VIEW_FORMAT, readDrawingView, parseDrawingView, linesOn, textsOf } from './drawing.js';
 export type { Box, DrawingBatch, DrawingCamera, DrawingCursor, DrawingLayer, DrawingLook, DrawingMark, DrawingViewData,
 	DrawingViewEvents, DrawingViewHead, DrawingViewOptions } from './drawing.js';
@@ -69,6 +69,33 @@ export interface Feature<P = Record<string, unknown>> {
 	geometry: Geometry | null;
 	properties: P;
 }
+
+/** A floor (floors.geojson). A mezzanine (format 0.11) stands in another floor of its
+ * building, its host, over part of it: it has its host's `ordinal`, and its `elevation` is
+ * the host's and `above_host_m`. A building's floors are in order by ordinal, then
+ * elevation (byLevel): Ground, Mezzanine, First. */
+export interface FloorProperties {
+	kind: 'floor';
+	code: string;
+	name: string;
+	building_id: string;
+	/** 0 the ground floor, negative below it; a mezzanine's is its host's. */
+	ordinal: number;
+	/** Metres above the building's ground floor. */
+	elevation: number;
+	/** Its height, metres (floor to floor; a mezzanine's, its own). */
+	height: number;
+	/** Whether it is a mezzanine (format 0.11; absent before: false). */
+	mezzanine?: boolean;
+	/** A mezzanine's host floor's ID; null otherwise. */
+	host_floor_id?: string | null;
+	/** A mezzanine's level above its host's, metres; null otherwise. */
+	above_host_m?: number | null;
+	[key: string]: unknown;
+}
+
+/** Floors in their building's order (format 0.11): by ordinal, then elevation (then ID). */
+export declare function byLevel(a: Feature<FloorProperties>, b: Feature<FloorProperties>): number;
 
 /** A piece of furniture or equipment (items.geojson, format 0.6). Its ID is an asset's
  * tag (format 0.8: 7K2Q-XM9F-4DP, isItemId), not its place nor its project's. Where it stands is
@@ -223,8 +250,8 @@ export declare class StoreyPathPackage {
 	readonly scope: string[] | null;
 	/** Whether the package holds a building: always for the whole project; for a part, when it is in the scope. */
 	holds(buildingId: string): boolean;
-	/** Floors of a building, lowest first. */
-	floorsOf(buildingId: string): Feature[];
+	/** Floors of a building, lowest first: by ordinal, then elevation (a mezzanine above its host). */
+	floorsOf(buildingId: string): Feature<FloorProperties>[];
 	spacesOn(floorId: string): Feature[];
 	zonesOf(spaceId: string): Feature[];
 	unitsOn(floorId: string): Feature[];
@@ -232,7 +259,8 @@ export declare class StoreyPathPackage {
 	itemsOn(floorId: string): Feature<ItemProperties>[];
 	/** An item type of the catalogue by its code (an item's `type`), or null. */
 	itemType(code: string): ItemType | null;
-	groundFloor(buildingId: string): Feature | null;
+	/** The building's floor of ordinal 0 that is not a mezzanine, else its lowest. */
+	groundFloor(buildingId: string): Feature<FloorProperties> | null;
 	hierarchy(id: string): {
 		project: { id: string; name: string };
 		location: Feature | null;
@@ -250,7 +278,7 @@ export declare class StoreyPathPackage {
 	hasModel(code: string): boolean;
 	/** An item type's 3D model as binary glTF (parseModel reads it), or null when the package has none. */
 	model(code: string): Promise<ArrayBuffer | null>;
-	/** Whether a floor comes with its drawing (format 0.10.1: the export carried the drawings). */
+	/** Whether a floor comes with its drawing (format 0.11: the export carried the drawings). */
 	hasDrawing(floorId: string): boolean;
 	/** A floor's drawing as drawn: a drawing view (gzip; readDrawingView or DrawingView's open read it) in the
 	 * building's own metres, or null when the package has none. */

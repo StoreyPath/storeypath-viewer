@@ -18,7 +18,7 @@ whose Review edits on top of the 3D world through its [editing API](#the-3d-worl
   TypeScript, with its own build and tests.
 - **`DrawingView`** in [`src/drawing/`](src/drawing/), a drawing as its own program
   shows it: every line, hatch, text and layer of a floor's drawing, drawn with WebGL,
-  under the plan or on its own (format 0.10.1: a package carries its floors' drawings
+  under the plan or on its own (format 0.11: a package carries its floors' drawings
   when its export was asked to; StoreyPath Studio's drawing viewer is this too).
 - **`@storeypath/viewer-world`** in [`world/`](world/): the 3D world as one ES
   module with three.js and JSZip inside, type declarations, and `webglSupport()`
@@ -358,7 +358,7 @@ isItemId("7K2Q-XM9F-4DP");        // true: as a package writes it
 
 ## The drawing
 
-A package exported with its drawings (format 0.10.1, [FORMAT.md](../spec/FORMAT.md),
+A package exported with its drawings (format 0.11, [FORMAT.md](../spec/FORMAT.md),
 "Drawings") carries each floor's drawing as drawn: its part of its drawing, every line,
 hatch, fill and text on every layer, in the building's own metres, where the plan's rooms
 are. Each is a drawing view ([DRAWING-VIEW.md](../spec/DRAWING-VIEW.md)): gzip, a head of
@@ -523,9 +523,15 @@ try {
 
 The package object (`viewer.package`, or `loadPackage(source)` on its own):
 `get(id)`, `hierarchy(id)` → `{ project, location, building, floor, object }`,
-`floorsOf(buildingId)`, `spacesOn(floorId)`, `doorsOf(spaceId)`,
+`floorsOf(buildingId)`, `groundFloor(buildingId)`, `spacesOn(floorId)`, `doorsOf(spaceId)`,
 `search(query, { type, buildingId, floorId, limit })`, and the raw `manifest`,
-`buildings`, `floors`, `spaces`, `openings` collections.
+`buildings`, `floors`, `spaces`, `openings` collections. A building's floors may share an
+ordinal (format 0.11): a mezzanine (`mezzanine: true`) stands in its host floor
+(`host_floor_id`), `above_host_m` above it, with the host's ordinal. `floorsOf` gives them
+in the building's order, by ordinal then elevation (`byLevel`): Ground, Mezzanine, First;
+`groundFloor` is the floor of ordinal 0 that is not a mezzanine. The 3D world stacks,
+explodes and shows floors in that order, and walking from stairs or a lift goes to the
+next floor up or down they serve.
 
 ## Examples
 

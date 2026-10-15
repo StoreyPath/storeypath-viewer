@@ -20,7 +20,14 @@ interface Feature<P> {
   properties: P;
 }
 
-interface FloorProps { building_id: string; walls?: Geometry | null; parapets?: Geometry | null }
+interface FloorProps {
+  building_id: string; name?: string; walls?: Geometry | null; parapets?: Geometry | null;
+  /** 0 the ground floor, negative below it; a mezzanine's is its host's. Metres above the ground floor. */
+  ordinal?: number; elevation?: number;
+  /** A mezzanine (format 0.11): a floor standing in another floor of its building (its host,
+   * ``host_floor_id``), ``above_host_m`` above it. */
+  mezzanine?: boolean; host_floor_id?: string | null; above_host_m?: number | null;
+}
 interface SpaceProps {
   floor_id: string; type: string; name?: string | null; number?: string | null; drawing_label?: string | null;
   display_point: LonLat; zones?: string[]; hidden?: boolean; ignored?: boolean;
@@ -69,6 +76,22 @@ const COLOR = /^#[0-9a-f]{6}$/i;
 /** The grades a desk may be for (catalogue.json, format 0.7): no other reaches the page. */
 const GRADES = new Set(["president", "c_level", "director", "manager", "section_head", "senior", "junior"]);
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+
+/** Floors of one building in its order (format 0.11): by ordinal, then elevation, so a
+ * mezzanine (its host's ordinal, above it) comes between its host and the floor above:
+ * Ground, Mezzanine, First. Two at one elevation (two mezzanines on a floor) by ID, as Studio lists them. */
+export function byLevel(a: Feature<FloorProps>, b: Feature<FloorProps>): number {
+  const p = a.properties, q = b.properties;
+  return (p.ordinal ?? 0) - (q.ordinal ?? 0) || (p.elevation ?? 0) - (q.elevation ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/** A package's floors, each building's in its order (byLevel), the buildings as the package
+ * first lists them. */
+export function inOrder<F extends Feature<FloorProps>>(floors: F[]): F[] {
+  const first = new Map<string, number>();
+  floors.forEach((f, i) => { if (!first.has(f.properties.building_id)) first.set(f.properties.building_id, i); });
+  return [...floors].sort((a, b) => first.get(a.properties.building_id)! - first.get(b.properties.building_id)! || byLevel(a, b));
+}
 
 /** A floor of a package, ready to draw. */
 export function floorFromPackage(pkg: PackageLike, floorId: string, options: FromPackageOptions = {}): FloorPlan {

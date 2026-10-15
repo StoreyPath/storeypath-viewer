@@ -14,7 +14,7 @@
 // finds the way from one place in a building to another (a kiosk to an office), the
 // same way every StoreyPath reader finds it, with its line on each floor and its
 // steps; with RouteOptions.Accessible, on lifts and ramps alone. Drawing gives a
-// floor's drawing as drawn, when the package carries the drawings (format 0.10.1):
+// floor's drawing as drawn, when the package carries the drawings (format 0.11):
 // its bytes for a viewer, and its head.
 //
 // The module uses only Go's standard library, so it can be pinned and vendored

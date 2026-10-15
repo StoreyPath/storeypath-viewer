@@ -34,9 +34,12 @@ what it is called, which spaces can be chosen, and what happens when one is.
 
 `example/index.html` opens any `.storeypath` file (build first, then serve the
 `viewer/` folder: `npm run build && cd .. && python3 -m http.server`, and open
-`/svg/example/`). A package that carries its floors' drawings (format 0.10.1) shows each
+`/svg/example/`). A package that carries its floors' drawings (format 0.11) shows each
 under its plan there (*Drawing*): the viewer's `DrawingView` (WebGL, `../src/drawing/`),
 following the plan's camera; `readPackage` gives a floor's as `drawing(floorId)`.
+`readPackage` gives each building's floors in its order, by ordinal then elevation
+(`byLevel`, format 0.11: a mezzanine, of its host floor's ordinal, between it and the
+floor above).
 
 ## What is shown
 

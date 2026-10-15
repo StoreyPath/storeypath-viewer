@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.10.1
+# StoreyPath package format — version 0.11.0
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -20,7 +20,7 @@ A copy of this document is included in every package.
 | `manifest.json` | Format version, project, export number, file list, counts, the building's placement, and the building it holds (`scope`) |
 | `location.geojson` | Locations (sites, campuses) |
 | `buildings.geojson` | The building, with its footprint |
-| `floors.geojson` | Floors, with their outline, order, elevation and height |
+| `floors.geojson` | Floors, with their outline, order, elevation and height; a mezzanine with the floor it stands in (Mezzanines, 0.11) |
 | `spaces.geojson` | Rooms, offices, corridors, elevators, stairs, …: what walls and doors enclose |
 | `zones.geojson` | The parts of an open space with no wall between them (a majlis and a dining area in one hall) |
 | `openings.geojson` | Doors and other ways through, and which spaces each one connects |
@@ -32,7 +32,7 @@ A copy of this document is included in every package.
 | `schema/*.schema.json` | JSON Schema for every JSON file |
 | `world/<floor-id>.glb` | Optional: each floor already built in 3D, as binary glTF (Pre-built 3D) |
 | `models/<CODE>.glb` | Optional: an item type's 3D model, as binary glTF (Models, 0.9.2) |
-| `drawings/<floor-id>.view` | Optional: each floor's drawing as drawn, its part of its drawing in the building's own frame (Drawings, 0.10.1) |
+| `drawings/<floor-id>.view` | Optional: each floor's drawing as drawn, its part of its drawing in the building's own frame (Drawings, 0.11) |
 | `FORMAT.md` | This document |
 
 Readers locate each file through `manifest.json → files`, by its role (`location`,
@@ -115,12 +115,14 @@ convex hull of its buildings (or null).
 null if no floor has been converted).
 
 **floor** — `code`, `name`, `building_id`, `ordinal` (0 = ground, negative = below
-ground), `elevation` (m above the ground floor), `height` (floor-to-floor, m),
-`walls` (the walls as drawn, with their door and window gaps: a Polygon or
-MultiPolygon, for drawing or modelling the floor; they rise to the ceiling),
-`wall_thickness_m`, `parapets` (the low walls around terraces, balconies and roofs,
-`parapet_height_m` high: a Polygon or MultiPolygon, or null) and
-`parapet_height_m`. Geometry: floor outline (or null).
+ground; a mezzanine's is the floor's it stands in), `elevation` (m above the ground
+floor), `height` (floor-to-floor, m; a mezzanine's its own), `mezzanine`,
+`host_floor_id` and `above_host_m` (Mezzanines), `walls` (the walls as drawn, with their
+door and window gaps: a Polygon or MultiPolygon, for drawing or modelling the floor; they
+rise to the ceiling), `wall_thickness_m`, `parapets` (the low walls around terraces,
+balconies and roofs, `parapet_height_m` high: a Polygon or MultiPolygon, or null) and
+`parapet_height_m`. Geometry: floor outline (or null): a mezzanine's covers its own
+rooms, not the floor under it.
 
 **space** — `type`, `name`, `number`, `drawing_label`, `floor_id`, `area_m2`,
 `display_point` (a good spot for its label), `zones`, `outdoor` (open to the sky: a terrace or balcony with no
@@ -428,6 +430,54 @@ from a package is never read so: it is written as above, or it is not an ID.
 `spec/conformance/asset-ids.json` holds check symbols, IDs right and wrong, and what
 people type with what it reads as, for every reader to agree on.
 
+## Mezzanines (0.11)
+
+A mezzanine is a floor standing in another floor of its building, over part of it (a block
+of rooms up a stair in a double-height hall, a gallery). It is a floor like any other, with
+its own code, rooms, doors, items and walking network, and three properties more:
+
+```json
+"properties": { "kind": "floor", "code": "M00", "name": "Mezzanine", "building_id": "K7Q2XM-RUH-WH",
+                "ordinal": 0, "elevation": 4.0, "height": 3.0,
+                "mezzanine": true, "host_floor_id": "K7Q2XM-RUH-WH-F00", "above_host_m": 4.0, … }
+```
+
+- `mezzanine`: true for a mezzanine; false (or absent, in packages before 0.11) for any
+  other floor.
+- `host_floor_id`: the floor it stands in, its host: a floor of the same building that is
+  not a mezzanine, with the same `ordinal`. Null for a floor that is not a mezzanine.
+- `above_host_m`: how far its floor is above its host's, in metres (more than 0): its
+  `elevation` is the host's and this. Null for a floor that is not a mezzanine.
+
+**Ordinals and order.** A mezzanine keeps its host's `ordinal` (0 for one over the ground
+floor), so floors may share an ordinal: a building has one floor of each ordinal that is
+not a mezzanine, and any number of mezzanines on it. A building's floors are in order of
+`ordinal`, then `elevation` (Ground floor, Mezzanine, First floor; two at one elevation as
+the package lists them): `floors.geojson` lists them so, and so does `navigation.json`.
+The ground floor is the floor of ordinal 0 that is not a mezzanine.
+
+**Codes.** A floor's code is its building's own, and unique in it. Studio gives F00 to the
+ground floor, F01, F02… above it, B01, B02… below it, and to a mezzanine M00 over F00, M01
+over F01, MB01 over B01 (a second on one floor M00B, then M00C…), unless a person chose
+another: a mezzanine's rooms have IDs such as `K7Q2XM-RUH-WH-M00-0042`. No other floor's
+code or ID changes when a mezzanine is added. A code is no more than a code: a reader
+tells a mezzanine by `mezzanine`, never by its code.
+
+**Ways between floors.** A lift, stairs or escalator that serves a mezzanine has a space on
+it in its stack (Stacks), as on any floor: stairs that serve the ground floor, the
+mezzanine and the first floor join the ground floor to the mezzanine and the mezzanine to
+the first floor; stairs or a lift that pass it without a door join the ground floor to the
+first, as before. In `navigation.json` a mezzanine is one of the building's floors in its
+order: a way passing it counts it among the floors it rides (`floors`, and the time a
+floor).
+
+**What a reader does.** Sort a building's floors by `ordinal`, then `elevation`, never by
+`ordinal` alone, and never take an ordinal to name one floor (a floor list, a floor
+picker, stacking floors in 3D, a floor up or down); key floors by their IDs. Show a
+mezzanine where it stands, at its `elevation`, with its own outline (a slab under its
+rooms, not the host's); name it by its `name`. A reader of 0.10 knows none of this: it
+refuses a 0.11 package (Versioning).
+
 ## Stacks (0.8)
 
 A lift, a staircase or an escalator is one thing through the floors it serves; on
@@ -469,7 +519,7 @@ an earlier format has none.
   "speed_m_s": 1.3,
   "buildings": ["K7Q2XM-RUH-HQ"],
   "floors": [ { "id": "K7Q2XM-RUH-HQ-F00", "building_id": "K7Q2XM-RUH-HQ", "name": "Ground floor",
-                "ordinal": 0, "elevation": 0.0 } ],                       // lowest first
+                "ordinal": 0, "elevation": 0.0 } ],                       // lowest first (Mezzanines)
   "places": [ { "id": "K7Q2XM-RUH-HQ-F01-0069", "kind": "space", "space_id": null,
                 "floor_id": "K7Q2XM-RUH-HQ-F01", "type": "office", "label": "OFFICE 112" } ],
   "nodes": [ { "id": "door:K7Q2XM-RUH-HQ-F00-0048", "kind": "door", "floor_id": "K7Q2XM-RUH-HQ-F00",
@@ -526,7 +576,7 @@ follows it backwards.
 
 `length_m` is the length of `path` (for a lift, stairs, escalator or ramp: the height
 between the floors); "a floor" is each of the building's floors passed, by their
-order. `space_id` is the space a `walk` or `door` edge is in (for a `door`, the space
+order (`floors`: by ordinal, then elevation, a mezzanine among them). `space_id` is the space a `walk` or `door` edge is in (for a `door`, the space
 of its approach), and `zone_id`, in a divided space, the zone most of its line is in.
 `accessible` is false for `stairs` and `escalator`. `cost` is what routing takes the
 fewest of: `seconds`, and 30 more for a `door` edge into a space a person goes to (an
@@ -827,7 +877,7 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
 | `items` | the IDs `_ITEM` indexes (format 0.6) |
 | `doors` | (builder 5) the doors with leaves, to swing them shut and open: each `id` (its opening's), `span` (`[x1, z1, x2, z2]`: jamb to jamb, along the middle of its wall; shut, the door is in the way there), `top` (how high it is, metres above the floor) and `leaves`; each leaf its `hinge` (`[x, z]`), the angles it lies at `open` (as the `door` mesh has it) and `shut` (radians counter-clockwise from east seen from above: the way (cos a, −sin a) in x and z), its `length` (metres from its hinge to its free edge), and its runs of vertices, `[first, count]`, of the `door` mesh (`door`) and of the `handle` mesh (`handle`). A leaf turned is its runs' vertices turned about the upright line through its hinge, the shorter way from `open` to `shut`. A door starts open, as drawn |
 
-## Drawings (0.10.1)
+## Drawings (0.11)
 
 A package carries only what StoreyPath read from the drawings: the spaces, zones,
 openings, walls, items and the rest above. It may also carry the drawings themselves, one
@@ -893,12 +943,28 @@ Readers that do not show drawings ignore the folder.
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
 
-## Changes from 0.10.0
+## Changes from 0.10
 
+- Mezzanines (Mezzanines): a floor's `mezzanine`, `host_floor_id` and `above_host_m`. A
+  mezzanine has the `ordinal` of the floor it stands in, so floors of a building may now
+  share an ordinal. A reader must:
+  - sort a building's floors by `ordinal`, then `elevation` (`floors.geojson` and
+    `navigation.json → floors` list them so), and never take an ordinal to name one floor;
+  - take the ground floor as the floor of ordinal 0 that is not a mezzanine;
+  - read a mezzanine's mark (`mezzanine`) and its host (`host_floor_id`, a floor of its
+    building that is not one, of its ordinal; `above_host_m`, its level above the host's);
+  - count a mezzanine among the floors a way between floors passes (Navigation), as the
+    list's order has it.
+  A validator checks that a building has at most one floor of each ordinal that is not a
+  mezzanine, that floor codes are unique in a building, and that a mezzanine's host is a
+  floor of its building that is not a mezzanine, of its ordinal, its elevation the host's
+  and `above_host_m`.
 - `drawings/` and `manifest.json → files.drawings`, and a source's `view` (Drawings): each
   floor's drawing as drawn, its part of its drawing in the building's own frame, when the
-  export was asked to carry them; its texts as the privacy rules leave them.
-- A patch: a reader of 0.10 reads a 0.10.1 package (Versioning), ignoring the folder.
+  export was asked to carry them; its texts as the privacy rules leave them. (Written first
+  as 0.10.1, which was never released: 0.11 is the version that has it.)
+- A minor version: a reader of 0.10 refuses a 0.11 package (Versioning), as floors may
+  share an ordinal; a reader of 0.11 reads 0.10 and earlier ones as before (no mezzanines).
 
 ## Changes from 0.9.3
 
@@ -1020,10 +1086,16 @@ two swapped, and what people type. The others are packages of earlier formats, w
 readers still read: `campus` (0.6, the whole campus, with items), `campus-world` and `simple-office-world` (pre-built in 3D: a reader reads
 them as it reads `campus` and `simple-office`, and the viewer shows them as it shows
 those), `campus-whole-1`, `campus-part`, `campus-whole-3` (0.4), `simple-office`,
-`simple-office-2` and `unplaced`. `drawn-office` (0.10.1) carries its drawings (Drawings):
+`simple-office-2` and `unplaced`. `drawn-office` (0.11) carries its drawings (Drawings):
 a made-up sheet of two floors side by side, the second floor's region of it moved onto the
 first; each floor's drawing view lies on its walls, in the building's own frame, and
-nothing of the other floor, nor of the notes beside them, is in it.
+nothing of the other floor, nor of the notes beside them, is in it. `mezzanine-warehouse`
+(0.11) is a made-up warehouse with a mezzanine (Mezzanines): a ground floor, a mezzanine
+over part of it (M00, its own outline) and a first floor, listed in that order, the
+mezzanine sharing the ground floor's ordinal; stairs through all three (Ground to
+Mezzanine to First) and lifts that pass the mezzanine (Ground to First). `routes.json`
+holds ways through it too: up the stairs by the mezzanine, to a room on it, and by lift
+past it.
 
 A reader that takes packages from uploads bounds what it reads. A building's package
 is a few megabytes; the Go module reads by default at most 64 MiB a file and 256 MiB in
@@ -1038,7 +1110,7 @@ newer than it, and ignores unknown files, properties, and `objects.csv` rows of 
 does not know (as 0.6 added items), with the IDs of those rows where `changes.json` lists
 them. Before 1.0 a minor version may change what a package means (0.4's `scope`, 0.7's
 one building per package), so a reader refuses a package of a newer minor version
-(0.11 for a reader of 0.10), saying it must be updated; a newer patch version (0.10.1)
+(0.12 for a reader of 0.11), saying it must be updated; a newer patch version (0.11.1)
 only adds properties and is read. From 1.0, a reader reads any package of its major
 version. A format version is ASCII `major.minor`, an optional `.patch`, and an optional
 `-` or `+` suffix (`^[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.-]+)?$`); a reader refuses

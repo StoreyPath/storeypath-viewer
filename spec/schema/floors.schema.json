@@ -71,7 +71,7 @@
           "type": "string"
         },
         "ordinal": {
-          "description": "0 = ground floor, negative = below ground",
+          "description": "0 = ground floor, negative = below ground; a mezzanine's is its host floor's. A building has one floor of each ordinal that is not a mezzanine, and any number of mezzanines on it: its floors are in order of ordinal, then elevation",
           "title": "Ordinal",
           "type": "integer"
         },
@@ -81,9 +81,42 @@
           "type": "number"
         },
         "height": {
-          "description": "floor-to-floor height in meters",
+          "description": "floor-to-floor height in meters (a mezzanine's: its own)",
           "title": "Height",
           "type": "number"
+        },
+        "mezzanine": {
+          "default": false,
+          "description": "a floor standing in another floor of its building, over part of it (format 0.11): its host_floor_id, its level above_host_m above that floor's",
+          "title": "Mezzanine",
+          "type": "boolean"
+        },
+        "host_floor_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "a mezzanine's host: the floor of its building it stands in, which is not a mezzanine and has its ordinal; null for a floor that is not a mezzanine",
+          "title": "Host Floor Id"
+        },
+        "above_host_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "how far a mezzanine's level is above its host floor's, metres: its elevation is the host's and this; null for a floor that is not a mezzanine",
+          "title": "Above Host M"
         },
         "walls": {
           "anyOf": [

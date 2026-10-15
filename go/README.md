@@ -3,7 +3,7 @@
 Reads StoreyPath packages (`*.storeypath`) for systems written in Go: the
 buildings, floors, spaces, zones and openings of a project with their stable IDs,
 the furniture and equipment on its floors, (format 0.8) the way from one place
-in a building to another, and (0.10.1) each floor's drawing when the package carries
+in a building to another, and (0.11) each floor's drawing when the package carries
 them. Standard library only; Go 1.25.
 
 ```go
@@ -58,6 +58,13 @@ for _, b := range pkg.Buildings {
 - Lookups: `Get`, `Building`, `Floor`, `Space`, `Zone`, `Opening`, `FloorsOf`,
   `SpacesOn`, `ZonesOf`, `OpeningsOn`, and `UnitsOn`: the zones of a divided space
   and every space with none, which is what a system placing people should use.
+- Floors (format 0.11): a building's floors may share an ordinal, a mezzanine
+  (`Mezzanine`) standing in its `Host` floor, `AboveHost` metres above it, with the
+  host's `Ordinal`. `FloorsOf` gives them in the building's order, by ordinal then
+  elevation (`FloorBefore`): Ground, Mezzanine, First; `GroundFloor` is the floor of
+  ordinal 0 that is not a mezzanine. `Validate` checks a mezzanine's host
+  (`MEZZANINE`), and one floor per ordinal besides mezzanines, each code once
+  (`FLOOR_ORDINAL`).
 - Items (format 0.6): `Items`, `Item`, `ItemsOn`, the `Catalogue` of their types
   and `ItemType`. An item's ID is an asset's tag (format 0.8: `7K2Q-XM9F-4DP`,
   `IsItemID`; the project's code and its number, `K7Q2XM-I000142`, before), not its
@@ -93,7 +100,7 @@ for _, b := range pkg.Buildings {
   Studio drew it in, and back (azimuthal equidistant on WGS84, Vincenty), within a
   millimetre of Studio; positions read from a package are within about a
   centimetre (it keeps 7 decimals of a degree).
-- Drawings (format 0.10.1): a package exported with *Include the drawings* carries
+- Drawings (format 0.11): a package exported with *Include the drawings* carries
   each floor's drawing as drawn, every layer and text of its part of its drawing, in
   the building's own metres (where `LocalFrame` turns its spaces), for a system to show
   the real drawing under the plan ([FORMAT.md](../spec/FORMAT.md), "Drawings";
@@ -126,7 +133,7 @@ Properties a later format version adds are ignored, as the format asks, and so a
 is reported by `Validate` (`VERSION`), and `CheckVersion` says so from the
 manifest's `format_version` alone: what is not a format version (`major.minor`,
 a `.patch` if any, then a `-` or `+` suffix if any: ASCII digits and letters),
-another major version, or before 1.0 a newer minor one (0.11 for this 0.10
+another major version, or before 1.0 a newer minor one (0.12 for this 0.11
 reader), with a message to update the reader. `ReadManifest` reads the manifest
 alone, so a server can refuse a package before reading the rest of it:
 

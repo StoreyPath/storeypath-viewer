@@ -6,7 +6,7 @@
 <title>StoreyPath plan</title>
 <link rel="stylesheet" href="../dist/plan.css">
 <link rel="stylesheet" href="../../src/drawing/drawing.css">
-<!-- the floor's drawing under the plan (format 0.10.1) is drawn with WebGL: three.js, vendored -->
+<!-- the floor's drawing under the plan (format 0.11) is drawn with WebGL: three.js, vendored -->
 <script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js" } }</script>
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; --bg: #ecebe6; --panel: #fff; --line: #ddd; --text: #1d1d1f; }
@@ -38,7 +38,7 @@
   // Open a .storeypath file (or ?package=<url>): its floors, a click shows a space
   // or an item (furniture and equipment, shown unless ?items=0), the search box
   // brings matching rooms out. A package that carries its floors' drawings (format
-  // 0.10.1) can show each under its plan (Drawing, or ?drawing=1): the viewer's
+  // 0.11) can show each under its plan (Drawing, or ?drawing=1): the viewer's
   // DrawingView, following the plan as it moves.
   import { FloorPlanEngine, floorFromPackage, readPackage } from "../dist/index.js";
 

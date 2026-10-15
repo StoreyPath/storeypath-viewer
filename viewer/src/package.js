@@ -7,7 +7,7 @@ import { isSealed, unseal } from "./sealed.js";
 
 export const FORMAT = "storeypath-package";
 /** The format version this viewer reads, any patch of it (spec/FORMAT.md, "Versioning"). */
-export const FORMAT_VERSION = "0.10";
+export const FORMAT_VERSION = "0.11";
 export const SUPPORTED_MAJOR_VERSION = Number(FORMAT_VERSION.split(".")[0]);
 
 const VERSION = /^(\d+)\.(\d+)(\.\d+)?([-+][0-9A-Za-z.-]+)?$/;
@@ -100,9 +100,7 @@ export class StoreyPathPackage {
     this.units = [...zones, ...spaces.filter((s) => !this._zonesBySpace.has(s.id))];
     this._unitsByFloor = groupBy(this.units, (u) => u.properties.floor_id);
     this._floorsByBuilding = groupBy(floors, (f) => f.properties.building_id);
-    for (const list of this._floorsByBuilding.values()) {
-      list.sort((a, b) => a.properties.ordinal - b.properties.ordinal);
-    }
+    for (const list of this._floorsByBuilding.values()) list.sort(byLevel);
     this._spacesByFloor = groupBy(spaces, (s) => s.properties.floor_id);
     this._doorsBySpace = new Map();
     for (const o of openings) {
@@ -169,7 +167,7 @@ export class StoreyPathPackage {
     return this._zip && this._itemTypes.get(code)?.model === path ? this._zip.file(path) : null;
   }
 
-  /** Whether a floor comes with its drawing (format 0.10.1: the export carried the
+  /** Whether a floor comes with its drawing (format 0.11: the export carried the
    * drawings), as its source in the manifest says. */
   hasDrawing(floorId) {
     return Boolean(this._drawingFile(floorId));
@@ -189,7 +187,8 @@ export class StoreyPathPackage {
     return path && this._zip ? this._zip.file(path) : null;
   }
 
-  /** Floors of a building, lowest first. */
+  /** Floors of a building, lowest first: by ordinal, then elevation (a mezzanine, 0.11,
+   * has its host's ordinal and stands above it: Ground, Mezzanine, First). */
   floorsOf(buildingId) {
     return this._floorsByBuilding.get(buildingId) ?? [];
   }
@@ -221,10 +220,10 @@ export class StoreyPathPackage {
     return this._itemTypes.get(code) ?? null;
   }
 
-  /** The ground floor of a building (ordinal 0), or its lowest floor. */
+  /** The ground floor of a building (ordinal 0, not a mezzanine on it), or its lowest floor. */
   groundFloor(buildingId) {
     const floors = this.floorsOf(buildingId);
-    return floors.find((f) => f.properties.ordinal === 0) ?? floors[0] ?? null;
+    return floors.find((f) => f.properties.ordinal === 0 && !f.properties.mezzanine) ?? floors[0] ?? null;
   }
 
   /**
@@ -272,6 +271,14 @@ export class StoreyPathPackage {
     }
     return hits;
   }
+}
+
+/** Floors in their building's order (format 0.11): by ordinal, then elevation, so a
+ * mezzanine (its host's ordinal, above it) comes between its host and the floor above:
+ * Ground, Mezzanine, First. Two at one elevation (two mezzanines on a floor) by ID, as Studio lists them. */
+export function byLevel(a, b) {
+  const p = a.properties, q = b.properties;
+  return p.ordinal - q.ordinal || p.elevation - q.elevation || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 function groupBy(items, key) {

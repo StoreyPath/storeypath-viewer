@@ -28,7 +28,7 @@ register(`data:text/javascript,${encodeURIComponent(`
     const path = to(specifier);
     return path ? { url: ${JSON.stringify(vendor)} + path, shortCircuit: true } : next(specifier, context);
   }`)}`);
-const { FORMAT_VERSION, loadPackage } = await import("../../src/package.js");
+const { FORMAT_VERSION, byLevel, loadPackage } = await import("../../src/package.js");
 const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, openSlab, originOf,
   outlineRect, planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
@@ -83,6 +83,29 @@ test("the module carries three.js and JSZip: it imports nothing", () => {
   truly(!/\bimport\s*\(/.test(code), "dist/world.js loads another module");
 });
 
+// spec/FORMAT.md, "Floors" (0.11): floors may share an ordinal; a building's are in order by ordinal, then elevation
+test("a building's floors in its order: a mezzanine (0.11) between its host and the floor above; the ground floor is not it", async () => {
+  // campus-hq as a made-up warehouse with a mezzanine: its floor two up made a mezzanine 2.5 m
+  // over the ground floor, of its ordinal, and the floors listed backwards in the file
+  const pkg = await loadPackage(repack(join(packages, "campus-hq.storeypath"), (files) => {
+    const floors = files.get("floors.geojson").features;
+    const ground = floors.find((f) => f.properties.ordinal === 0), mezz = floors.find((f) => f.properties.ordinal === 2);
+    Object.assign(mezz.properties, { name: "Mezzanine", mezzanine: true, host_floor_id: ground.id, above_host_m: 2.5,
+      ordinal: 0, elevation: ground.properties.elevation + 2.5 });
+    floors.reverse();
+  }));
+  const b = pkg.buildings[0].id;
+  const floors = pkg.floorsOf(b);
+  const said = floors.map((f) => `${f.properties.ordinal}${f.properties.mezzanine ? " mezzanine" : ""}`).join(", ");
+  truly(said === "0, 0 mezzanine, 1", `floors: ${said}`);
+  truly(floors[1].properties.host_floor_id === floors[0].id && pkg.groundFloor(b) === floors[0], "the ground floor: its host");
+  truly(floors.every((f, i) => i === 0 || byLevel(floors[i - 1], f) < 0), "byLevel: the same order");
+  // its plan: its own rooms and outline, at its own level
+  const plan = planFloor(pkg, floors[1], originOf(pkg, b));
+  truly(plan.elevation === floors[0].properties.elevation + 2.5 && plan.rooms.length > 0 && plan.outline.length > 0,
+    `the mezzanine's plan: ${plan.elevation} m, ${plan.rooms.length} rooms`);
+});
+
 // spec/FORMAT.md, "Versioning": a reader reads its own major version, not newer than it
 test("a package of a newer minor version, or of no version, is refused; older ones and newer patches are read", async () => {
   const path = join(packages, "campus-hq.storeypath");
@@ -93,11 +116,11 @@ test("a package of a newer minor version, or of no version, is refused; older on
     return loadPackage(bytes).then((pkg) => (pkg.manifest.format_version === version ? "read" : "read, another version"),
       (e) => e.message);
   };
-  for (const v of ["0.10.0", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.10.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.11.1-rc.1", "0.9.0+build.5"]) {
     truly(await said(v) === "read", `${v}: ${await said(v)}`);
   }
-  for (const v of ["0.11.0", "0.11", "0.99.0", "0.11.0-rc1", "1.0.0", "2.7.0"]) {
-    const want = `This package is format ${v}, newer than this viewer's 0.10: update the viewer.`;
+  for (const v of ["0.12.0", "0.12", "0.99.0", "0.12.0-rc1", "1.0.0", "2.7.0"]) {
+    const want = `This package is format ${v}, newer than this viewer's 0.11: update the viewer.`;
     truly(await said(v) === want, `${v}: ${await said(v)}`);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
@@ -106,8 +129,8 @@ test("a package of a newer minor version, or of no version, is refused; older on
   }
 });
 
-// spec/FORMAT.md, "Drawings" (0.10.1): a floor's drawing as drawn, in the building's own frame
-test("a package's floors' drawings (0.10.1): each lies on its floor's walls, cut to its region; the module draws them", async () => {
+// spec/FORMAT.md, "Drawings" (0.11): a floor's drawing as drawn, in the building's own frame
+test("a package's floors' drawings (0.11): each lies on its floor's walls, cut to its region; the module draws them", async () => {
   const pkg = await loadPackage(readFileSync(join(packages, "drawn-office.storeypath")));
   const building = pkg.buildings[0].id, placement = pkg.manifest.placements[building];
   const metres = ([lon, lat]) => [lon * 111320 * Math.cos((placement.lat * Math.PI) / 180), lat * 110574];

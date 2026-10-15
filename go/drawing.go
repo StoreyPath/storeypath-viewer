@@ -10,7 +10,7 @@ import (
 	"math"
 )
 
-// A package may carry each floor's drawing as drawn (format 0.10.1, spec/FORMAT.md
+// A package may carry each floor's drawing as drawn (format 0.11, spec/FORMAT.md
 // "Drawings"): its part of its drawing, every layer and text, in the building's own
 // metres, so that a system shows the real drawing under the plan. Each is a drawing
 // view (spec/DRAWING-VIEW.md): gzip, a head of JSON, and its lines, triangles,
@@ -244,7 +244,7 @@ func openDrawing(raw []byte, limits Limits) (DrawingHeader, []byte, error) {
 	return h, rest, nil
 }
 
-// HasDrawing says whether the package carries a floor's drawing (format 0.10.1: its
+// HasDrawing says whether the package carries a floor's drawing (format 0.11: its
 // export was asked to carry them).
 func (p *Package) HasDrawing(floorID string) bool {
 	d, ok := p.drawings[floorID]

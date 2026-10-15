@@ -1,7 +1,7 @@
 // A drawing view (spec/DRAWING-VIEW.md): a drawing as its own program shows it, every
 // line, fill, point and text of it, packed small for a browser to draw. StoreyPath Studio
 // makes one of a whole drawing for its drawing viewer, and a package may carry each
-// floor's part of its drawing (spec/FORMAT.md, "Drawings", format 0.10.1). No
+// floor's part of its drawing (spec/FORMAT.md, "Drawings", format 0.11). No
 // dependencies: in a browser, or in Node 18 and later.
 
 /** The make-up this reader reads (the head's `format`). */

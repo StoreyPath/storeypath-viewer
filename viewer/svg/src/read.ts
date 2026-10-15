@@ -3,11 +3,11 @@
 
 import type { Navigation } from "./navigation.js";
 import { isSealed, unseal, type Password } from "./sealed.js";
-import type { PackageLike } from "./package.js";
+import { inOrder, type PackageLike } from "./package.js";
 
 export const FORMAT = "storeypath-package";
 /** The format version this viewer reads, any patch of it (spec/FORMAT.md, "Versioning"). */
-export const FORMAT_VERSION = "0.10";
+export const FORMAT_VERSION = "0.11";
 export const SUPPORTED_MAJOR_VERSION = Number(FORMAT_VERSION.split(".")[0]);
 
 const VERSION = /^(\d+)\.(\d+)(\.\d+)?([-+][0-9A-Za-z.-]+)?$/;
@@ -31,7 +31,7 @@ interface Manifest {
   format: string;
   format_version: string;
   files: Record<string, string>;
-  /** The drawing each floor was read from; ``view``: its drawing as drawn, in the package (0.10.1). */
+  /** The drawing each floor was read from; ``view``: its drawing as drawn, in the package (0.11). */
   sources?: { floor_id: string; file: string; view?: string | null }[];
   [key: string]: unknown;
 }
@@ -39,7 +39,7 @@ interface Manifest {
 /** A package read: its manifest and features, and its floors' drawings. */
 export type PackageRead = PackageLike & {
   manifest: Manifest;
-  /** A floor's drawing as drawn (format 0.10.1, spec/FORMAT.md "Drawings"): a drawing view
+  /** A floor's drawing as drawn (format 0.11, spec/FORMAT.md "Drawings"): a drawing view
    * (spec/DRAWING-VIEW.md, gzip, as the package holds it) in the building's own metres,
    * where floorFromPackage's spaces are; null when the package has none. The viewer's
    * DrawingView (viewer/src/drawing/) draws it, under the plan too. */
@@ -73,13 +73,14 @@ export async function readPackage(source: ArrayBuffer | Uint8Array | Blob,
   const catalogue = manifest.files["catalogue"] ? ((await json(manifest.files["catalogue"])) as PackageLike["catalogue"]) : null;
   // the walking network (format 0.8): route() finds the way on it
   const navigation = manifest.files["navigation"] ? ((await json(manifest.files["navigation"])) as Navigation) : null;
-  // each floor's drawing (format 0.10.1), unzipped from the archive only when asked for
+  // each floor's drawing (format 0.11), unzipped from the archive only when asked for
   const drawing = async (floorId: string): Promise<Uint8Array | null> => {
     const path = manifest.sources?.find((s) => s.floor_id === floorId)?.view;
     const entry = path ? files.get(path) : undefined;
     return entry ? inflate(bytes, entry) : null;
   };
-  return { manifest, floors: floors!, spaces: spaces!, zones: zones!, openings: openings!, items: items!, catalogue, navigation,
+  // each building's floors in its order: a mezzanine (0.11) between its host and the floor above
+  return { manifest, floors: inOrder(floors!), spaces: spaces!, zones: zones!, openings: openings!, items: items!, catalogue, navigation,
     drawing };
 }
 

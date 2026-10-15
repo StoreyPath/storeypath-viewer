@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// drawnOffice is the corpus package that carries its drawings (format 0.10.1): two
+// drawnOffice is the corpus package that carries its drawings (format 0.11): two
 // floors of one made-up sheet, the first floor's region of it moved onto the ground
 // floor's (spec/conformance/make.py, drawings).
 const drawnOffice = "drawn-office.storeypath"
@@ -23,7 +23,7 @@ func TestAPackageCarriesItsFloorsDrawingsInTheBuildingsFrame(t *testing.T) {
 	if problems := p.Validate(); len(problems) != 0 {
 		t.Fatalf("problems: %v", problems)
 	}
-	if p.Manifest.FormatVersion != "0.10.1" || p.Manifest.Files["drawings"] != DrawingsDir || len(p.Floors) != 2 {
+	if p.Manifest.FormatVersion != "0.11.0" || p.Manifest.Files["drawings"] != DrawingsDir || len(p.Floors) != 2 {
 		t.Fatalf("format %s, files %v, %d floors", p.Manifest.FormatVersion, p.Manifest.Files, len(p.Floors))
 	}
 	frame, err := p.Frame(p.Buildings[0].ID)
