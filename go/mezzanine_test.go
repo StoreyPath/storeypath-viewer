@@ -22,7 +22,7 @@ func floorsByOrdinal(change func(byOrdinal map[int]map[string]any, ids map[int]s
 // mezzanineOver makes a floor a mezzanine (format 0.11) of the floor with ordinal host,
 // above metres above it: its ordinal the host's, its elevation the host's and above.
 func mezzanineOver(floor, host map[string]any, hostID string, above float64) {
-	floor["mezzanine"], floor["host_floor_id"], floor["above_host_m"] = true, hostID, above
+	floor["type"], floor["host_floor_id"], floor["above_host_m"] = FloorTypeMezzanine, hostID, above
 	floor["ordinal"], floor["elevation"] = host["ordinal"], host["elevation"].(float64)+above
 }
 
@@ -44,7 +44,7 @@ func TestAMezzanineStandsInItsHostAndComesBetweenItAndTheFloorAbove(t *testing.T
 		t.Fatalf("%d floors", len(floors))
 	}
 	ground, mezz, first := floors[0], floors[1], floors[2]
-	if ground.Ordinal != 0 || ground.Mezzanine || !mezz.Mezzanine || mezz.Ordinal != 0 || first.Ordinal != 1 {
+	if ground.Ordinal != 0 || ground.IsMezzanine() || !mezz.IsMezzanine() || mezz.Ordinal != 0 || first.Ordinal != 1 {
 		t.Errorf("not Ground, Mezzanine, First: %+v %+v %+v", *ground, *mezz, *first)
 	}
 	if mezz.Host == nil || *mezz.Host != ground.ID || mezz.AboveHost == nil || *mezz.AboveHost != 2.5 ||

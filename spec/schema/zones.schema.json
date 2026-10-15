@@ -101,7 +101,8 @@
         "parking",
         "balcony",
         "terrace",
-        "open_to_below"
+        "open_to_below",
+        "roof"
       ],
       "title": "SpaceType",
       "type": "string"

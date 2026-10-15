@@ -77,7 +77,7 @@
       "kitchen": "FLOOR-PORCELAIN-BEIGE", "balcony": "FLOOR-PORCELAIN-BEIGE", "terrace": "FLOOR-PORCELAIN-BEIGE",
       "bedroom": "FLOOR-WOOD-OAK", "living_room": "FLOOR-WOOD-OAK", "dining_room": "FLOOR-WOOD-OAK", "dressing_room": "FLOOR-WOOD-OAK",
       "storage": "FLOOR-CONCRETE", "utility": "FLOOR-CONCRETE", "shaft": "FLOOR-CONCRETE", "unspecified": "FLOOR-CONCRETE",
-      "open_to_below": "FLOOR-CONCRETE", "parking": "FLOOR-EPOXY-GREY"
+      "open_to_below": "FLOOR-CONCRETE", "parking": "FLOOR-EPOXY-GREY", "roof": "FLOOR-CONCRETE"
     },
     "wall": {
       "office": "WALL-PAINT-WHITE", "room": "WALL-PAINT-WHITE", "open_area": "WALL-PAINT-WHITE",
@@ -88,7 +88,7 @@
       "kitchen": "WALL-PAINT-WHITE", "balcony": "WALL-PAINT-WHITE", "terrace": "WALL-PAINT-WHITE",
       "bedroom": "WALL-PAINT-WHITE", "living_room": "WALL-PAINT-WHITE", "dining_room": "WALL-PAINT-WHITE", "dressing_room": "WALL-PAINT-WHITE",
       "storage": "WALL-PAINT-WHITE", "utility": "WALL-PAINT-WHITE", "shaft": "WALL-PAINT-WHITE", "unspecified": "WALL-PAINT-WHITE",
-      "open_to_below": "WALL-PAINT-WHITE", "parking": "WALL-PAINT-WHITE"
+      "open_to_below": "WALL-PAINT-WHITE", "parking": "WALL-PAINT-WHITE", "roof": "WALL-PAINT-WHITE"
     }
   }
 }

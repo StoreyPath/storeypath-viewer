@@ -62,8 +62,9 @@ const (
 	ProblemValue         = "VALUE"          // a value the format does not allow: a type the manifest's types do not list, a negative capacity, a grade, mount, category or colour not of the format, a finish's code not of the form of a floor's or a wall's (format 0.9), a camera's view past all round or of no range (0.10)
 	ProblemNavigation    = "NAVIGATION"     // (0.8) the walking network names a building, floor, space or zone not in the package, holds a node twice, or an edge joins a node it does not have (or two nodes another edge joins), or has no line
 	ProblemItemElsewhere = "ITEM_ELSEWHERE" // (ValidateAcross) an item's ID is an item of another project, in another package
-	ProblemMezzanine     = "MEZZANINE"      // (0.11) a mezzanine's host is not a floor of its building that is not a mezzanine, of its ordinal; its above_host_m is not more than 0, or its elevation is not its host's and above_host_m; a floor that is not a mezzanine names a host or an above_host_m
-	ProblemFloorOrdinal  = "FLOOR_ORDINAL"  // (0.11) two floors of a building that are not mezzanines have one ordinal, or two floors of a building one code
+	ProblemMezzanine     = "MEZZANINE"      // (0.11) a mezzanine's host is not another floor of its building of type floor (not a mezzanine, nor a roof), of its ordinal; its above_host_m is not more than 0, or its elevation is not its host's and above_host_m; a level that is not a mezzanine names a host or an above_host_m
+	ProblemFloorOrdinal  = "FLOOR_ORDINAL"  // (0.11) two levels of a building that are not mezzanines have one ordinal, or two floors of a building one code
+	ProblemRoof          = "ROOF"           // (0.11) a floor of type floor stands above a roof of its building (a roof is its building's top: only roofs stand above it)
 	ProblemDrawing       = "DRAWING"        // (0.11) a floor's drawing: a source names one not at drawings/<floor-id>.view, of a floor not in the package, or not in it; it is not a drawing view this reader reads (gzip, SPDV, its head, format 1, its arrays and batches whole), or not in metres; the manifest lists drawings/ with none named, or names some without listing it; a file under drawings/ no source names
 )
 
@@ -77,11 +78,13 @@ var kindLevel = map[string]string{
 // may use, a later format's too).
 var knownTypes = map[string][]string{
 	"space": spaceTypes, "zone": spaceTypes, "opening": {"door", "opening", "window"},
+	"floor": {FloorTypeFloor, FloorTypeMezzanine, FloorTypeRoof}, // (0.11)
 }
 
 var spaceTypes = []string{"office", "room", "meeting_room", "corridor", "lobby", "elevator", "stairs", "escalator",
 	"ramp", "restroom", "kitchen", "storage", "utility", "shaft", "open_area", "unspecified", "bedroom", "living_room",
-	"dining_room", "bathroom", "dressing_room", "laundry", "prayer_room", "parking", "balcony", "terrace", "open_to_below"}
+	"dining_room", "bathroom", "dressing_room", "laundry", "prayer_room", "parking", "balcony", "terrace", "open_to_below",
+	"roof"}
 
 // The values a property may have, as Studio's models allow them.
 var (
@@ -316,12 +319,13 @@ func (p *Package) Validate() []Problem {
 	}
 	for _, f := range p.Floors {
 		parent(f.ID, f.Building, "building", floorsFile)
+		typed("floor", floorsFile, f.ID, f.Type) // (0.11; before, every floor a storey)
 	}
-	// floors (0.11): one of each ordinal in a building that is not a mezzanine, and any
+	// levels (0.11): one of each ordinal in a building that is not a mezzanine, and any
 	// mezzanines on it; each code once in a building
 	ordinals, floorCodes := map[string]string{}, map[string]string{}
 	for _, f := range p.Floors {
-		if !f.Mezzanine {
+		if !f.IsMezzanine() {
 			key := fmt.Sprintf("%s %d", f.Building, f.Ordinal)
 			if other, ok := ordinals[key]; ok {
 				add(ProblemFloorOrdinal, floorsFile, f.ID, "%s: floor %d of building %s, as %s is (only a mezzanine shares a floor's ordinal)",
@@ -337,10 +341,24 @@ func (p *Package) Validate() []Problem {
 			floorCodes[key] = f.ID
 		}
 	}
-	// a mezzanine (0.11) stands in a floor of its building that is not a mezzanine (its
-	// host), of the same ordinal, above_host_m above it
+	// a roof (0.11) is its building's top: no floor of type floor above it (a second
+	// roof, over the rooms standing on the first, may be)
+	lowestRoof := map[string]*Floor{}
 	for _, f := range p.Floors {
-		if !f.Mezzanine {
+		if r := lowestRoof[f.Building]; f.IsRoof() && (r == nil || f.Ordinal < r.Ordinal) {
+			lowestRoof[f.Building] = f
+		}
+	}
+	for _, f := range p.Floors {
+		if r := lowestRoof[f.Building]; r != nil && !f.IsMezzanine() && !f.IsRoof() && f.Ordinal > r.Ordinal {
+			add(ProblemRoof, floorsFile, f.ID, "%s: floor %d, above the roof %s (floor %d): a roof is its building's top",
+				f.ID, f.Ordinal, r.ID, r.Ordinal)
+		}
+	}
+	// a mezzanine (0.11) stands in a floor of its building of type floor (its host),
+	// of the same ordinal, above_host_m above it
+	for _, f := range p.Floors {
+		if !f.IsMezzanine() {
 			if f.Host != nil || f.AboveHost != nil {
 				add(ProblemMezzanine, floorsFile, f.ID, "%s: not a mezzanine, yet it names a host floor or a height above one", f.ID)
 			}
@@ -355,8 +373,10 @@ func (p *Package) Validate() []Problem {
 			add(ProblemMezzanine, floorsFile, f.ID, "%s: a mezzanine with no host floor", f.ID)
 		case host == nil || *f.Host == f.ID || host.Building != f.Building:
 			add(ProblemMezzanine, floorsFile, f.ID, "%s: its host %s is not another floor of its building in the package", f.ID, *f.Host)
-		case host.Mezzanine:
+		case host.IsMezzanine():
 			add(ProblemMezzanine, floorsFile, f.ID, "%s: its host %s is a mezzanine", f.ID, host.ID)
+		case host.IsRoof():
+			add(ProblemMezzanine, floorsFile, f.ID, "%s: its host %s is a roof (a mezzanine stands in a floor)", f.ID, host.ID)
 		case host.Ordinal != f.Ordinal:
 			add(ProblemMezzanine, floorsFile, f.ID, "%s: ordinal %d, its host %s's is %d", f.ID, f.Ordinal, host.ID, host.Ordinal)
 		}

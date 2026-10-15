@@ -52,18 +52,21 @@ privacy rules change: a telephone number (left out) and an office with a person'
 (SITE OFFICE MR. JOHN DOE: SITE OFFICE is kept).
 
 packages/mezzanine-warehouse.storeypath (``mezzanine``, format 0.11): a made-up warehouse
-with a mezzanine (FORMAT.md, Mezzanines). Its ground floor, 7 m high, and its first floor
-are office floors, each 48 by 20 m; the mezzanine (M00) stands in the ground floor, 3.5 m
-above it: a block of rooms 20 by 8.5 m at the west end (a corridor, an office and a store),
-at the top of the stairs, which are drawn where they are on all three floors (one stack:
-Ground to Mezzanine to First). The lifts pass the mezzanine (Ground to First). Its drawing
-holds the building's outline too, alone on a layer of its own: the mezzanine's outline is
-its block, not the building's. The floors are listed Ground, Mezzanine, First, the
-mezzanine with the ground floor's ordinal.
+with a mezzanine and a roof (FORMAT.md, Levels). Its ground floor, 7 m high, and its first
+floor are office floors, each 48 by 20 m; the mezzanine (M00) stands in the ground floor,
+3.5 m above it: a block of rooms 20 by 8.5 m at the west end (a corridor, an office and a
+store), at the top of the stairs, which are drawn where they are on every level (one stack:
+Ground to Mezzanine to First to Roof). Its drawing holds the building's outline too, alone
+on a layer of its own: the mezzanine's outline is its block, not the building's. The roof
+(RF) over the first floor, 3 m high, its parapets 1.1 m, holds the stairs' room, the lifts'
+machine room and a plant room (utility, no lift stops there: the lifts pass the mezzanine
+and stop at the first floor) and its open deck (a space of type roof, outdoor), read from
+its walls. The floors are listed Ground, Mezzanine, First, Roof, the mezzanine with the
+ground floor's ordinal.
 
 routes.json (``routes``, which ``campus`` and ``mezzanine`` run too): ways on campus-hq,
-campus-annex and mezzanine-warehouse (format 0.8, Navigation) that every reader must find
-the same, each
+campus-annex and mezzanine-warehouse (format 0.8, Navigation; up to the roof, 0.11) that
+every reader must find the same, each
 from a place to a place (a kiosk's item, an entrance, a room, a zone, a desk), some
 on lifts alone (accessible), with the way Studio finds: its nodes, legs, changes of
 floor, length, time and steps. Kept to the packages as they are: run ``routes``
@@ -271,7 +274,8 @@ def routes() -> None:
     entrance_a = next(n["id"] for n in nav_a["nodes"] if n["kind"] == "entrance" and n["floor_id"].endswith("-F00"))
     cases.append(("the Annex's entrance to the president's desk", "campus-annex.storeypath", entrance_a, president,
                   False))
-    # through a mezzanine (0.11): the stairs serve it (Ground to Mezzanine to First), the lifts pass it
+    # through a mezzanine (0.11): the stairs serve it (Ground to Mezzanine to First, and on to the roof),
+    # the lifts pass it
     nav_w, items_w, spaces_w = read("mezzanine-warehouse.storeypath")
 
     def room(floor: str, number: str | None = None, kind: str = "office") -> str:
@@ -287,6 +291,9 @@ def routes() -> None:
          room("-F01", "112"), True),
         ("the entrance to the office on the mezzanine", warehouse, entrance_w, room("-M00"), False),
         ("the office on the mezzanine to an office upstairs", warehouse, room("-M00"), room("-F01", "112"), False),
+        # up to the roof (0.11): the stairs reach it; no lift stops there
+        ("an office up the stairs to the roof", warehouse, room("-F00", "001"), room("-RF", kind="roof"), False),
+        ("the roof down to the office on the mezzanine", warehouse, room("-RF", kind="roof"), room("-M00"), False),
     ]
     out = []
     graphs = {"campus-hq.storeypath": (Graph(nav), items), "campus-annex.storeypath": (Graph(nav_a), items_a),
@@ -523,7 +530,7 @@ def drawn_office(work: Path) -> None:
 
 
 def mezzanine_warehouse(work: Path) -> None:
-    """mezzanine-warehouse.storeypath: a made-up warehouse with a mezzanine (format 0.11);
+    """mezzanine-warehouse.storeypath: a made-up warehouse with a mezzanine and a roof (format 0.11);
     see the module."""
     from storeypath.export import export_package
     from storeypath.samples import mezzanine_warehouse as warehouse

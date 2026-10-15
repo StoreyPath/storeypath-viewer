@@ -220,10 +220,11 @@ export class StoreyPathPackage {
     return this._itemTypes.get(code) ?? null;
   }
 
-  /** The ground floor of a building (ordinal 0, not a mezzanine on it), or its lowest floor. */
+  /** The ground floor of a building: its floor of ordinal 0 that is a storey (format 0.11:
+   * not a mezzanine on it, nor a roof), or its lowest floor. */
   groundFloor(buildingId) {
     const floors = this.floorsOf(buildingId);
-    return floors.find((f) => f.properties.ordinal === 0 && !f.properties.mezzanine) ?? floors[0] ?? null;
+    return floors.find((f) => f.properties.ordinal === 0 && floorType(f) === "floor") ?? floors[0] ?? null;
   }
 
   /**
@@ -271,6 +272,15 @@ export class StoreyPathPackage {
     }
     return hits;
   }
+}
+
+/** What level of its building a floor is (format 0.11, its `type`): "floor" (a storey),
+ * "mezzanine" (standing in its host floor, over part of it) or "roof" (the building's
+ * roof as a level, open to the sky). A floor of an older package, or of a type a later
+ * version adds, is a "floor". */
+export function floorType(floor) {
+  const type = floor?.properties?.type;
+  return type === "mezzanine" || type === "roof" ? type : "floor";
 }
 
 /** Floors in their building's order (format 0.11): by ordinal, then elevation, so a

@@ -71,7 +71,7 @@
           "type": "string"
         },
         "ordinal": {
-          "description": "0 = ground floor, negative = below ground; a mezzanine's is its host floor's. A building has one floor of each ordinal that is not a mezzanine, and any number of mezzanines on it: its floors are in order of ordinal, then elevation",
+          "description": "0 = ground floor, negative = below ground; a mezzanine's is its host floor's. A building has one level of each ordinal that is not a mezzanine, and any number of mezzanines on a floor: its levels are in order of ordinal, then elevation",
           "title": "Ordinal",
           "type": "integer"
         },
@@ -81,15 +81,14 @@
           "type": "number"
         },
         "height": {
-          "description": "floor-to-floor height in meters (a mezzanine's: its own)",
+          "description": "floor-to-floor height in meters (a mezzanine's: its own; a roof's: the rooms' standing on it)",
           "title": "Height",
           "type": "number"
         },
-        "mezzanine": {
-          "default": false,
-          "description": "a floor standing in another floor of its building, over part of it (format 0.11): its host_floor_id, its level above_host_m above that floor's",
-          "title": "Mezzanine",
-          "type": "boolean"
+        "type": {
+          "$ref": "#/$defs/FloorType",
+          "default": "floor",
+          "description": "what level of its building it is (format 0.11): floor (a storey), mezzanine (a floor standing in another floor of its building, over part of it: its host_floor_id, its level above_host_m above that floor's) or roof (the building's roof as a level, at its top: its open deck a space of type roof, the rooms standing on it indoor; no floor stands above it). Absent (before 0.11): floor"
         },
         "host_floor_id": {
           "anyOf": [
@@ -101,7 +100,7 @@
             }
           ],
           "default": null,
-          "description": "a mezzanine's host: the floor of its building it stands in, which is not a mezzanine and has its ordinal; null for a floor that is not a mezzanine",
+          "description": "a mezzanine's host: the floor of its building it stands in, of type floor and of its ordinal; null for any other level",
           "title": "Host Floor Id"
         },
         "above_host_m": {
@@ -115,7 +114,7 @@
             }
           ],
           "default": null,
-          "description": "how far a mezzanine's level is above its host floor's, metres: its elevation is the host's and this; null for a floor that is not a mezzanine",
+          "description": "how far a mezzanine's level is above its host floor's, metres: its elevation is the host's and this; null for any other level",
           "title": "Above Host M"
         },
         "walls": {
@@ -210,6 +209,16 @@
       ],
       "title": "FloorProps",
       "type": "object"
+    },
+    "FloorType": {
+      "description": "What level of its building a floor is (format 0.11).",
+      "enum": [
+        "floor",
+        "mezzanine",
+        "roof"
+      ],
+      "title": "FloorType",
+      "type": "string"
     },
     "MultiPolygonGeometry": {
       "properties": {

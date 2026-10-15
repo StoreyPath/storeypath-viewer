@@ -24,9 +24,10 @@ interface FloorProps {
   building_id: string; name?: string; walls?: Geometry | null; parapets?: Geometry | null;
   /** 0 the ground floor, negative below it; a mezzanine's is its host's. Metres above the ground floor. */
   ordinal?: number; elevation?: number;
-  /** A mezzanine (format 0.11): a floor standing in another floor of its building (its host,
-   * ``host_floor_id``), ``above_host_m`` above it. */
-  mezzanine?: boolean; host_floor_id?: string | null; above_host_m?: number | null;
+  /** What level of its building it is (format 0.11; absent before: "floor"): a storey, a
+   * mezzanine standing in another floor of its building (its host, ``host_floor_id``),
+   * ``above_host_m`` above it, or the building's roof as a level, open to the sky. */
+  type?: "floor" | "mezzanine" | "roof"; host_floor_id?: string | null; above_host_m?: number | null;
 }
 interface SpaceProps {
   floor_id: string; type: string; name?: string | null; number?: string | null; drawing_label?: string | null;
@@ -76,6 +77,14 @@ const COLOR = /^#[0-9a-f]{6}$/i;
 /** The grades a desk may be for (catalogue.json, format 0.7): no other reaches the page. */
 const GRADES = new Set(["president", "c_level", "director", "manager", "section_head", "senior", "junior"]);
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+
+/** What level of its building a floor is (format 0.11, its ``type``): a storey ("floor"), a
+ * "mezzanine" or the "roof". A floor of an older package, or of a type a later version adds,
+ * is a "floor". */
+export function floorType(floor: Feature<FloorProps>): "floor" | "mezzanine" | "roof" {
+  const type = floor.properties.type;
+  return type === "mezzanine" || type === "roof" ? type : "floor";
+}
 
 /** Floors of one building in its order (format 0.11): by ordinal, then elevation, so a
  * mezzanine (its host's ordinal, above it) comes between its host and the floor above:

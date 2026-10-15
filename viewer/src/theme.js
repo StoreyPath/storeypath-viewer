@@ -26,12 +26,13 @@ export const TYPE_COLORS = {
   parking: "#c4c4bc",
   balcony: "#b7d9a8",
   terrace: "#cfe3b0",
+  roof: "#c9cfd6", // (format 0.11) a roof's open deck
   open_to_below: "#f4f4f2",
   unspecified: "#ff4d6d",
 };
 
 // Circulation and open-air areas are drawn as floor, not as raised blocks.
-export const FLAT_TYPES = ["corridor", "lobby", "open_area", "parking", "balcony", "terrace", "open_to_below"];
+export const FLAT_TYPES = ["corridor", "lobby", "open_area", "parking", "balcony", "terrace", "open_to_below", "roof"];
 
 export function typeLabel(type) {
   return type === "unspecified" ? "needs review" : type.replaceAll("_", " ");

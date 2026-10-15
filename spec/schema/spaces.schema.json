@@ -196,7 +196,7 @@
         },
         "outdoor": {
           "default": false,
-          "description": "open to the sky: a terrace or balcony with no windows of its own (a glazed veranda is not)",
+          "description": "open to the sky: a terrace, balcony or roof with no windows of its own (a glazed veranda is not)",
           "title": "Outdoor",
           "type": "boolean"
         },
@@ -363,7 +363,8 @@
         "parking",
         "balcony",
         "terrace",
-        "open_to_below"
+        "open_to_below",
+        "roof"
       ],
       "title": "SpaceType",
       "type": "string"

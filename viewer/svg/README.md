@@ -39,7 +39,8 @@ under its plan there (*Drawing*): the viewer's `DrawingView` (WebGL, `../src/dra
 following the plan's camera; `readPackage` gives a floor's as `drawing(floorId)`.
 `readPackage` gives each building's floors in its order, by ordinal then elevation
 (`byLevel`, format 0.11: a mezzanine, of its host floor's ordinal, between it and the
-floor above).
+floor above; the roof at the top); `floorType(floor)` says what level each is (`"floor"`,
+`"mezzanine"` or `"roof"`), and a roof's open deck is drawn as a space of type `roof`.
 
 ## What is shown
 

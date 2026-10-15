@@ -408,7 +408,12 @@ func Read(r io.ReaderAt, size int64, limits Limits) (*Package, error) {
 			return decode(b, "building", max, &p.Buildings, func(f *Building, id string, g *Geometry) { f.ID, f.Geometry = id, g })
 		}},
 		{"floors", func(b []byte) error {
-			return decode(b, "floor", max, &p.Floors, func(f *Floor, id string, g *Geometry) { f.ID, f.Geometry = id, g })
+			return decode(b, "floor", max, &p.Floors, func(f *Floor, id string, g *Geometry) {
+				f.ID, f.Geometry = id, g
+				if f.Type == "" { // (before 0.11: every floor a storey)
+					f.Type = FloorTypeFloor
+				}
+			})
 		}},
 		{"spaces", func(b []byte) error {
 			return decode(b, "space", max, &p.Spaces, func(f *Space, id string, g *Geometry) { f.ID, f.Geometry = id, g })
@@ -653,12 +658,13 @@ func FloorBefore(a, b *Floor) bool {
 	return a.ID < b.ID
 }
 
-// GroundFloor is a building's ground floor: its floor of ordinal 0 that is not a
-// mezzanine, else its lowest; nil when it has none.
+// GroundFloor is a building's ground floor: its floor of ordinal 0 that is a storey
+// (format 0.11: not a mezzanine on it, nor a roof), else its lowest; nil when it has
+// none.
 func (p *Package) GroundFloor(buildingID string) *Floor {
 	floors := p.FloorsOf(buildingID)
 	for _, f := range floors {
-		if f.Ordinal == 0 && !f.Mezzanine {
+		if f.Ordinal == 0 && !f.IsMezzanine() && !f.IsRoof() {
 			return f
 		}
 	}

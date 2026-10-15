@@ -909,7 +909,8 @@ export const FINISHES = {
       "shaft": "FLOOR-CONCRETE",
       "unspecified": "FLOOR-CONCRETE",
       "open_to_below": "FLOOR-CONCRETE",
-      "parking": "FLOOR-EPOXY-GREY"
+      "parking": "FLOOR-EPOXY-GREY",
+      "roof": "FLOOR-CONCRETE"
     },
     "wall": {
       "office": "WALL-PAINT-WHITE",
@@ -938,7 +939,8 @@ export const FINISHES = {
       "shaft": "WALL-PAINT-WHITE",
       "unspecified": "WALL-PAINT-WHITE",
       "open_to_below": "WALL-PAINT-WHITE",
-      "parking": "WALL-PAINT-WHITE"
+      "parking": "WALL-PAINT-WHITE",
+      "roof": "WALL-PAINT-WHITE"
     }
   }
 };

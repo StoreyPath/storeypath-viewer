@@ -32,16 +32,19 @@ type Floor struct {
 	Code     string `json:"code"`
 	Name     string `json:"name"`
 	Building string `json:"building_id"`
+	// Type (format 0.11): what level of its building it is: FloorTypeFloor (a storey,
+	// and every floor of a package before 0.11), FloorTypeMezzanine or FloorTypeRoof.
+	// A type this module does not know (a later version's) is read as a floor's.
+	Type string `json:"type"`
 	// Ordinal: 0 the ground floor, negative below ground; a mezzanine's is its host's.
 	Ordinal int `json:"ordinal"`
 	// Elevation above the building's ground floor, and floor-to-floor height (m).
 	Elevation float64 `json:"elevation"`
 	Height    float64 `json:"height"`
-	// Mezzanine (format 0.11): a floor standing in another floor of its building,
-	// its Host (that floor's ID, a floor that is not a mezzanine), over part of it,
-	// AboveHost metres above it: its Elevation is the host's and AboveHost. Host and
-	// AboveHost are nil for any other floor (and in packages before 0.11).
-	Mezzanine bool     `json:"mezzanine"`
+	// A mezzanine's Host (format 0.11): the floor of its building it stands in, over
+	// part of it (that floor's ID, of type floor), and AboveHost, how many metres
+	// above it: its Elevation is the host's and AboveHost. Both nil for any other
+	// level.
 	Host      *string  `json:"host_floor_id"`
 	AboveHost *float64 `json:"above_host_m"`
 	// Walls as drawn, with their door and window gaps; full height except the
@@ -51,6 +54,25 @@ type Floor struct {
 	Parapets      *Geometry `json:"parapets"`
 	ParapetHeight *float64  `json:"parapet_height_m"`
 }
+
+// A floor's types (format 0.11): what level of its building it is.
+const (
+	// FloorTypeFloor is a storey: the ground floor, a floor above it or a basement.
+	FloorTypeFloor = "floor"
+	// FloorTypeMezzanine is a floor standing in another floor of its building, over
+	// part of it: its Host, with the host's Ordinal, AboveHost metres above it.
+	FloorTypeMezzanine = "mezzanine"
+	// FloorTypeRoof is the building's roof as a level, open to the sky: its own
+	// ordinal at the top, its open deck spaces of type roof, the rooms standing on it
+	// (stair and lift rooms, plant rooms) indoor. No floor stands above a roof.
+	FloorTypeRoof = "roof"
+)
+
+// IsMezzanine says whether a floor is a mezzanine (format 0.11).
+func (f *Floor) IsMezzanine() bool { return f.Type == FloorTypeMezzanine }
+
+// IsRoof says whether a floor is a roof (format 0.11).
+func (f *Floor) IsRoof() bool { return f.Type == FloorTypeRoof }
 
 // Space is what walls, doors and windows enclose (spaces.geojson). A space with
 // Zones is used through them; one without is used as a whole.
@@ -67,7 +89,7 @@ type Space struct {
 	Area         float64  `json:"area_m2"`
 	Label        LonLat   `json:"display_point"`
 	Zones        []string `json:"zones"`
-	// Outdoor: open to the sky (a terrace or balcony with no windows of its own).
+	// Outdoor: open to the sky (a terrace, balcony or roof with no windows of its own).
 	Outdoor bool `json:"outdoor"`
 	Seating
 	// Stack (format 0.8): the key the spaces of one lift, staircase or escalator (or

@@ -58,13 +58,18 @@ for _, b := range pkg.Buildings {
 - Lookups: `Get`, `Building`, `Floor`, `Space`, `Zone`, `Opening`, `FloorsOf`,
   `SpacesOn`, `ZonesOf`, `OpeningsOn`, and `UnitsOn`: the zones of a divided space
   and every space with none, which is what a system placing people should use.
-- Floors (format 0.11): a building's floors may share an ordinal, a mezzanine
-  (`Mezzanine`) standing in its `Host` floor, `AboveHost` metres above it, with the
-  host's `Ordinal`. `FloorsOf` gives them in the building's order, by ordinal then
-  elevation (`FloorBefore`): Ground, Mezzanine, First; `GroundFloor` is the floor of
-  ordinal 0 that is not a mezzanine. `Validate` checks a mezzanine's host
-  (`MEZZANINE`), and one floor per ordinal besides mezzanines, each code once
-  (`FLOOR_ORDINAL`).
+- Levels (format 0.11): a floor's `Type` is `FloorTypeFloor` (a storey, and every
+  floor of an older package), `FloorTypeMezzanine` or `FloorTypeRoof` (`IsMezzanine`,
+  `IsRoof`; a type a later version adds is read as a floor's). A mezzanine stands in
+  its `Host` floor, `AboveHost` metres above it, with the host's `Ordinal`, so a
+  building's floors may share an ordinal. A roof is the building's roof as a level,
+  its own ordinal at the top: its open deck is spaces of type `roof` (outdoor), the
+  rooms standing on it (stair and lift rooms, plant rooms) indoor. `FloorsOf` gives a
+  building's floors in its order, by ordinal then elevation (`FloorBefore`): Ground,
+  Mezzanine, First, Roof; `GroundFloor` is the floor of ordinal 0 that is a storey.
+  `Validate` checks each floor's type (`VALUE`), a mezzanine's host, a floor of its
+  building of type floor (`MEZZANINE`), one level per ordinal besides mezzanines,
+  each code once (`FLOOR_ORDINAL`), and that no floor stands above a roof (`ROOF`).
 - Items (format 0.6): `Items`, `Item`, `ItemsOn`, the `Catalogue` of their types
   and `ItemType`. An item's ID is an asset's tag (format 0.8: `7K2Q-XM9F-4DP`,
   `IsItemID`; the project's code and its number, `K7Q2XM-I000142`, before), not its

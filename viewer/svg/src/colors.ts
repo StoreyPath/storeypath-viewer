@@ -10,4 +10,5 @@ export const TYPE_COLORS: Record<string, string> = {
   bedroom: "#8fb3e8", living_room: "#f0b67f", dining_room: "#e6c27a", bathroom: "#7fc6d6",
   dressing_room: "#c9b2d9", laundry: "#9cc9b4", prayer_room: "#d4b8e0", parking: "#c4c4bc",
   balcony: "#b7d9a8", terrace: "#cfe3b0", open_to_below: "#f4f4f2", unspecified: "#dedbd3",
+  roof: "#c9cfd6", // (format 0.11) a roof's open deck
 };

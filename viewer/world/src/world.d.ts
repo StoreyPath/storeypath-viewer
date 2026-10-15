@@ -70,10 +70,12 @@ export interface Feature<P = Record<string, unknown>> {
 	properties: P;
 }
 
-/** A floor (floors.geojson). A mezzanine (format 0.11) stands in another floor of its
- * building, its host, over part of it: it has its host's `ordinal`, and its `elevation` is
- * the host's and `above_host_m`. A building's floors are in order by ordinal, then
- * elevation (byLevel): Ground, Mezzanine, First. */
+/** A floor (floors.geojson): a level of its building, of a `type` (format 0.11). A mezzanine
+ * stands in another floor of its building, its host, over part of it: it has its host's
+ * `ordinal`, and its `elevation` is the host's and `above_host_m`. A roof is the building's
+ * roof as a level, its own ordinal at the top: its open deck spaces of type `roof`. A
+ * building's floors are in order by ordinal, then elevation (byLevel): Ground, Mezzanine,
+ * First, Roof. */
 export interface FloorProperties {
 	kind: 'floor';
 	code: string;
@@ -85,8 +87,8 @@ export interface FloorProperties {
 	elevation: number;
 	/** Its height, metres (floor to floor; a mezzanine's, its own). */
 	height: number;
-	/** Whether it is a mezzanine (format 0.11; absent before: false). */
-	mezzanine?: boolean;
+	/** What level it is (format 0.11; absent before: "floor"); floorType reads it. */
+	type?: 'floor' | 'mezzanine' | 'roof';
 	/** A mezzanine's host floor's ID; null otherwise. */
 	host_floor_id?: string | null;
 	/** A mezzanine's level above its host's, metres; null otherwise. */
@@ -96,6 +98,10 @@ export interface FloorProperties {
 
 /** Floors in their building's order (format 0.11): by ordinal, then elevation (then ID). */
 export declare function byLevel(a: Feature<FloorProperties>, b: Feature<FloorProperties>): number;
+
+/** What level of its building a floor is (format 0.11): its `type`, "floor" for a floor of an
+ * older package or of a type a later version adds. */
+export declare function floorType(floor: Feature<FloorProperties>): 'floor' | 'mezzanine' | 'roof';
 
 /** A piece of furniture or equipment (items.geojson, format 0.6). Its ID is an asset's
  * tag (format 0.8: 7K2Q-XM9F-4DP, isItemId), not its place nor its project's. Where it stands is
@@ -259,7 +265,7 @@ export declare class StoreyPathPackage {
 	itemsOn(floorId: string): Feature<ItemProperties>[];
 	/** An item type of the catalogue by its code (an item's `type`), or null. */
 	itemType(code: string): ItemType | null;
-	/** The building's floor of ordinal 0 that is not a mezzanine, else its lowest. */
+	/** The building's floor of ordinal 0 that is a storey (not a mezzanine, nor a roof), else its lowest. */
 	groundFloor(buildingId: string): Feature<FloorProperties> | null;
 	hierarchy(id: string): {
 		project: { id: string; name: string };

@@ -1,5 +1,5 @@
 export { StoreyPathViewer } from "./viewer.js";
-export { loadPackage, checkVersion, byLevel, StoreyPathPackage, FORMAT, FORMAT_VERSION, SUPPORTED_MAJOR_VERSION } from "./package.js";
+export { loadPackage, checkVersion, byLevel, floorType, StoreyPathPackage, FORMAT, FORMAT_VERSION, SUPPORTED_MAJOR_VERSION } from "./package.js";
 export { TYPE_COLORS, FLAT_TYPES, typeLabel } from "./theme.js";
 export { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } from "./finishes.js";
 export { route, shortest, Graph } from "./navigation.js";

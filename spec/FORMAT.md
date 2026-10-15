@@ -20,7 +20,7 @@ A copy of this document is included in every package.
 | `manifest.json` | Format version, project, export number, file list, counts, the building's placement, and the building it holds (`scope`) |
 | `location.geojson` | Locations (sites, campuses) |
 | `buildings.geojson` | The building, with its footprint |
-| `floors.geojson` | Floors, with their outline, order, elevation and height; a mezzanine with the floor it stands in (Mezzanines, 0.11) |
+| `floors.geojson` | Floors, with their outline, order, elevation and height, and what level each is: a floor, a mezzanine (with the floor it stands in) or the roof (Levels, 0.11) |
 | `spaces.geojson` | Rooms, offices, corridors, elevators, stairs, …: what walls and doors enclose |
 | `zones.geojson` | The parts of an open space with no wall between them (a majlis and a dining area in one hall) |
 | `openings.geojson` | Doors and other ways through, and which spaces each one connects |
@@ -114,10 +114,11 @@ convex hull of its buildings (or null).
 **building** — `code`, `name`, `location_id`, `display_point`. Geometry: footprint (or
 null if no floor has been converted).
 
-**floor** — `code`, `name`, `building_id`, `ordinal` (0 = ground, negative = below
-ground; a mezzanine's is the floor's it stands in), `elevation` (m above the ground
-floor), `height` (floor-to-floor, m; a mezzanine's its own), `mezzanine`,
-`host_floor_id` and `above_host_m` (Mezzanines), `walls` (the walls as drawn, with their
+**floor** — a level of the building: `code`, `name`, `building_id`, `type` (`floor`,
+`mezzanine` or `roof`: Levels), `ordinal` (0 = ground, negative = below ground; a
+mezzanine's is the floor's it stands in), `elevation` (m above the ground floor), `height`
+(floor-to-floor, m; a mezzanine's its own; a roof's, the rooms' standing on it),
+`host_floor_id` and `above_host_m` (a mezzanine's: Levels), `walls` (the walls as drawn, with their
 door and window gaps: a Polygon or MultiPolygon, for drawing or modelling the floor; they
 rise to the ceiling), `wall_thickness_m`, `parapets` (the low walls around terraces,
 balconies and roofs, `parapet_height_m` high: a Polygon or MultiPolygon, or null) and
@@ -125,7 +126,7 @@ balconies and roofs, `parapet_height_m` high: a Polygon or MultiPolygon, or null
 rooms, not the floor under it.
 
 **space** — `type`, `name`, `number`, `drawing_label`, `floor_id`, `area_m2`,
-`display_point` (a good spot for its label), `zones`, `outdoor` (open to the sky: a terrace or balcony with no
+`display_point` (a good spot for its label), `zones`, `outdoor` (open to the sky: a terrace, balcony or roof with no
 windows of its own; a glazed veranda is not), `capacity`, `capacity_from`, `grade`
 (Capacity), `stack` (Stacks), `floor_finish`, `wall_finish` and `wall_finishes` (Finishes), `hidden`, `ignored`.
 Geometry: Polygon or MultiPolygon. A space is what walls, doors and windows enclose:
@@ -183,7 +184,8 @@ Space types: `office`, `room`, `meeting_room`, `corridor`, `lobby`, `elevator`,
 `stairs`, `escalator`, `ramp`, `restroom`, `kitchen`, `storage`, `utility`, `shaft`,
 `open_area`, `unspecified`, `bedroom`, `living_room`, `dining_room`, `bathroom`
 (private; public toilets are `restroom`), `dressing_room`, `laundry`, `prayer_room`,
-`parking`, `balcony`, `terrace`, `open_to_below` (a void over the floor below).
+`parking`, `balcony`, `terrace`, `open_to_below` (a void over the floor below), `roof`
+(0.11: the open roof of a building, its deck behind the parapets, on a roof level).
 
 Opening types: `door`, `window` (glazing in a wall: not a way through), `opening` (a
 way through a wall with no door: a doorway). Openings join spaces; the zones of a
@@ -430,38 +432,56 @@ from a package is never read so: it is written as above, or it is not an ID.
 `spec/conformance/asset-ids.json` holds check symbols, IDs right and wrong, and what
 people type with what it reads as, for every reader to agree on.
 
-## Mezzanines (0.11)
+## Levels (0.11)
 
-A mezzanine is a floor standing in another floor of its building, over part of it (a block
-of rooms up a stair in a double-height hall, a gallery). It is a floor like any other, with
-its own code, rooms, doors, items and walking network, and three properties more:
+Every floor is a level of its building, and its `type` says which kind:
 
-```json
-"properties": { "kind": "floor", "code": "M00", "name": "Mezzanine", "building_id": "K7Q2XM-RUH-WH",
-                "ordinal": 0, "elevation": 4.0, "height": 3.0,
-                "mezzanine": true, "host_floor_id": "K7Q2XM-RUH-WH-F00", "above_host_m": 4.0, … }
-```
+- `floor`: a storey (the ground floor, a floor above it, a basement). A floor of a package
+  before 0.11 has no `type`, and is a floor.
+- `mezzanine`: a floor standing in another floor of its building, over part of it (a block
+  of rooms up a stair in a double-height hall, a gallery). Mezzanines, below.
+- `roof`: the building's roof as a level, open to the sky, with what stands on it (stair
+  and lift rooms, plant rooms). Roofs, below.
 
-- `mezzanine`: true for a mezzanine; false (or absent, in packages before 0.11) for any
-  other floor.
-- `host_floor_id`: the floor it stands in, its host: a floor of the same building that is
-  not a mezzanine, with the same `ordinal`. Null for a floor that is not a mezzanine.
-- `above_host_m`: how far its floor is above its host's, in metres (more than 0): its
-  `elevation` is the host's and this. Null for a floor that is not a mezzanine.
+A level of any type is a floor like any other, with its own code, rooms, doors, items and
+walking network. Types may be added in later versions (`manifest.json → types` lists
+those of the package under `floor`): a reader takes a type it does not know for `floor`.
 
-**Ordinals and order.** A mezzanine keeps its host's `ordinal` (0 for one over the ground
-floor), so floors may share an ordinal: a building has one floor of each ordinal that is
-not a mezzanine, and any number of mezzanines on it. A building's floors are in order of
-`ordinal`, then `elevation` (Ground floor, Mezzanine, First floor; two at one elevation as
-the package lists them): `floors.geojson` lists them so, and so does `navigation.json`.
-The ground floor is the floor of ordinal 0 that is not a mezzanine.
+**Ordinals and order.** A building has one level of each ordinal that is not a mezzanine,
+and any number of mezzanines on them. A building's floors are in order of `ordinal`, then
+`elevation` (Ground floor, Mezzanine, First floor, Roof; two at one elevation as the
+package lists them): `floors.geojson` lists them so, and so does `navigation.json`. The
+ground floor is the level of ordinal 0 of type `floor`.
 
 **Codes.** A floor's code is its building's own, and unique in it. Studio gives F00 to the
-ground floor, F01, F02… above it, B01, B02… below it, and to a mezzanine M00 over F00, M01
-over F01, MB01 over B01 (a second on one floor M00B, then M00C…), unless a person chose
-another: a mezzanine's rooms have IDs such as `K7Q2XM-RUH-WH-M00-0042`. No other floor's
-code or ID changes when a mezzanine is added. A code is no more than a code: a reader
-tells a mezzanine by `mezzanine`, never by its code.
+ground floor, F01, F02… above it, B01, B02… below it, to a mezzanine M00 over F00, M01
+over F01, MB01 over B01 (a second on one floor M00B, then M00C…), and to the roof RF (a
+second roof RF2), unless a person chose another: a mezzanine's rooms have IDs such as
+`K7Q2XM-RUH-WH-M00-0042`, the roof's `K7Q2XM-RUH-WH-RF-0003`. No other floor's code or
+ID changes when a mezzanine or a roof is added. A code is no more than a code: a reader
+tells a level by its `type`, never by its code.
+
+**What a reader does.** Sort a building's floors by `ordinal`, then `elevation`, never by
+`ordinal` alone, and never take an ordinal to name one floor (a floor list, a floor
+picker, stacking floors in 3D, a floor up or down); key floors by their IDs. Name a level
+by its `name`. A reader of 0.10 knows none of this: it refuses a 0.11 package
+(Versioning).
+
+### Mezzanines
+
+```json
+"properties": { "kind": "floor", "type": "mezzanine", "code": "M00", "name": "Mezzanine",
+                "building_id": "K7Q2XM-RUH-WH", "ordinal": 0, "elevation": 4.0, "height": 3.0,
+                "host_floor_id": "K7Q2XM-RUH-WH-F00", "above_host_m": 4.0, … }
+```
+
+- `host_floor_id`: the floor it stands in, its host: a level of the same building of type
+  `floor`, with the same `ordinal`. Null for a level that is not a mezzanine.
+- `above_host_m`: how far its floor is above its host's, in metres (more than 0): its
+  `elevation` is the host's and this. Null for a level that is not a mezzanine.
+
+A mezzanine keeps its host's `ordinal` (0 for one over the ground floor), so floors may
+share an ordinal; it comes after its host and before the floor above.
 
 **Ways between floors.** A lift, stairs or escalator that serves a mezzanine has a space on
 it in its stack (Stacks), as on any floor: stairs that serve the ground floor, the
@@ -471,12 +491,31 @@ first, as before. In `navigation.json` a mezzanine is one of the building's floo
 order: a way passing it counts it among the floors it rides (`floors`, and the time a
 floor).
 
-**What a reader does.** Sort a building's floors by `ordinal`, then `elevation`, never by
-`ordinal` alone, and never take an ordinal to name one floor (a floor list, a floor
-picker, stacking floors in 3D, a floor up or down); key floors by their IDs. Show a
-mezzanine where it stands, at its `elevation`, with its own outline (a slab under its
-rooms, not the host's); name it by its `name`. A reader of 0.10 knows none of this: it
-refuses a 0.11 package (Versioning).
+Show a mezzanine where it stands, at its `elevation`, with its own outline (a slab under
+its rooms, not the host's).
+
+### Roofs
+
+```json
+"properties": { "kind": "floor", "type": "roof", "code": "RF", "name": "Roof",
+                "building_id": "K7Q2XM-RUH-WH", "ordinal": 2, "elevation": 10.5, "height": 3.0,
+                "parapets": { … }, "parapet_height_m": 1.2, … }
+```
+
+A roof has its own ordinal, at the top: a building's roofs are its top levels, and no
+level of type `floor` stands above a roof (a second roof, over the rooms standing on the
+first, may). Its outline is the roof, and its slab is the roof itself; nothing of the
+building is built above it.
+
+- Its open ground is its deck: spaces of type `roof`, `outdoor` (open to the sky), walked
+  through as a terrace is. The rooms standing on it (stair and lift rooms, plant rooms, a
+  water tank's room, a penthouse's rooms) are spaces of their own types, under a ceiling:
+  their walls rise its `height`.
+- Its parapets are its edge: `parapets`, `parapet_height_m` high, as any floor's.
+- Stairs that reach it have a space on it in their stack, and link to it as to any floor.
+  A lift's machine room on it is no stop: it is a room of its own (Studio reads a lift's
+  space on a roof as its machine room, of type `utility`, unless a person sets it to be a
+  lift that stops there), and the lift's stack does not serve the roof.
 
 ## Stacks (0.8)
 
@@ -519,7 +558,7 @@ an earlier format has none.
   "speed_m_s": 1.3,
   "buildings": ["K7Q2XM-RUH-HQ"],
   "floors": [ { "id": "K7Q2XM-RUH-HQ-F00", "building_id": "K7Q2XM-RUH-HQ", "name": "Ground floor",
-                "ordinal": 0, "elevation": 0.0 } ],                       // lowest first (Mezzanines)
+                "ordinal": 0, "elevation": 0.0 } ],                       // lowest first (Levels)
   "places": [ { "id": "K7Q2XM-RUH-HQ-F01-0069", "kind": "space", "space_id": null,
                 "floor_id": "K7Q2XM-RUH-HQ-F01", "type": "office", "label": "OFFICE 112" } ],
   "nodes": [ { "id": "door:K7Q2XM-RUH-HQ-F00-0048", "kind": "door", "floor_id": "K7Q2XM-RUH-HQ-F00",
@@ -555,7 +594,7 @@ edges they do not know: a later version may add some.
 
 **What is walked.** A person walks in the spaces and zones of these types, unless
 hidden or ignored in review: `corridor`, `lobby`, `open_area`, `elevator`, `stairs`,
-`escalator`, `ramp`, `parking`, `terrace`, `balcony`, `living_room`, `dining_room`
+`escalator`, `ramp`, `parking`, `terrace`, `balcony`, `roof`, `living_room`, `dining_room`
 (spaces to pass through), and `office`, `room`, `meeting_room`, `restroom`,
 `kitchen`, `storage`, `bedroom`, `bathroom`, `dressing_room`, `laundry`,
 `prayer_room`, `unspecified` (spaces a person goes to). Not `utility` (plant and
@@ -576,7 +615,7 @@ follows it backwards.
 
 `length_m` is the length of `path` (for a lift, stairs, escalator or ramp: the height
 between the floors); "a floor" is each of the building's floors passed, by their
-order (`floors`: by ordinal, then elevation, a mezzanine among them). `space_id` is the space a `walk` or `door` edge is in (for a `door`, the space
+order (`floors`: by ordinal, then elevation, a mezzanine or a roof among them). `space_id` is the space a `walk` or `door` edge is in (for a `door`, the space
 of its approach), and `zone_id`, in a divided space, the zone most of its line is in.
 `accessible` is false for `stairs` and `escalator`. `cost` is what routing takes the
 fewest of: `seconds`, and 30 more for a `door` edge into a space a person goes to (an
@@ -759,7 +798,7 @@ building's outside: `WALL-PAINT-WHITE`):
 | `parking` | `FLOOR-EPOXY-GREY` | `WALL-PAINT-WHITE` |
 | `prayer_room` | `FLOOR-CARPET-GREEN` | `WALL-PAINT-WHITE` |
 | `restroom`, `bathroom`, `laundry` | `FLOOR-PORCELAIN-WHITE` | `WALL-TILE-WHITE` |
-| `storage`, `utility`, `shaft`, `unspecified`, `open_to_below` | `FLOOR-CONCRETE` | `WALL-PAINT-WHITE` |
+| `storage`, `utility`, `shaft`, `unspecified`, `open_to_below`, `roof` | `FLOOR-CONCRETE` | `WALL-PAINT-WHITE` |
 
 ## One building per package
 
@@ -945,26 +984,34 @@ Readers that do not show drawings ignore the folder.
 
 ## Changes from 0.10
 
-- Mezzanines (Mezzanines): a floor's `mezzanine`, `host_floor_id` and `above_host_m`. A
-  mezzanine has the `ordinal` of the floor it stands in, so floors of a building may now
-  share an ordinal. A reader must:
+- Levels (Levels): a floor's `type`, what level of its building it is: `floor` (a storey,
+  as every floor before), `mezzanine` or `roof`; `manifest.json → types` lists them under
+  `floor`. A mezzanine's `host_floor_id` and `above_host_m`: it has the `ordinal` of the
+  floor it stands in, so floors of a building may now share an ordinal. A roof is the
+  building's roof as a level, its own ordinal at the top, its open deck spaces of the new
+  type `roof` (`outdoor`, walked through), the rooms standing on it of their own types. A
+  reader must:
   - sort a building's floors by `ordinal`, then `elevation` (`floors.geojson` and
     `navigation.json → floors` list them so), and never take an ordinal to name one floor;
-  - take the ground floor as the floor of ordinal 0 that is not a mezzanine;
-  - read a mezzanine's mark (`mezzanine`) and its host (`host_floor_id`, a floor of its
-    building that is not one, of its ordinal; `above_host_m`, its level above the host's);
-  - count a mezzanine among the floors a way between floors passes (Navigation), as the
-    list's order has it.
-  A validator checks that a building has at most one floor of each ordinal that is not a
-  mezzanine, that floor codes are unique in a building, and that a mezzanine's host is a
-  floor of its building that is not a mezzanine, of its ordinal, its elevation the host's
-  and `above_host_m`.
+  - take the ground floor as the level of ordinal 0 of type `floor`;
+  - read a floor's `type` (none: `floor`; one it does not know: `floor`), a mezzanine's
+    host (`host_floor_id`, a floor of its building of type `floor`, of its ordinal) and its
+    level above the host's (`above_host_m`);
+  - count a mezzanine or a roof among the floors a way between floors passes (Navigation),
+    as the list's order has it;
+  - know the space type `roof` (Types), open to the sky as a terrace.
+  A validator checks each floor's `type`; that a building has at most one level of each
+  ordinal that is not a mezzanine, and that floor codes are unique in it; that a
+  mezzanine's host is a floor of its building of type `floor`, of its ordinal, its
+  elevation the host's and `above_host_m`, and that no other level names a host; and that
+  no level of type `floor` stands above a roof of its building.
 - `drawings/` and `manifest.json → files.drawings`, and a source's `view` (Drawings): each
   floor's drawing as drawn, its part of its drawing in the building's own frame, when the
   export was asked to carry them; its texts as the privacy rules leave them. (Written first
   as 0.10.1, which was never released: 0.11 is the version that has it.)
 - A minor version: a reader of 0.10 refuses a 0.11 package (Versioning), as floors may
-  share an ordinal; a reader of 0.11 reads 0.10 and earlier ones as before (no mezzanines).
+  share an ordinal; a reader of 0.11 reads 0.10 and earlier ones as before (every floor of
+  type `floor`).
 
 ## Changes from 0.9.3
 
@@ -1090,12 +1137,15 @@ those), `campus-whole-1`, `campus-part`, `campus-whole-3` (0.4), `simple-office`
 a made-up sheet of two floors side by side, the second floor's region of it moved onto the
 first; each floor's drawing view lies on its walls, in the building's own frame, and
 nothing of the other floor, nor of the notes beside them, is in it. `mezzanine-warehouse`
-(0.11) is a made-up warehouse with a mezzanine (Mezzanines): a ground floor, a mezzanine
-over part of it (M00, its own outline) and a first floor, listed in that order, the
-mezzanine sharing the ground floor's ordinal; stairs through all three (Ground to
-Mezzanine to First) and lifts that pass the mezzanine (Ground to First). `routes.json`
-holds ways through it too: up the stairs by the mezzanine, to a room on it, and by lift
-past it.
+(0.11) is a made-up warehouse with a mezzanine and a roof (Levels): a ground floor, a
+mezzanine over part of it (M00, its own outline), a first floor, and a roof (RF) over the
+first floor, listed in that order, the mezzanine sharing the ground floor's ordinal; stairs
+through all four (Ground to Mezzanine to First to Roof, where a stair room stands on the
+roof), lifts that pass the mezzanine (Ground to First) and do not stop on the roof (the
+lift's machine room there is a room of its own), a plant room on the roof, and the roof's
+open deck behind its parapets (spaces of type `roof`). `routes.json` holds ways through it
+too: up the stairs by the mezzanine, to a room on it, by lift past it, and up the stairs
+to the roof.
 
 A reader that takes packages from uploads bounds what it reads. A building's package
 is a few megabytes; the Go module reads by default at most 64 MiB a file and 256 MiB in

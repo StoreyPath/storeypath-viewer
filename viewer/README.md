@@ -525,11 +525,15 @@ The package object (`viewer.package`, or `loadPackage(source)` on its own):
 `get(id)`, `hierarchy(id)` → `{ project, location, building, floor, object }`,
 `floorsOf(buildingId)`, `groundFloor(buildingId)`, `spacesOn(floorId)`, `doorsOf(spaceId)`,
 `search(query, { type, buildingId, floorId, limit })`, and the raw `manifest`,
-`buildings`, `floors`, `spaces`, `openings` collections. A building's floors may share an
-ordinal (format 0.11): a mezzanine (`mezzanine: true`) stands in its host floor
-(`host_floor_id`), `above_host_m` above it, with the host's ordinal. `floorsOf` gives them
-in the building's order, by ordinal then elevation (`byLevel`): Ground, Mezzanine, First;
-`groundFloor` is the floor of ordinal 0 that is not a mezzanine. The 3D world stacks,
+`buildings`, `floors`, `spaces`, `openings` collections. Each floor is a level of its
+building (format 0.11), its `type` read by `floorType(floor)`: `"floor"` (a storey, and
+every floor of an older package), `"mezzanine"` or `"roof"`. A mezzanine stands in its
+host floor (`host_floor_id`), `above_host_m` above it, with the host's ordinal, so a
+building's floors may share an ordinal. A roof is the building's roof as a level, its own
+ordinal at the top: its open deck is spaces of type `roof`, outdoor (behind its parapets,
+no ceiling over it in 3D), the rooms standing on it indoor. `floorsOf` gives a building's
+floors in its order, by ordinal then elevation (`byLevel`): Ground, Mezzanine, First,
+Roof; `groundFloor` is the floor of ordinal 0 that is a storey. The 3D world stacks,
 explodes and shows floors in that order, and walking from stairs or a lift goes to the
 next floor up or down they serve.
 

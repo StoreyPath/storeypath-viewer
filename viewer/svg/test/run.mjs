@@ -8,7 +8,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launch, movedEast, readPackage, repack, serve, wrapped } from "./harness.mjs";
 import { LocalFrame } from "../dist/frame.js";
-import { byLevel, floorFromPackage } from "../dist/package.js";
+import { byLevel, floorFromPackage, floorType } from "../dist/package.js";
+import { TYPE_COLORS } from "../dist/colors.js";
 import { inside } from "../dist/geometry.js";
 import { FORMAT_VERSION, readPackage as readInBrowsers } from "../dist/read.js";
 import { Graph, route } from "../dist/navigation.js";
@@ -140,22 +141,47 @@ const withMezzanine = (path) => repack(path, (files) => {
   const floors = files.get("floors.geojson").features;
   const at = (n) => floors.find((f) => f.properties.ordinal === n);
   const ground = at(0), mezz = at(2);
-  Object.assign(mezz.properties, { name: "Mezzanine", mezzanine: true, host_floor_id: ground.id, above_host_m: 2.5,
+  Object.assign(mezz.properties, { name: "Mezzanine", type: "mezzanine", host_floor_id: ground.id, above_host_m: 2.5,
     ordinal: 0, elevation: ground.properties.elevation + 2.5 });
+  floors.reverse();
+});
+
+/** campus-hq (floors 0, 1 and 2) with a roof (format 0.11): the floor two up made the roof
+ * (RF), a corridor on it its open deck (a space of type roof, outdoor). */
+const withRoof = (path) => repack(path, (files) => {
+  const floors = files.get("floors.geojson").features;
+  const roof = floors.find((f) => f.properties.ordinal === 2);
+  Object.assign(roof.properties, { name: "Roof", code: "RF", type: "roof" });
+  const deck = files.get("spaces.geojson").features.find((s) => s.properties.floor_id === roof.id && s.properties.type === "corridor");
+  Object.assign(deck.properties, { type: "roof", outdoor: true });
   floors.reverse();
 });
 
 // spec/FORMAT.md, "Floors" (0.11): floors may share an ordinal; a building's are in order by ordinal, then elevation
 test("readPackage gives a building's floors in its order: a mezzanine (0.11) between its host and the floor above", async () => {
   const read = await readInBrowsers(withMezzanine(join(conformance, "packages/campus-hq.storeypath")));
-  equal(read.floors.map((f) => [f.properties.ordinal, f.properties.mezzanine ?? false]), [[0, false], [0, true], [1, false]],
+  equal(read.floors.map((f) => [f.properties.ordinal, floorType(f)]), [[0, "floor"], [0, "mezzanine"], [1, "floor"]],
     "Ground, Mezzanine, First");
   equal(read.floors.map((f) => f.properties.elevation), [...read.floors].sort(byLevel).map((f) => f.properties.elevation),
     "byLevel: the same order");
   const [ground, mezz, first] = read.floors;
-  truly(!ground.properties.mezzanine && mezz.properties.host_floor_id === ground.id && first.properties.ordinal === 1,
+  truly(floorType(ground) === "floor" && mezz.properties.host_floor_id === ground.id && first.properties.ordinal === 1,
     `${ground.id}, ${mezz.id} of ${mezz.properties.host_floor_id}, ${first.id}`);
   truly(floorFromPackage(read, mezz.id).spaces.length > 0, "the mezzanine's plan is read as any floor's");
+});
+
+// spec/FORMAT.md, "Levels" (0.11): a roof is a level at the top, its open deck a space of type roof
+test("a roof (0.11) is its building's top level, its open deck a space of type roof", async () => {
+  const read = await readInBrowsers(withRoof(join(conformance, "packages/campus-hq.storeypath")));
+  equal(read.floors.map((f) => [f.properties.ordinal, floorType(f)]), [[0, "floor"], [1, "floor"], [2, "roof"]],
+    "Ground, First, Roof");
+  const roof = read.floors[2];
+  const plan = floorFromPackage(read, roof.id);
+  const deck = plan.spaces.find((s) => s.type === "roof");
+  truly(deck && plan.spaces.length > 1, `the roof's plan: ${plan.spaces.length} spaces, its deck ${deck?.id}`);
+  truly(/^#[0-9a-f]{6}$/i.test(TYPE_COLORS.roof ?? ""), "the roof's deck has a colour");
+  // a floor of an older package (no type), or of a type a later version adds, is a floor
+  equal([floorType({ properties: {} }), floorType({ properties: { type: "attic" } })], ["floor", "floor"], "no type, or another");
 });
 
 // spec/FORMAT.md, "Versioning": a reader reads its own major version, not newer than it

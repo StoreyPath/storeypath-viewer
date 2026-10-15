@@ -63,7 +63,7 @@ const STEP = { riser: 0.175, tread: 0.3, waist: 0.15, inset: 0.05, twoFlights: 2
 const EDGE_TURN = Math.cos((20 * Math.PI) / 180); // a wall's corner turns more than this: a line up it (edges)
 const DOUBLE_DOOR = 1.3; // m: a door wider than this, drawn without its swings, has two leaves
 const MEETING = 0.003; // m: the leaves of a double door stop this short of each other's, shut: a seam
-const OUTDOOR = new Set(["terrace", "balcony"]); // open to the sky, behind parapets
+const OUTDOOR = new Set(["terrace", "balcony", "roof"]); // open to the sky, behind parapets (a roof's deck: 0.11)
 const PARAPET = 1.1; // m, when the package gives no parapet height
 const ITEM_COLOR = "#8a8a8a"; // an item whose type the package does not describe (or not as #rrggbb)
 const COLOR = /^#[0-9a-f]{6}$/i; // the colours a package may give (catalogue.json): nothing else is used
@@ -489,7 +489,7 @@ export function buildPieces(plan, options = {}) {
   if (lined) outlineEdges(set("slab").edges, slabPolys, e - o.slab, e);
 
   // the rooms: an x-ray volume each, and a floor finish for each of their units
-  const roofed = []; // under the ceiling: every room but terraces and balconies
+  const roofed = []; // under the ceiling: every room but terraces, balconies and a roof's deck
   for (const r of plan.rooms) {
     if (!r.outdoor) roofed.push(...r.rings);
     if (!solid) continue;

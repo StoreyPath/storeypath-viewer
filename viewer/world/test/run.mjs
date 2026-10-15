@@ -28,7 +28,7 @@ register(`data:text/javascript,${encodeURIComponent(`
     const path = to(specifier);
     return path ? { url: ${JSON.stringify(vendor)} + path, shortCircuit: true } : next(specifier, context);
   }`)}`);
-const { FORMAT_VERSION, byLevel, loadPackage } = await import("../../src/package.js");
+const { FORMAT_VERSION, byLevel, floorType, loadPackage } = await import("../../src/package.js");
 const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, openSlab, originOf,
   outlineRect, planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
@@ -90,13 +90,13 @@ test("a building's floors in its order: a mezzanine (0.11) between its host and 
   const pkg = await loadPackage(repack(join(packages, "campus-hq.storeypath"), (files) => {
     const floors = files.get("floors.geojson").features;
     const ground = floors.find((f) => f.properties.ordinal === 0), mezz = floors.find((f) => f.properties.ordinal === 2);
-    Object.assign(mezz.properties, { name: "Mezzanine", mezzanine: true, host_floor_id: ground.id, above_host_m: 2.5,
+    Object.assign(mezz.properties, { name: "Mezzanine", type: "mezzanine", host_floor_id: ground.id, above_host_m: 2.5,
       ordinal: 0, elevation: ground.properties.elevation + 2.5 });
     floors.reverse();
   }));
   const b = pkg.buildings[0].id;
   const floors = pkg.floorsOf(b);
-  const said = floors.map((f) => `${f.properties.ordinal}${f.properties.mezzanine ? " mezzanine" : ""}`).join(", ");
+  const said = floors.map((f) => `${f.properties.ordinal}${floorType(f) === "mezzanine" ? " mezzanine" : ""}`).join(", ");
   truly(said === "0, 0 mezzanine, 1", `floors: ${said}`);
   truly(floors[1].properties.host_floor_id === floors[0].id && pkg.groundFloor(b) === floors[0], "the ground floor: its host");
   truly(floors.every((f, i) => i === 0 || byLevel(floors[i - 1], f) < 0), "byLevel: the same order");
@@ -104,6 +104,30 @@ test("a building's floors in its order: a mezzanine (0.11) between its host and 
   const plan = planFloor(pkg, floors[1], originOf(pkg, b));
   truly(plan.elevation === floors[0].properties.elevation + 2.5 && plan.rooms.length > 0 && plan.outline.length > 0,
     `the mezzanine's plan: ${plan.elevation} m, ${plan.rooms.length} rooms`);
+});
+
+// spec/FORMAT.md, "Levels" (0.11): a roof is its building's top level, open to the sky
+test("a roof (0.11): the top level, not the ground floor; its open deck outdoor, its rooms under a ceiling", async () => {
+  // campus-hq with a roof: its floor two up made the roof (RF), a corridor on it its open
+  // deck (a space of type roof; its outdoor left out, as the type says), its other rooms
+  // the rooms standing on the roof
+  let deckId = null;
+  const pkg = await loadPackage(repack(join(packages, "campus-hq.storeypath"), (files) => {
+    const roof = files.get("floors.geojson").features.find((f) => f.properties.ordinal === 2);
+    Object.assign(roof.properties, { name: "Roof", code: "RF", type: "roof" });
+    const deck = files.get("spaces.geojson").features.find((s) => s.properties.floor_id === roof.id && s.properties.type === "corridor");
+    deck.properties.type = "roof";
+    delete deck.properties.outdoor;
+    deckId = deck.id;
+  }));
+  const b = pkg.buildings[0].id;
+  const floors = pkg.floorsOf(b);
+  truly(floors.map(floorType).join(", ") === "floor, floor, roof", `levels: ${floors.map(floorType).join(", ")}`);
+  truly(pkg.groundFloor(b) === floors[0] && floors[0].properties.ordinal === 0, "the ground floor is not the roof");
+  const plan = planFloor(pkg, floors[2], originOf(pkg, b));
+  const deck = plan.rooms.find((r) => r.id === deckId);
+  truly(deck && deck.outdoor && plan.rooms.some((r) => !r.outdoor), "the deck outdoor, the rooms on the roof not");
+  truly(Boolean(TYPE_COLORS.roof), "the roof's deck has a colour");
 });
 
 // spec/FORMAT.md, "Versioning": a reader reads its own major version, not newer than it
