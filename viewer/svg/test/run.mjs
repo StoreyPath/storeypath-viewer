@@ -1,6 +1,7 @@
 // node test/run.mjs: the frame and the package reader in Node, then the engine in
 // headless Chrome, used as people use it: clicks, drags, the wheel, two fingers,
-// the keyboard. Positions are checked to a pixel: nothing may drift.
+// the keyboard. Positions are checked to a pixel: nothing may drift. BROWSER=0: the
+// tests in Node alone, no Chrome started.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,6 +14,7 @@ import { FORMAT_VERSION, readPackage as readInBrowsers } from "../dist/read.js";
 import { Graph, route } from "../dist/navigation.js";
 import { ITEM_ID_ALPHABET, isItemId, itemCheckSymbol, normalizeItemId } from "../dist/ids.js";
 import { SealedError } from "../dist/sealed.js";
+import { linesOn, readDrawingView, textsOf } from "../../src/drawing/view.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -160,6 +162,37 @@ test("a package of a newer minor version, or of no version, is refused; older on
 test("a package with its floors pre-built in 3D (0.5, world/) reads as one without", async () => {
   const read = await readInBrowsers(readFileSync(join(conformance, "packages/campus-world.storeypath")));
   equal(floorFromPackage(read, FLOOR), floorFromPackage(pkg, FLOOR), "the same floor");
+});
+
+// spec/FORMAT.md, "Drawings" (0.10.1): a floor's drawing as drawn, where its plan is
+test("a floor's drawing (0.10.1) lies on its plan: its walls on the floor's walls, in the building's own metres", async () => {
+  const read = await readInBrowsers(readFileSync(join(conformance, "packages/drawn-office.storeypath")));
+  const floors = read.floors.map((f) => f.id).sort();
+  equal(floors.length, 2, "two floors");
+  const words = [];
+  for (const id of floors) {
+    const view = await readDrawingView(await read.drawing(id));
+    equal([view.head.format, view.head.units], [1, "m"], `${id}: a view in metres`);
+    const plan = floorFromPackage(read, id);
+    // every end of the drawing's wall lines on an edge of the plan's walls (to the package's centimetre)
+    const edges = plan.drawing.walls.flatMap((poly) => poly.flatMap((ring) => ring.slice(1).map((p, i) => [ring[i], p])));
+    const off = ([x, y]) => Math.min(...edges.map(([a, b]) => {
+      const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy);
+    }));
+    const ends = linesOn(view, "A-WALL").flatMap(([x0, y0, x1, y1]) => [[x0, y0], [x1, y1]]);
+    const worst = Math.max(...ends.map(off));
+    truly(ends.length > 100 && worst < 0.02, `${id}: its walls ${worst.toFixed(3)} m off the plan's (${ends.length} ends)`);
+    const [cx0, cy0, cx1, cy1] = view.head.clip;
+    truly(ends.every(([x, y]) => x >= cx0 - 1e-3 && x <= cx1 + 1e-3 && y >= cy0 - 1e-3 && y <= cy1 + 1e-3), `${id}: cut to its region`);
+    words.push(textsOf(view).map((t) => t.words));
+  }
+  const [ground, first] = words;
+  truly(ground.includes("GROUND FLOOR PLAN") && !ground.includes("FIRST FLOOR PLAN"), "the ground floor's drawing, not the first's");
+  truly(first.includes("FIRST FLOOR PLAN") && first.includes("SITE OFFICE") && !first.includes("GROUND FLOOR PLAN"), "the first's");
+  equal([...ground, ...first].filter((w) => /NOTES|TEL|JOHN/.test(w)), [], "nothing of the notes; as the privacy rules leave them");
+  equal(await (await readInBrowsers(readFileSync(join(conformance, "packages/campus-hq.storeypath")))).drawing("9Y5JTB-DEMO-HQ-F00"),
+    null, "a package without drawings");
 });
 
 test("a floor's items: where each stands, the way it faces in the drawing, its type's colour", () => {
@@ -1235,6 +1268,10 @@ for (const t of tests) {
   } catch (e) {
     report(t.name, e);
   }
+}
+if (process.env.BROWSER === "0") { // (the tests in Node alone)
+  console.log(failed ? `${failed} failed` : `all ${tests.length} passed (in Node; BROWSER=0)`);
+  process.exit(failed ? 1 : 0);
 }
 const server = await serve(root, { "/fixture/campus.json": JSON.stringify(pkg) });
 const page = await launch();

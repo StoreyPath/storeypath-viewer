@@ -6,6 +6,10 @@ export { webglSupport, type WebGLSupport } from './support.js';
 // finding the way (format 0.8): the module both viewers share
 export { route, shortest, Graph } from './navigation.js';
 export { ITEM_ID_ALPHABET, itemCheckSymbol, isItemId, normalizeItemId } from './ids.js';
+// a floor's drawing as drawn (format 0.10.1): read (view.js) and drawn (drawing.js); its CSS is dist/drawing.css
+export { DrawingView, DRAWING_VIEW_FORMAT, readDrawingView, parseDrawingView, linesOn, textsOf } from './drawing.js';
+export type { Box, DrawingBatch, DrawingCamera, DrawingCursor, DrawingLayer, DrawingLook, DrawingMark, DrawingViewData,
+	DrawingViewEvents, DrawingViewHead, DrawingViewOptions } from './drawing.js';
 export type { Navigation, NavEdge, NavFloor, NavNode, NavPlace, Route, RouteChange, RouteLeg, RouteStep, RouteOptions,
 	Routable } from './navigation.js';
 import type { Navigation, Route, RouteStep } from './navigation.js';
@@ -246,6 +250,11 @@ export declare class StoreyPathPackage {
 	hasModel(code: string): boolean;
 	/** An item type's 3D model as binary glTF (parseModel reads it), or null when the package has none. */
 	model(code: string): Promise<ArrayBuffer | null>;
+	/** Whether a floor comes with its drawing (format 0.10.1: the export carried the drawings). */
+	hasDrawing(floorId: string): boolean;
+	/** A floor's drawing as drawn: a drawing view (gzip; readDrawingView or DrawingView's open read it) in the
+	 * building's own metres, or null when the package has none. */
+	drawing(floorId: string): Promise<ArrayBuffer | null>;
 }
 
 /** An item type's 3D model read (format 0.9.2): one mesh in the type's own frame, metres, +Y

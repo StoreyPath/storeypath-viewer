@@ -18,7 +18,7 @@ import (
 // does not know are ignored.
 const (
 	FormatName    = "storeypath-package"
-	FormatVersion = "0.10.0"
+	FormatVersion = "0.10.1"
 )
 
 // oneBuildingFrom: from format 0.7 a package holds exactly one building.
@@ -102,6 +102,10 @@ type Source struct {
 	Floor  string  `json:"floor_id"`
 	File   string  `json:"file"`
 	SHA256 *string `json:"sha256"`
+	// View (format 0.10.1) is the floor's drawing as drawn, in the package
+	// (drawings/<floor-id>.view: Drawing), when its export carried the drawings; nil
+	// when it did not.
+	View *string `json:"view"`
 }
 
 // Placement is where a building is on earth: its anchor (local X, Y in drawing
@@ -218,6 +222,10 @@ type Package struct {
 	Catalogue *Catalogue
 
 	navigation *Navigation // navigation.json (format 0.8): Navigation()
+	// drawings: each floor's drawing the manifest's sources name (format 0.10.1):
+	// Drawing, HasDrawing; limits: those it was read within (DrawingView.Arrays)
+	drawings map[string]*drawingFile
+	limits   Limits
 
 	problems []Problem           // found while reading, reported by Validate
 	files    map[string]bool     // the files in the ZIP
@@ -363,7 +371,8 @@ func Read(r io.ReaderAt, size int64, limits Limits) (*Package, error) {
 		return nil, err
 	}
 	max := a.limits.MaxFeatures
-	p := &Package{files: map[string]bool{}, read: map[string]bool{}, kinds: map[string][]string{}, byID: map[string]any{}}
+	p := &Package{files: map[string]bool{}, read: map[string]bool{}, kinds: map[string][]string{}, byID: map[string]any{},
+		limits: a.limits}
 	for name := range a.entries {
 		p.files[name] = true
 	}
@@ -463,6 +472,10 @@ func Read(r io.ReaderAt, size int64, limits Limits) (*Package, error) {
 		} else {
 			p.read[f.role] = true
 		}
+	}
+	// each floor's drawing (format 0.10.1), as its source names it
+	if err := p.readDrawings(a); err != nil {
+		return nil, err
 	}
 	p.index()
 	return p, nil

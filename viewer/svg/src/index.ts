@@ -4,6 +4,7 @@ export { ROUTE_GLYPHS, glyphOf } from "./glyphs.js";
 export { floorFromPackage } from "./package.js";
 export type { FromPackageOptions, PackageLike } from "./package.js";
 export { readPackage, checkVersion, FORMAT, FORMAT_VERSION, SUPPORTED_MAJOR_VERSION } from "./read.js";
+export type { PackageRead } from "./read.js";
 // packages sealed with a password (spec/SEALED.md): readPackage(source, { password }) reads them
 export { SealedError, isSealed, unseal } from "./sealed.js";
 export type { Password } from "./sealed.js";

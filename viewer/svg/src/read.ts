@@ -31,15 +31,27 @@ interface Manifest {
   format: string;
   format_version: string;
   files: Record<string, string>;
+  /** The drawing each floor was read from; ``view``: its drawing as drawn, in the package (0.10.1). */
+  sources?: { floor_id: string; file: string; view?: string | null }[];
   [key: string]: unknown;
 }
+
+/** A package read: its manifest and features, and its floors' drawings. */
+export type PackageRead = PackageLike & {
+  manifest: Manifest;
+  /** A floor's drawing as drawn (format 0.10.1, spec/FORMAT.md "Drawings"): a drawing view
+   * (spec/DRAWING-VIEW.md, gzip, as the package holds it) in the building's own metres,
+   * where floorFromPackage's spaces are; null when the package has none. The viewer's
+   * DrawingView (viewer/src/drawing/) draws it, under the plan too. */
+  drawing(floorId: string): Promise<Uint8Array | null>;
+};
 
 /** A package's manifest and features, from its bytes (a file, a download). One sealed
  * with a password (spec/SEALED.md) is opened with ``options.password`` (a string, or a
  * function giving one); without it, or with the wrong one, a SealedError whose
  * ``needsPassword`` is true is thrown. */
 export async function readPackage(source: ArrayBuffer | Uint8Array | Blob,
-  options: { password?: Password } = {}): Promise<PackageLike & { manifest: Manifest }> {
+  options: { password?: Password } = {}): Promise<PackageRead> {
   const given = source instanceof Blob ? new Uint8Array(await source.arrayBuffer())
     : source instanceof Uint8Array ? source : new Uint8Array(source);
   const bytes = isSealed(given) ? await unseal(given, options.password) : given;
@@ -61,7 +73,14 @@ export async function readPackage(source: ArrayBuffer | Uint8Array | Blob,
   const catalogue = manifest.files["catalogue"] ? ((await json(manifest.files["catalogue"])) as PackageLike["catalogue"]) : null;
   // the walking network (format 0.8): route() finds the way on it
   const navigation = manifest.files["navigation"] ? ((await json(manifest.files["navigation"])) as Navigation) : null;
-  return { manifest, floors: floors!, spaces: spaces!, zones: zones!, openings: openings!, items: items!, catalogue, navigation };
+  // each floor's drawing (format 0.10.1), unzipped from the archive only when asked for
+  const drawing = async (floorId: string): Promise<Uint8Array | null> => {
+    const path = manifest.sources?.find((s) => s.floor_id === floorId)?.view;
+    const entry = path ? files.get(path) : undefined;
+    return entry ? inflate(bytes, entry) : null;
+  };
+  return { manifest, floors: floors!, spaces: spaces!, zones: zones!, openings: openings!, items: items!, catalogue, navigation,
+    drawing };
 }
 
 interface Entry {

@@ -1,7 +1,7 @@
 {
   "name": "@storeypath/viewer",
   "version": "0.1.0",
-  "description": "StoreyPath Viewer: web viewer engines for StoreyPath indoor map packages: a walk-through 3D world and a map view",
+  "description": "StoreyPath Viewer: web viewer engines for StoreyPath indoor map packages: a walk-through 3D world, a map view and the drawings themselves",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
@@ -15,7 +15,16 @@
       "types": "./src/ids.d.ts",
       "default": "./src/ids.js"
     },
-    "./viewer.css": "./src/viewer.css"
+    "./drawing": {
+      "types": "./src/drawing/drawing.d.ts",
+      "default": "./src/drawing/drawing.js"
+    },
+    "./drawing/view": {
+      "types": "./src/drawing/view.d.ts",
+      "default": "./src/drawing/view.js"
+    },
+    "./viewer.css": "./src/viewer.css",
+    "./drawing.css": "./src/drawing/drawing.css"
   },
   "files": [
     "src",

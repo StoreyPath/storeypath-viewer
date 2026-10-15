@@ -4,6 +4,26 @@ import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, loadPackage
 	type DoorMode, type Finish, type GivenItem, type Route, type WorldDoor, type WorldEvents, type WorldLook, type WorldPoint,
 	type WorldQuality } from '@storeypath/viewer-world';
 import { webglSupport as check } from '@storeypath/viewer-world/support';
+import { DrawingView, readDrawingView, type DrawingCamera, type DrawingMark } from '@storeypath/viewer-world';
+
+/** A floor's drawing (format 0.10.1) under a plan: its own view, following the plan's camera. */
+export async function drawingOf(element: HTMLElement, data: ArrayBuffer, floor: string): Promise<number> {
+	const pkg = await loadPackage(data);
+	if (!pkg.hasDrawing(floor)) return 0;
+	const bytes = await pkg.drawing(floor);
+	const read = bytes ? await readDrawingView(bytes) : null;
+	const view = new DrawingView(element, { look: 'print', interactive: false, background: 'transparent' });
+	if (read) await view.open(read);
+	const at: DrawingCamera = { x: 10, y: 5, k: 40 };
+	view.setCamera(at);
+	const walls: number = view.layers.filter((l) => l.shown && l.count > 0).length;
+	const mark: DrawingMark = { label: '1', title: 'GROUND FLOOR PLAN', region: view.head?.clip ?? null };
+	view.setMarks([mark]);
+	view.addEventListener('cursor', (e) => console.log(e.detail?.metres?.[0]));
+	console.log(view.scale(80)?.label, view.head?.units, view.toScreen([0, 0])[0]);
+	view.destroy();
+	return walls;
+}
 
 export async function show(element: HTMLElement, data: ArrayBuffer): Promise<string | null> {
 	const support = check();

@@ -2,8 +2,9 @@
 
 Reads StoreyPath packages (`*.storeypath`) for systems written in Go: the
 buildings, floors, spaces, zones and openings of a project with their stable IDs,
-the furniture and equipment on its floors, and (format 0.8) the way from one place
-in a building to another. Standard library only; Go 1.25.
+the furniture and equipment on its floors, (format 0.8) the way from one place
+in a building to another, and (0.10.1) each floor's drawing when the package carries
+them. Standard library only; Go 1.25.
 
 ```go
 import storeypath "github.com/storeypath/storeypath-viewer/go"
@@ -48,7 +49,8 @@ for _, b := range pkg.Buildings {
   changed or cut-short file is `ErrSealedDamaged`.
 - `Validate`: the checks Studio's validator makes, each `Problem` with a stable
   `Code` (`MISSING_FILE`, `BAD_FILE`, `DUPLICATE_ID`, `PARENT`, `ZONE`, `CHANGES`,
-  `PLACEMENT`, `ITEM`, `ITEM_TYPE`, `VALUE`, …), the file and the ID it is about.
+  `PLACEMENT`, `ITEM`, `ITEM_TYPE`, `VALUE`, `DRAWING`, …), the file and the ID it is
+  about.
   A file is read by its keys as written: one that differs from the format's only
   in case (`"Hidden"`) makes it a `BAD_FILE`, as Go's JSON decoder would
   otherwise read it where other readers do not. Types of spaces, zones and
@@ -91,6 +93,19 @@ for _, b := range pkg.Buildings {
   Studio drew it in, and back (azimuthal equidistant on WGS84, Vincenty), within a
   millimetre of Studio; positions read from a package are within about a
   centimetre (it keeps 7 decimals of a degree).
+- Drawings (format 0.10.1): a package exported with *Include the drawings* carries
+  each floor's drawing as drawn, every layer and text of its part of its drawing, in
+  the building's own metres (where `LocalFrame` turns its spaces), for a system to show
+  the real drawing under the plan ([FORMAT.md](../spec/FORMAT.md), "Drawings";
+  [DRAWING-VIEW.md](../spec/DRAWING-VIEW.md)). `HasDrawing(floorID)` says whether it
+  does; `Drawing(floorID)` gives its `Raw` bytes as the package holds them (gzip: hand
+  them to StoreyPath Viewer's `DrawingView` to draw) and its `Header`: `Bounds`,
+  `Body`, `Clip` (the floor's region of the drawing), `Units` (`m`), `Layers` (name,
+  colour, count, off in the drawing), `Words`, `Counts`. `Arrays` and `LinesOn(layer)`
+  read its lines, triangles, points and texts, for a system that wants the drawing's
+  geometry; `ReadDrawingHeader` reads a view's head alone. Read checks each whole, within
+  its `Limits`; `Validate` says which is not where its floor's source says, not a view
+  of format 1, or not in metres (`DRAWING`).
 - `ParseID`: a place's ID's project, parent, code and the prefix at any level (an
   item's ID is refused: it is not a place's).
 - Items' IDs (format 0.8): `IsItemID` (as a package writes it, its check symbol
@@ -111,7 +126,7 @@ Properties a later format version adds are ignored, as the format asks, and so a
 is reported by `Validate` (`VERSION`), and `CheckVersion` says so from the
 manifest's `format_version` alone: what is not a format version (`major.minor`,
 a `.patch` if any, then a `-` or `+` suffix if any: ASCII digits and letters),
-another major version, or before 1.0 a newer minor one (0.10 for this 0.9
+another major version, or before 1.0 a newer minor one (0.11 for this 0.10
 reader), with a message to update the reader. `ReadManifest` reads the manifest
 alone, so a server can refuse a package before reading the rest of it:
 

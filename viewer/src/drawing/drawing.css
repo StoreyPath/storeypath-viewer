@@ -1,0 +1,33 @@
+/* The drawing view (drawing.js): it fills its container (give the container a size and
+   position: relative). Theme it with these variables on the view (.sp-drawing) or any
+   ancestor: the marks' colour, their labels' and their font (--sp-drawing-mark: #ff8a00,
+   --sp-drawing-mark-text: #ffffff, --sp-drawing-mark-font: 600 12px system-ui, read when a
+   view is opened), and its tooltip's (--sp-drawing-tip-background, -text, -border). */
+
+.sp-drawing {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+  outline: none;
+}
+.sp-drawing:active { cursor: grabbing; }
+.sp-drawing.sp-picking { cursor: pointer; }
+/* a backdrop: it follows another view (setCamera), the pointer goes through it */
+.sp-drawing.sp-drawing-still { pointer-events: none; cursor: auto; }
+.sp-drawing-gl, .sp-drawing-text { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.sp-drawing-text { pointer-events: none; }
+
+/* a mark's name, by the pointer */
+.sp-drawing-tip {
+  position: absolute; z-index: 2; pointer-events: none; display: flex; flex-direction: column; gap: 2px;
+  max-width: min(360px, 80%); padding: 4px 8px; border-radius: 4px; overflow-wrap: anywhere;
+  background: var(--sp-drawing-tip-background, rgba(28, 30, 36, 0.94)); color: var(--sp-drawing-tip-text, #f2f3f5);
+  border: 1px solid var(--sp-drawing-tip-border, rgba(255, 255, 255, 0.18)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  font: 13px/1.35 system-ui, Arial, Helvetica, sans-serif;
+}
+.sp-drawing-tip[hidden] { display: none; }
+.sp-drawing-tip-how { opacity: 0.72; font-size: 12px; }

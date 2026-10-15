@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>StoreyPath plan</title>
 <link rel="stylesheet" href="../dist/plan.css">
+<link rel="stylesheet" href="../../src/drawing/drawing.css">
+<!-- the floor's drawing under the plan (format 0.10.1) is drawn with WebGL: three.js, vendored -->
+<script type="importmap">{ "imports": { "three": "../../vendor/three/three.module.js" } }</script>
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; --bg: #ecebe6; --panel: #fff; --line: #ddd; --text: #1d1d1f; }
   @media (prefers-color-scheme: dark) { :root { --bg: #26262a; --panel: #1c1c1f; --line: #3a3a40; --text: #ececef; } }
@@ -15,6 +18,9 @@
   #about { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
     padding: 8px 12px; font-size: 14px; max-width: 22em; }
   #about:empty { display: none; }
+  /* the floor's drawing under the plan: the plan's paper let go, its rooms a light tint over it */
+  #backdrop { position: absolute; inset: 0; }
+  #plan.with-drawing .sp-plan { --sp-outline: transparent; --sp-fill-opacity: 0.3; }
 </style>
 </head>
 <body>
@@ -23,13 +29,17 @@
   <select id="floor" aria-label="Floor"></select>
   <input type="search" id="find" placeholder="Find a room" aria-label="Find a room">
   <label><input type="checkbox" id="items" checked> Items</label>
+  <label id="drawing-toggle" hidden title="The floor's drawing as drawn, under the plan (the package carries it)">
+    <input type="checkbox" id="drawing"> Drawing</label>
   <button id="fit">Fit</button>
 </header>
 <div id="plan"><div id="about" role="status"></div></div>
 <script type="module">
   // Open a .storeypath file (or ?package=<url>): its floors, a click shows a space
   // or an item (furniture and equipment, shown unless ?items=0), the search box
-  // brings matching rooms out.
+  // brings matching rooms out. A package that carries its floors' drawings (format
+  // 0.10.1) can show each under its plan (Drawing, or ?drawing=1): the viewer's
+  // DrawingView, following the plan as it moves.
   import { FloorPlanEngine, floorFromPackage, readPackage } from "../dist/index.js";
 
   const $ = (id) => document.getElementById(id);
@@ -50,7 +60,55 @@
     plan = floorFromPackage(pkg, floorId);
     engine.setFloor(plan);
     $("about").textContent = "";
+    showDrawing();
   }
+
+  // ---- the floor's drawing, under the plan ----------------------------------------------
+  let backdrop = null; // the DrawingView, once one is shown
+  let shown = null; // the floor whose drawing it draws
+
+  async function showDrawing() {
+    const floorId = plan?.id;
+    const bytes = floorId ? await pkg.drawing(floorId) : null;
+    if (plan?.id !== floorId) return; // (another floor chosen meanwhile)
+    $("drawing-toggle").hidden = !bytes;
+    const on = Boolean(bytes) && $("drawing").checked;
+    $("plan").classList.toggle("with-drawing", on);
+    if (backdrop) backdrop.root.hidden = !on;
+    if (!on || shown === floorId) return follow();
+    try {
+      if (!backdrop) {
+        const { DrawingView } = await import("../../src/drawing/drawing.js");
+        const element = Object.assign(document.createElement("div"), { id: "backdrop" });
+        $("plan").prepend(element);
+        const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+        backdrop = new DrawingView(element, { look: dark ? "cad" : "print", interactive: false, background: "transparent" });
+      }
+      shown = floorId;
+      await backdrop.open(bytes);
+      follow();
+    } catch (e) {
+      $("drawing").checked = false;
+      $("plan").classList.remove("with-drawing");
+      $("about").textContent = `The drawing could not be shown: ${e.message}`;
+    }
+  }
+
+  /** The drawing where the plan is: the plan's camera (screen = x·k + tx, ty − y·k) as the drawing's. */
+  function follow() {
+    if (!backdrop?.view || backdrop.root.hidden) return;
+    const { k, tx, ty } = engine.camera(), w = engine.svg.clientWidth, h = engine.svg.clientHeight;
+    backdrop.setCamera({ x: (w / 2 - tx) / k, y: (ty - h / 2) / k, k });
+  }
+  engine.addEventListener("camerachange", follow);
+  $("drawing").checked = params.get("drawing") === "1";
+  $("drawing").addEventListener("change", (e) => {
+    const url = new URL(location.href);
+    if (e.target.checked) url.searchParams.set("drawing", "1");
+    else url.searchParams.delete("drawing");
+    history.replaceState(null, "", url);
+    showDrawing();
+  });
 
   engine.addEventListener("select", (e) => {
     const { space: s, item } = e.detail;

@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.10.0
+# StoreyPath package format — version 0.10.1
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -32,11 +32,13 @@ A copy of this document is included in every package.
 | `schema/*.schema.json` | JSON Schema for every JSON file |
 | `world/<floor-id>.glb` | Optional: each floor already built in 3D, as binary glTF (Pre-built 3D) |
 | `models/<CODE>.glb` | Optional: an item type's 3D model, as binary glTF (Models, 0.9.2) |
+| `drawings/<floor-id>.view` | Optional: each floor's drawing as drawn, its part of its drawing in the building's own frame (Drawings, 0.10.1) |
 | `FORMAT.md` | This document |
 
 Readers locate each file through `manifest.json → files`, by its role (`location`,
 `buildings`, `floors`, `spaces`, `zones`, `openings`, `objects`, `changes`, `items`,
-`catalogue`, `navigation`); the names in the table are the defaults.
+`catalogue`, `navigation`); the names in the table are the defaults. A floor's drawing is
+found through its source (`manifest.json → sources`, Drawings).
 
 **JSON.** Keys are case-sensitive: a key that differs from the format's only in case is
 not that key, and a reader may refuse the file. Every number is finite (NaN and
@@ -825,6 +827,48 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
 | `items` | the IDs `_ITEM` indexes (format 0.6) |
 | `doors` | (builder 5) the doors with leaves, to swing them shut and open: each `id` (its opening's), `span` (`[x1, z1, x2, z2]`: jamb to jamb, along the middle of its wall; shut, the door is in the way there), `top` (how high it is, metres above the floor) and `leaves`; each leaf its `hinge` (`[x, z]`), the angles it lies at `open` (as the `door` mesh has it) and `shut` (radians counter-clockwise from east seen from above: the way (cos a, −sin a) in x and z), its `length` (metres from its hinge to its free edge), and its runs of vertices, `[first, count]`, of the `door` mesh (`door`) and of the `handle` mesh (`handle`). A leaf turned is its runs' vertices turned about the upright line through its hinge, the shorter way from `open` to `shut`. A door starts open, as drawn |
 
+## Drawings (0.10.1)
+
+A package carries only what StoreyPath read from the drawings: the spaces, zones,
+openings, walls, items and the rest above. It may also carry the drawings themselves, one
+floor at a time, so that a reader shows the real drawing under the plan (a wayfinding
+screen, a system that calibrates cameras on it): when it was asked for at export (Studio's
+*Include the drawings*, `storeypath export --drawings`), never otherwise. A drawing holds
+everything drawn on it, every layer and text: whoever receives such a package sees it all.
+The drawing Studio keeps had its title blocks, names, contact and registration numbers
+and hidden data taken out when it was added (unless a person kept them); the texts a
+package carries are as Studio's privacy rules leave them once more: a text with a phone
+number, an email, a web address or a permit, plot or licence number is left out, and a
+name with a title (Mr, Dr, Eng, Sheikh, السيد …) is taken out of its text, the rest of the
+text kept.
+
+Each floor's drawing is `drawings/<floor-id>.view`, a drawing view (StoreyPath Viewer's
+spec/DRAWING-VIEW.md): gzip, its head JSON, its lines, triangles, points and texts in
+arrays of numbers, layer by layer in the drawing's colours. The floor's source in the
+manifest names it, and `files.drawings` is `drawings/` when the package holds any:
+
+```json
+"files": { …, "drawings": "drawings/" },
+"sources": [{ "floor_id": "7KQ2MX-SITE-ENG-F01", "file": "drawing-1.dxf", "sha256": "…",
+              "view": "drawings/7KQ2MX-SITE-ENG-F01.view" }]
+```
+
+A source without `view` (or with null) has no drawing in the package. The files are stored
+in the ZIP as they are (they are gzip already).
+
+**What it holds.** The floor's part of its drawing: what lies in the floor's region of it
+(the plan a sheet of several holds for this floor; the whole drawing for a drawing of one
+floor), what crosses the region's edge cut there and a text kept by where it starts. Every
+layer is there, a layer turned off in the drawing said so (`off`).
+
+**Frame.** Metres of the building's own frame (Coordinates), where the floor's spaces, walls
+and openings are once their longitude and latitude are turned back into it, and where
+items' `local` are: the view's `units` are `m` and its `clip` is the region in those metres.
+A floor drawn elsewhere on its sheet, or moved to stand on the floor below, is moved with
+it: drawn under the plan, the drawing lies on it.
+
+Readers that do not show drawings ignore the folder.
+
 ## Changes from 0.2
 
 - `zones.geojson` and the `zone` kind: open areas are one space divided into zones,
@@ -848,6 +892,13 @@ draws each piece with its own, by `material` and `type`, in the look it is asked
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.10.0
+
+- `drawings/` and `manifest.json → files.drawings`, and a source's `view` (Drawings): each
+  floor's drawing as drawn, its part of its drawing in the building's own frame, when the
+  export was asked to carry them; its texts as the privacy rules leave them.
+- A patch: a reader of 0.10 reads a 0.10.1 package (Versioning), ignoring the folder.
 
 ## Changes from 0.9.3
 
@@ -969,7 +1020,10 @@ two swapped, and what people type. The others are packages of earlier formats, w
 readers still read: `campus` (0.6, the whole campus, with items), `campus-world` and `simple-office-world` (pre-built in 3D: a reader reads
 them as it reads `campus` and `simple-office`, and the viewer shows them as it shows
 those), `campus-whole-1`, `campus-part`, `campus-whole-3` (0.4), `simple-office`,
-`simple-office-2` and `unplaced`.
+`simple-office-2` and `unplaced`. `drawn-office` (0.10.1) carries its drawings (Drawings):
+a made-up sheet of two floors side by side, the second floor's region of it moved onto the
+first; each floor's drawing view lies on its walls, in the building's own frame, and
+nothing of the other floor, nor of the notes beside them, is in it.
 
 A reader that takes packages from uploads bounds what it reads. A building's package
 is a few megabytes; the Go module reads by default at most 64 MiB a file and 256 MiB in

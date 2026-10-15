@@ -62,6 +62,7 @@ const (
 	ProblemValue         = "VALUE"          // a value the format does not allow: a type the manifest's types do not list, a negative capacity, a grade, mount, category or colour not of the format, a finish's code not of the form of a floor's or a wall's (format 0.9), a camera's view past all round or of no range (0.10)
 	ProblemNavigation    = "NAVIGATION"     // (0.8) the walking network names a building, floor, space or zone not in the package, holds a node twice, or an edge joins a node it does not have (or two nodes another edge joins), or has no line
 	ProblemItemElsewhere = "ITEM_ELSEWHERE" // (ValidateAcross) an item's ID is an item of another project, in another package
+	ProblemDrawing       = "DRAWING"        // (0.10.1) a floor's drawing: a source names one not at drawings/<floor-id>.view, of a floor not in the package, or not in it; it is not a drawing view this reader reads (gzip, SPDV, its head, format 1, its arrays and batches whole), or not in metres; the manifest lists drawings/ with none named, or names some without listing it; a file under drawings/ no source names
 )
 
 var kindLevel = map[string]string{
@@ -123,7 +124,8 @@ var kindRoles = map[string]string{
 // (0.7) their position in their building, which their map position must agree
 // with through the building's placement. From 0.7 a package holds one building.
 // The walking network (0.8), when there is one: what its nodes are on and in, and
-// what its edges join.
+// what its edges join. The floors' drawings (0.10.1), when it carries them: each
+// where its source says, a drawing view read whole, in metres.
 // No problems means the package can be linked to as it is.
 func (p *Package) Validate() []Problem {
 	out := append([]Problem(nil), p.problems...)
@@ -482,6 +484,47 @@ func (p *Package) Validate() []Problem {
 			if len(e.Path) < 2 {
 				add(ProblemNavigation, file, e.From, "%s: the edge from %s to %s has no line", file, e.From, e.To)
 			}
+		}
+	}
+
+	// the floors' drawings (0.10.1): named by their floor's source, in the folder the
+	// manifest lists, each a drawing view of a format this reader reads, in metres (the
+	// building's own frame)
+	folder, listed := m.Files["drawings"]
+	named := map[string]bool{}
+	for _, s := range m.Sources {
+		if s.View != nil {
+			named[*s.View] = true
+		}
+	}
+	if len(named) > 0 && folder != DrawingsDir {
+		add(ProblemDrawing, FileManifest, "", "the manifest's sources name drawings, but its files list %q for them, not %q", folder, DrawingsDir)
+	} else if listed && len(named) == 0 {
+		add(ProblemDrawing, FileManifest, "", "the manifest lists %s but no floor's source names a drawing in it", folder)
+	}
+	for _, floor := range sortedKeys(p.drawings) {
+		d := p.drawings[floor]
+		if want := DrawingsDir + floor + ".view"; d.file != want {
+			add(ProblemDrawing, d.file, floor, "%s: floor %s's drawing is %s", d.file, floor, want)
+		}
+		if p.Floor(floor) == nil {
+			add(ProblemDrawing, d.file, floor, "%s: the drawing of floor %s, which is not in the package", d.file, floor)
+		}
+		if d.err != nil {
+			add(ProblemDrawing, d.file, floor, "%s: %v", d.file, d.err)
+			continue
+		}
+		if h := d.header; h.Units == nil || *h.Units != "m" {
+			units := "none"
+			if h.Units != nil {
+				units = *h.Units
+			}
+			add(ProblemDrawing, d.file, floor, "%s: in %q, not metres of the building's own frame", d.file, units)
+		}
+	}
+	for _, name := range sortedKeys(p.files) {
+		if strings.HasPrefix(name, DrawingsDir) && name != DrawingsDir && !named[name] {
+			add(ProblemDrawing, name, "", "%s: no floor's source names it", name)
 		}
 	}
 

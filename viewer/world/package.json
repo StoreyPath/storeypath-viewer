@@ -13,7 +13,8 @@
     "./support": {
       "types": "./dist/support.d.ts",
       "default": "./dist/support.js"
-    }
+    },
+    "./drawing.css": "./dist/drawing.css"
   },
   "files": [
     "dist"

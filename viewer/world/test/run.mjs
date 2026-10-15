@@ -39,6 +39,7 @@ const { qualityFor } = await import("../../src/world/gpu.js");
 const { isItemId } = await import("../../src/ids.js");
 const { MODEL_TRIANGLES, parseModel } = await import("../../src/world/model.js");
 const { SealedError, isSealed, unseal } = await import("../../src/sealed.js");
+const { linesOn, readDrawingView, textsOf } = await import("../../src/drawing/view.js");
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -103,6 +104,34 @@ test("a package of a newer minor version, or of no version, is refused; older on
     "٠.٧", "０.７", 0.7, null, undefined]) {
     truly(/is not a version this viewer can read/.test(await said(v)), `${JSON.stringify(v)}: ${await said(v)}`);
   }
+});
+
+// spec/FORMAT.md, "Drawings" (0.10.1): a floor's drawing as drawn, in the building's own frame
+test("a package's floors' drawings (0.10.1): each lies on its floor's walls, cut to its region; the module draws them", async () => {
+  const pkg = await loadPackage(readFileSync(join(packages, "drawn-office.storeypath")));
+  const building = pkg.buildings[0].id, placement = pkg.manifest.placements[building];
+  const metres = ([lon, lat]) => [lon * 111320 * Math.cos((placement.lat * Math.PI) / 180), lat * 110574];
+  for (const floor of pkg.floorsOf(building)) {
+    truly(pkg.hasDrawing(floor.id), `${floor.id}: has its drawing`);
+    const view = await readDrawingView(await pkg.drawing(floor.id));
+    truly(view.head.units === "m" && view.head.clip?.length === 4, `${floor.id}: ${view.head.units}, ${view.head.clip}`);
+    // the ends of its wall lines, put on the map by the building's placement, on the floor's walls
+    const walls = floor.properties.walls;
+    const polys = walls.type === "Polygon" ? [walls.coordinates] : walls.coordinates;
+    const edges = polys.flatMap((poly) => poly.flatMap((ring) => ring.slice(1).map((p, i) => [metres(ring[i]), metres(p)])));
+    const off = ([x, y]) => Math.min(...edges.map(([a, b]) => {
+      const dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy);
+    }));
+    const ends = linesOn(view, "A-WALL").flatMap(([x0, y0, x1, y1]) => [[x0, y0], [x1, y1]]);
+    const worst = Math.max(...ends.map((p) => off(metres(toLonLat(placement, p)))));
+    truly(ends.length > 100 && worst < 0.02, `${floor.id}: its walls ${worst.toFixed(3)} m off the floor's`);
+    truly(!textsOf(view).some((t) => /NOTES|TEL|JOHN/.test(t.words)), `${floor.id}: nothing of the notes, nor what is private`);
+  }
+  const hq = await loadPackage(readFileSync(join(packages, "campus-hq.storeypath")));
+  truly(!hq.hasDrawing(hq.floors[0].id) && (await hq.drawing(hq.floors[0].id)) === null, "a package without drawings");
+  const code = readFileSync(join(root, "dist/world.js"), "utf8");
+  truly(/\bDrawingView\b/.test(code) && /\breadDrawingView\b/.test(code), "the module draws a drawing too");
 });
 
 /** A binary glTF's JSON. */

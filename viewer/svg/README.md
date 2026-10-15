@@ -33,7 +33,10 @@ what it is called, which spaces can be chosen, and what happens when one is.
 ```
 
 `example/index.html` opens any `.storeypath` file (build first, then serve the
-folder: `npm run build && python3 -m http.server`, and open `/example/`).
+`viewer/` folder: `npm run build && cd .. && python3 -m http.server`, and open
+`/svg/example/`). A package that carries its floors' drawings (format 0.10.1) shows each
+under its plan there (*Drawing*): the viewer's `DrawingView` (WebGL, `../src/drawing/`),
+following the plan's camera; `readPackage` gives a floor's as `drawing(floorId)`.
 
 ## What is shown
 
@@ -166,8 +169,9 @@ Older packages' items are placed by their point and heading on the map.
 
 ## Tests
 
-`npm test` builds, then checks the frame, the package reader and the way every reader
+`npm test` builds, then checks the frame, the package reader (a floor's drawing on its plan
+too) and the way every reader
 finds (`routes.json`) against `spec/conformance/`, and the engine in headless Chrome with real input: clicks,
 drags, the wheel, two-finger pinches, the keyboard, resizing, reduced motion, both
 y directions. Positions must hold to a pixel. Set `CHROME` to a Chrome or Chromium
-if it is not in the usual place.
+if it is not in the usual place; `BROWSER=0 node test/run.mjs` runs the tests in Node alone.

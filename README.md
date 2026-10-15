@@ -20,8 +20,8 @@ of this repository, so a package and the code that reads it always agree.
 
 | Folder | What it is |
 |---|---|
-| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.9), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
-| [viewer/](viewer) | **The viewers**, to embed in a web app: the 3D world, a map view, the 2D plan ([viewer/svg](viewer/svg)) that needs no WebGL, and finding the way ([viewer/src/navigation.js](viewer/src/navigation.js)) |
+| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.10.1), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
+| [viewer/](viewer) | **The viewers**, to embed in a web app: the 3D world, a map view, the 2D plan ([viewer/svg](viewer/svg)) that needs no WebGL, the drawings themselves ([viewer/src/drawing](viewer/src/drawing)), and finding the way ([viewer/src/navigation.js](viewer/src/navigation.js)) |
 | [go/](go) | **A Go module** that reads and validates packages and finds the way in a building, standard library only |
 
 ## The 3D world
@@ -72,6 +72,15 @@ stairs and lifts, `changeFloor(+1)` takes you up.
 type, doors with their swings, windows, items, a search, the way drawn on it. No WebGL and
 no dependencies, for machines with no GPU (VDI desktops, kiosks). Strict TypeScript, with
 its own build and tests.
+
+## The drawing under the plan
+
+A package can carry each floor's drawing as drawn, when its export was asked to (format
+0.10.1): every line, hatch and text of the floor's part of its drawing, in the building's
+own metres. `DrawingView` draws it with WebGL, on its own (CAD or Print, its layers shown
+and hidden) or under the 2D plan, following it as it moves; a system that works on the
+drawing itself reads its lines and texts (`readDrawingView`, or the Go module's
+`Drawing`). StoreyPath Studio's drawing viewer is the same view.
 
 ## Finding the way
 
@@ -130,8 +139,8 @@ world as one module, three.js inside: [viewer/world](viewer/world)) and
 offline. Every option, method and event: [viewer/README.md](viewer/README.md).
 
 ```sh
-cd viewer/svg && npm ci && npm test      # the 2D plan
-cd viewer/world && npm ci && npm test    # the 3D world (headless Chrome)
+cd viewer/svg && npm ci && npm test      # the 2D plan (BROWSER=0 node test/run.mjs: its tests in Node alone)
+cd viewer/world && npm ci && npm test    # the 3D world (headless Chrome; BROWSER=0 likewise)
 cd go && go test ./...                   # the Go reader
 node spec/finishes.mjs --check           # the finishes' copies agree with spec/finishes.json
 ```

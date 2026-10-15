@@ -14,3 +14,5 @@ export { route, shortest, Graph } from "../../src/navigation.js";
 export { ITEM_ID_ALPHABET, itemCheckSymbol, isItemId, normalizeItemId } from "../../src/ids.js";
 // packages sealed with a password (spec/SEALED.md): open(source, { password }) reads them
 export { SealedError, isSealed, unseal } from "../../src/sealed.js";
+// a floor's drawing as drawn (format 0.10.1, spec/DRAWING-VIEW.md): read, and drawn
+export { DrawingView, DRAWING_VIEW_FORMAT, readDrawingView, parseDrawingView, linesOn, textsOf } from "../../src/drawing/drawing.js";

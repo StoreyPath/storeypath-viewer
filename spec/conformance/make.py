@@ -41,6 +41,16 @@ F0-322 retyped, the open office's south half divided again);
 simple-office-world.storeypath (``world``: simple-office pre-built in 3D, as Studio
 exports it when Node.js is there).
 
+packages/drawn-office.storeypath (``drawings``, format 0.10.1): a package that carries its
+drawings (FORMAT.md, Drawings), all of it made up. One sheet holds two floors of an office
+side by side, GROUND FLOOR PLAN and FIRST FLOOR PLAN (each 48 by 20 m, 70 m apart), and
+notes beside them; the first floor's region of the sheet is moved 70 m onto the ground
+floor's (its offset), as Studio lines floors up. Each floor's drawing view is its region of
+the sheet in the building's own metres: it lies on its walls, and holds nothing of the other
+floor or the notes. The first floor's region holds two texts beside its plan that the
+privacy rules change: a telephone number (left out) and an office with a person's name
+(SITE OFFICE MR. JOHN DOE: SITE OFFICE is kept).
+
 routes.json (``routes``, which ``campus`` runs too): ways on campus-hq and
 campus-annex (format 0.8, Navigation) that every reader must find the same, each
 from a place to a place (a kiosk's item, an entrance, a room, a zone, a desk), some
@@ -62,7 +72,8 @@ run.
 Readers make their own broken variants of these packages to test their checks.
 Run from studio/ after a format change, and commit the result:
 
-    uv run python ../spec/conformance/make.py campus           # one step: campus, simple-office, world, routes, asset-ids
+    uv run python ../spec/conformance/make.py campus           # one step: campus, simple-office, world, routes, asset-ids,
+                                                               # drawings
 
 Every run makes new projects, so new IDs: remake only what changed. ``world`` makes
 no project: it bakes simple-office as it is (it needs Node.js), so run it after a
@@ -79,7 +90,7 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-STEPS = ("campus", "simple-office", "world", "routes", "asset-ids")
+STEPS = ("campus", "simple-office", "world", "routes", "asset-ids", "drawings")
 
 
 def main(names: list[str]) -> None:
@@ -100,6 +111,8 @@ def main(names: list[str]) -> None:
             routes()
         if "asset-ids" in names:
             asset_ids()
+        if "drawings" in names:
+            drawn_office(work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -441,6 +454,41 @@ def furnish(ws) -> None:
     dx, dy = door.geometry["coordinates"]
     reader = place("CARD-READER", f_id, dx + (door.width or 0.9) / 2 + 0.25, dy + 0.15, rotation=180)
     reader.door_id = door.id
+
+
+def drawn_office(work: Path) -> None:
+    """drawn-office.storeypath: a made-up sheet of two floors, exported with its drawings
+    (format 0.10.1); see the module."""
+    import ezdxf
+
+    from storeypath.convert import convert_floor
+    from storeypath.export import FloorViews, export_package
+    from storeypath.samples import office_floor, write_sheet_dxf
+    from storeypath.workspace import Placement, SourceDrawing, Workspace
+
+    sheet = work / "drawn-office.dxf"
+    write_sheet_dxf(sheet, [(office_floor(0), (10, 10), "GROUND FLOOR PLAN"), (office_floor(1), (80, 10), "FIRST FLOOR PLAN")])
+    doc = ezdxf.readfile(sheet)
+    msp = doc.modelspace()
+    msp.add_text("GENERAL NOTES", height=600, dxfattribs={"layer": "A-ANNO-NOTE"}).set_placement((150000, 30000))
+    msp.add_text("ALL SIZES IN MILLIMETRES", height=300, dxfattribs={"layer": "A-ANNO-NOTE"}).set_placement((150000, 28000))
+    # beside the first floor's plan, in its region: what the privacy rules change
+    msp.add_text("TEL 555 0100", height=300, dxfattribs={"layer": "A-ANNO-NOTE"}).set_placement((76000, 33000))
+    msp.add_text("SITE OFFICE MR. JOHN DOE", height=300, dxfattribs={"layer": "A-ANNO-NOTE"}).set_placement((76000, 32000))
+    doc.saveas(sheet)
+
+    ws = Workspace.new("Drawn Office")
+    loc = ws.add_location("MAIN", "Main site")
+    b_id = ws.add_building(loc, "HQ", "Headquarters")
+    ws.building(b_id).placement = Placement(lon=10.0, lat=50.0, x=34.0, y=20.0, bearing=20)
+    ground = ws.add_floor(b_id, 0, name="Ground floor", source=SourceDrawing(path=sheet.name, region=(5000, 4000, 63000, 35000)))
+    first = ws.add_floor(b_id, 1, name="First floor", source=SourceDrawing(path=sheet.name, region=(75000, 4000, 133000, 35000),
+                                                                             offset=(70000, 0)))
+    for f_id in (ground, first):
+        convert_floor(ws, f_id, work)
+    out = HERE / "packages" / "drawn-office.storeypath"
+    export_package(ws, out, bake=False, drawings=FloorViews(lambda src: work / src.path))
+    print(f"wrote {out}")
 
 
 def simple_office(work: Path) -> None:

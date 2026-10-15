@@ -169,6 +169,26 @@ export class StoreyPathPackage {
     return this._zip && this._itemTypes.get(code)?.model === path ? this._zip.file(path) : null;
   }
 
+  /** Whether a floor comes with its drawing (format 0.10.1: the export carried the
+   * drawings), as its source in the manifest says. */
+  hasDrawing(floorId) {
+    return Boolean(this._drawingFile(floorId));
+  }
+
+  /** A floor's drawing as drawn (spec/FORMAT.md, "Drawings"): its part of its drawing, a
+   * drawing view (spec/DRAWING-VIEW.md) in the building's own metres, where floorPlan's
+   * spaces are; as the package holds it (gzip: drawing/view.js's readDrawingView, or
+   * DrawingView's open, read it). Null when the package has none. */
+  async drawing(floorId) {
+    const file = this._drawingFile(floorId);
+    return file ? file.async("arraybuffer") : null;
+  }
+
+  _drawingFile(floorId) {
+    const path = (this.manifest.sources ?? []).find((s) => s.floor_id === floorId)?.view;
+    return path && this._zip ? this._zip.file(path) : null;
+  }
+
   /** Floors of a building, lowest first. */
   floorsOf(buildingId) {
     return this._floorsByBuilding.get(buildingId) ?? [];

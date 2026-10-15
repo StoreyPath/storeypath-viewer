@@ -16,10 +16,15 @@ whose Review edits on top of the 3D world through its [editing API](#the-3d-worl
 - **`FloorPlanEngine`** in [`svg/`](svg/), one floor as a plain SVG plan: no WebGL
   and no dependencies, for machines with no GPU (VDI desktops, kiosks). Strict
   TypeScript, with its own build and tests.
+- **`DrawingView`** in [`src/drawing/`](src/drawing/), a drawing as its own program
+  shows it: every line, hatch, text and layer of a floor's drawing, drawn with WebGL,
+  under the plan or on its own (format 0.10.1: a package carries its floors' drawings
+  when its export was asked to; StoreyPath Studio's drawing viewer is this too).
 - **`@storeypath/viewer-world`** in [`world/`](world/): the 3D world as one ES
   module with three.js and JSZip inside, type declarations, and `webglSupport()`
   to ask first whether the machine can show it well; for applications that
-  install it as a package rather than serve these files.
+  install it as a package rather than serve these files. It carries the drawing
+  view too.
 
 Plain ES modules, no build step. Neither downloads anything but the package.
 
@@ -350,6 +355,88 @@ normalizeItemId("7k2q xm9f 4dp"); // "7K2Q-XM9F-4DP": either case, O for 0, I an
 normalizeItemId("7K2Q-XM9F-4DK"); // null: its check symbol is wrong (a symbol mistyped, or two swapped)
 isItemId("7K2Q-XM9F-4DP");        // true: as a package writes it
 ```
+
+## The drawing
+
+A package exported with its drawings (format 0.10.1, [FORMAT.md](../spec/FORMAT.md),
+"Drawings") carries each floor's drawing as drawn: its part of its drawing, every line,
+hatch, fill and text on every layer, in the building's own metres, where the plan's rooms
+are. Each is a drawing view ([DRAWING-VIEW.md](../spec/DRAWING-VIEW.md)): gzip, a head of
+JSON and arrays of numbers. `pkg.hasDrawing(floorId)` says whether a floor has one, and
+`pkg.drawing(floorId)` gives it as the package holds it (the 2D plan's `readPackage` gives
+`drawing(floorId)` too); `readDrawingView(bytes)` (`src/drawing/view.js`, no dependencies,
+in Node too) reads it: its `head` (`layers`, `units`, `bounds`, `clip`, `words`, …) and
+its arrays; `linesOn(view, layer)` and `textsOf(view)` give its lines and texts in the
+building's metres, for a system that works on the drawing itself (calibrating cameras on
+it, say).
+
+`DrawingView` (`src/drawing/drawing.js`, three.js) draws one in an element: its lines,
+fills and points with WebGL, its texts written by the browser over them, sharp at any
+zoom; drag, the wheel, two fingers, `+`, `-`, `0` and the arrows move it. Two looks:
+`cad`, the drawing's own colours on its own dark ground, as a CAD program shows it, and
+`print`, black on white. It outlines marks (a page's own: the plans found on a sheet) and
+says which is clicked. StoreyPath Studio's drawing viewer is this view in Studio's dialog.
+
+```html
+<link rel="stylesheet" href="storeypath-viewer/src/drawing/drawing.css">
+<div id="drawing" style="position: relative; height: 600px"></div>
+
+<script type="module">
+  import { loadPackage } from "./storeypath-viewer/src/package.js";
+  import { DrawingView } from "./storeypath-viewer/src/drawing/drawing.js";
+
+  const pkg = await loadPackage("/files/headquarters.storeypath");
+  const floor = "K7Q2XM-RUH-HQ-F01";
+  if (pkg.hasDrawing(floor)) {
+    const view = new DrawingView("#drawing", { look: "print" });
+    await view.open(await pkg.drawing(floor));      // fitted on what is drawn
+    view.setLayer("A-FURN", false);                   // a layer hidden (view.layers: each, and whether shown)
+    view.addEventListener("cursor", (e) => console.log(e.detail?.metres));
+  }
+</script>
+```
+
+**Under the plan.** With `interactive: false` it follows another view instead, the pointer
+going through it: give it the plan's camera as it moves. The 2D plan's page
+([svg/example](svg/example/index.html)) does so (*Drawing*, when the floor has one):
+
+```js
+const backdrop = new DrawingView(under, { look: "print", interactive: false, background: "transparent" });
+await backdrop.open(await pkg.drawing(floorId));
+plan.addEventListener("camerachange", () => {      // the plan's screen = (x·k + tx, ty − y·k)
+  const { k, tx, ty } = plan.camera(), w = plan.svg.clientWidth, h = plan.svg.clientHeight;
+  backdrop.setCamera({ x: (w / 2 - tx) / k, y: (ty - h / 2) / k, k });
+});
+```
+
+| Option | Default | |
+|---|---|---|
+| `look` | `"cad"` | `"cad"` or `"print"` |
+| `interactive` | `true` | `false`: it only follows `setCamera` |
+| `background` | the look's | a CSS colour, or `"transparent"` |
+| `marks` | `[]` | `setMarks` |
+| `onPick`, `pickLabel` | | a mark clicked (it is a button then), and what that does (`"Choose"`) |
+| `units` | the view's | the drawing's units, for metres, when the view's are not to be trusted |
+| `texts` | `true` | `false`: its texts are not written |
+
+| Method | |
+|---|---|
+| `open(source)` | a view's URL (fetched: `{ onProgress, signal }`), its bytes, or a view read already; resolves once drawn |
+| `setLook(look)`, `setLayer(index or name, shown)`, `setLayers(shown)` | its look, its layers (`layers`: each `name`, `color`, `count`, `off`, `shown`) |
+| `setMarks(marks)` | each `{ label, title, region: [x0, y0, x1, y1] or null }` and anything a page keeps with it |
+| `fit(box)`, `fitMark(mark)`, `zoomBy(f, at)`, `panBy(dx, dy)` | move the view (`fit()`: the main body) |
+| `getCamera()`, `setCamera({ x, y, k })` | the view: the drawing's point at the element's middle, and CSS px a unit |
+| `toDrawing([px, py])`, `toScreen([x, y])` | between the element's pixels and the drawing |
+| `scale(px)` | `{ px, metres, label }` for a scale bar, or null when the units are not known |
+| `key(event)` | a key for it, from anywhere on a page: whether it was one |
+| `destroy()` | gone, and the GPU's memory given back |
+
+Events: `load`, `camerachange` (`{ x, y, k }`), `cursor` (`{ x, y, metres }`, null when it
+leaves), `markhover` (`{ mark }`), `pick` (`{ mark }`), `contextlost`. Its marks take
+`--sp-drawing-mark`, `--sp-drawing-mark-text` and `--sp-drawing-mark-font` from the page,
+its tooltip `--sp-drawing-tip-background`, `-text` and `-border`. Types:
+`src/drawing/drawing.d.ts`, `src/drawing/view.d.ts` (`@storeypath/viewer/drawing`,
+`@storeypath/viewer/drawing/view`; in `@storeypath/viewer-world` too).
 
 ## The map view
 
