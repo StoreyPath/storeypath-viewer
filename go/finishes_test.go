@@ -53,9 +53,10 @@ func TestTheFinishesAreWhole(t *testing.T) {
 	if counts["floor"] < 25 || counts["wall"] < 15 || len(l.Finishes) < 40 || len(l.Finishes) > 60 {
 		t.Errorf("finishes: %v", counts)
 	}
-	// a default for every type, of what it applies to; the exterior's a wall's
+	// a default for every type of room, of what it applies to; the exterior's a wall's
+	// (a location's land's areas, 0.12, have no finishes: as unspecified)
 	for _, applies := range []string{"floor", "wall"} {
-		for _, typ := range spaceTypes {
+		for _, typ := range roomTypes {
 			code, ok := l.Defaults[applies][typ]
 			if f := FinishOf(code); !ok || f == nil || f.Applies != applies {
 				t.Errorf("%s: no %s default (%q)", typ, applies, code)

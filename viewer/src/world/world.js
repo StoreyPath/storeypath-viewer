@@ -46,6 +46,14 @@
 // showRoute: a ribbon just over each floor it walks on, through the lift or stairs
 // between them, its start and end marked; flyRoute takes the camera along it.
 //
+// A location's layout (format 0.12: a layout's package) is shown as its land, a "building"
+// (PROJECT-LOCATION-LAND) of one level, the layout's ID its floor's: its ground on a slab
+// under its boundary, its areas coloured by type, open to the sky, its boundary walls as
+// high as the layout says with their gates, the items on it, and each building's
+// footprint a plain block standing on it, named. What a page does with a floor (setFloor,
+// pointAt, worldPoint and buildingPoint, in the site's frame, setFloorItems, select) it
+// does with the land.
+//
 // It is drawn in a look (style.js: "real", real but clean, by default; "model", an
 // architectural model) and a quality ("high", with ambient occlusion and multisampling;
 // "low", for weak graphics; "auto", the default, chooses Low on a software, virtual or
@@ -109,8 +117,8 @@ const LABEL_ROOM = 56; // px: a room this wide on the screen (its longer side) h
 // what casts and takes shadows, by material (walking, the ceiling keeps the sun out but
 // at the windows); the order drawn in, after the rest
 const CASTS = new Set(["slab", "wall", "wallTop", "wallCut", "wallPlain", "frame", "doorFrame", "door", "item", "skirting",
-  "trim", "handle", "sillBoard", "stairs", "ceiling"]);
-const TAKES = new Set([...CASTS, "floor", "glass"].filter((m) => m !== "ceiling"));
+  "trim", "handle", "sillBoard", "stairs", "ceiling", "massing"]);
+const TAKES = new Set([...CASTS, "floor", "glass", "area"].filter((m) => m !== "ceiling"));
 const ORDER = { volume: 2, glass: 4 };
 const QUALITIES = new Set(["auto", "high", "low"]);
 // the sun's shadow follows what is looked at on a floor bigger than this (metres round
@@ -517,18 +525,20 @@ export class StoreyPathWorld extends EventTarget {
     this.#models = models;
     this.#baked = new Map();
     this.#shut.clear(); // its doors as the plan draws them
-    await this.setBuilding(pkg.buildings[0]?.id);
+    await this.setBuilding(pkg.buildings[0]?.id ?? pkg.landId); // (a layout's package, 0.12: its land)
     if (this.#pkg === pkg) this.#emit("load", { package: pkg }); // not when another was opened meanwhile
     return pkg;
   }
 
   /** Build and show a building. Resolves once it is shown: at once, unless its
-   * floors come pre-built and are still to be read. */
+   * floors come pre-built and are still to be read. A location's land (format 0.12: by its
+   * ID, PROJECT-LOCATION-LAND, or its layout's) is shown as a building of one level. */
   setBuilding(id) {
     const pkg = this.#pkg;
     if (!pkg || !id) return Promise.resolve();
+    if (pkg.layout && id === pkg.layout.id) id = pkg.landId;
     const asked = ++this.#asked;
-    if (!pkg.floorsOf(id).some((f) => !this.#baked.has(f.id) && pkg.hasWorld(f.id))) {
+    if (!this.#levels(id, pkg).some((f) => !this.#baked.has(f.id) && pkg.hasWorld(f.id))) {
       this.#show(id);
       return Promise.resolve();
     }
@@ -595,15 +605,15 @@ export class StoreyPathWorld extends EventTarget {
     const models = await readModels(pkg);
     const id = this.#building;
     this.#models = models;
-    if (!id || !pkg.floorsOf(id).length) {
+    if (!id || !this.#levels(id, pkg).length) {
       this.#pkg = pkg;
       this.#baked = new Map();
-      await this.setBuilding(pkg.buildings[0]?.id);
+      await this.setBuilding(pkg.buildings[0]?.id ?? pkg.landId);
       if (this.#pkg === pkg) this.#emit("load", { package: pkg });
       return pkg;
     }
     const ids = (list) => list.map((f) => f.id ?? f).sort().join();
-    const same = ids([...this.#floors.keys()]) === ids(pkg.floorsOf(id));
+    const same = ids([...this.#floors.keys()]) === ids(this.#levels(id, pkg));
     this.#pkg = pkg;
     this.#baked = new Map();
     if (!same) this.#show(id, { keep: true });
@@ -821,7 +831,7 @@ export class StoreyPathWorld extends EventTarget {
     if (!f || this.#spaceAt(f, x, z)) return { x, z };
     let best = null;
     for (const s of f.spaces) {
-      if (s.tucked && !this.#o.showHidden) continue;
+      if ((s.tucked && !this.#o.showHidden) || s.footprint) continue; // (not into a layout's building)
       const d = Math.hypot(s.centre.x - x, s.centre.z - z);
       if (!best || d < best.d) best = { s, d };
     }
@@ -830,9 +840,16 @@ export class StoreyPathWorld extends EventTarget {
 
   // ---- the building's own frame ---------------------------------------------------------
 
-  /** The building's placement on the map (format 0.7), or null. */
+  /** The building's placement on the map (format 0.7), or null; a location's land's (0.12),
+   * the site's own: its frame the site's. */
   #placement() {
-    return this.#pkg?.manifest?.placements?.[this.#building] ?? null;
+    const pkg = this.#pkg;
+    return pkg?.placementOf?.(this.#building) ?? pkg?.manifest?.placements?.[this.#building] ?? null;
+  }
+
+  /** A building's floors, or a location's land's one level, its layout (format 0.12). */
+  #levels(id, pkg = this.#pkg) {
+    return pkg?.levelsOf?.(id) ?? pkg?.floorsOf(id) ?? [];
   }
 
   /** A point of the building's own frame — [x, y], metres of its drawings, as Studio and
@@ -942,6 +959,14 @@ export class StoreyPathWorld extends EventTarget {
       const y = o.y + d.y * t - y0;
       if (y < from || y > top) continue;
       best = { t, x: o.x + d.x * t, z: o.z + d.z * t, wall: true };
+    }
+    // a layout's buildings (format 0.12): the top of each block, its footprint under it
+    const blocks = f.plan.footprints;
+    if (blocks?.length && d.y < -1e-9) {
+      const t = (y0 + (cut ? Math.min(f.plan.footprintHeight, this.#o.cutHeight) : f.plan.footprintHeight) - o.y) / d.y;
+      const x = o.x + d.x * t, z = o.z + d.z * t;
+      if (t > 0 && t < (best?.t ?? Infinity) && blocks.some((fp) => (this.#o.showHidden || !fp.tucked)
+        && fp.rings.some((rings) => inside(rings[0], x, -z) && !rings.slice(1).some((h) => inside(h, x, -z))))) best = { t, x, z };
     }
     if (best?.wall) { // onto the floor just before it
       const h = Math.hypot(d.x, d.z);
@@ -1137,7 +1162,7 @@ export class StoreyPathWorld extends EventTarget {
       const found = this.#findSpace(target.floor);
       if (found) {
         floor = found.floor;
-        const y = found.floor.elevation + 0.025;
+        const y = found.floor.elevation + (found.space.footprint ? found.floor.plan.footprintHeight : 0) + 0.025;
         add(flat(found.space.rings, y), this.#markLook.fill, 4);
         const edges = found.space.rings.map((rings) => ribbon(rings[0].map(([x, n]) => [x, -n]).concat([[rings[0][0][0], -rings[0][0][1]]]), y + 0.004, 0.07));
         add(edges.length > 1 ? mergeGeometries(edges) : edges[0], this.#markLook.edge, 5);
@@ -1637,8 +1662,11 @@ export class StoreyPathWorld extends EventTarget {
     const xz = (ring) => ring.map(([x, n]) => [x, -n]);
     return {
       walls: f.wallRings.map(xz),
-      spaces: f.spaces.filter((s) => this.#o.showHidden || !s.tucked)
+      spaces: f.spaces.filter((s) => !s.footprint && (this.#o.showHidden || !s.tucked))
         .map((s) => ({ id: s.id, type: s.type, name: s.name, rings: s.rings.flat(1).map(xz) })),
+      // a layout's (format 0.12): where buildings stand, each its outline, name and building
+      ...(f.plan.land ? { footprints: f.spaces.filter((s) => s.footprint && (this.#o.showHidden || !s.tucked))
+        .map((s) => ({ id: s.id, name: s.name, building: s.building, rings: s.rings.flat(1).map(xz) })) } : {}),
       items: f.items.map((i) => ({ id: i.id, type: i.type, mount: i.mount, color: i.color,
         ring: [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => itemPoint(i, (a * i.width) / 2, (b * i.depth) / 2)) })),
       obstacles: f.obstacles.segments,
@@ -1668,7 +1696,7 @@ export class StoreyPathWorld extends EventTarget {
    * `end`. Floors are named by `floorName` (default: their names in the package). */
   showRoute(route, { fly = false, fit = false, animate = true, startLabel = null, endLabel, floorName, floors = "walked", ...colours } = {}) {
     this.clearRoute();
-    const placement = this.#pkg?.manifest.placements?.[this.#building];
+    const placement = this.#placement();
     if (!route || !placement || !route.legs?.some((leg) => this.#floors.has(leg.floor_id))) return Promise.resolve();
     // a point of the building's drawings, in the world: x east, z south
     const at = ([x, y]) => {
@@ -2291,12 +2319,12 @@ export class StoreyPathWorld extends EventTarget {
   #walkFloor = null;
 
   #floorList() {
-    return this.#pkg ? this.#pkg.floorsOf(this.#building).filter((f) => this.#floors.has(f.id)) : [];
+    return this.#pkg ? this.#levels(this.#building).filter((f) => this.#floors.has(f.id)) : [];
   }
 
   #buildBuilding(buildingId, { keepOrigin = false } = {}) {
     const pkg = this.#pkg;
-    const floors = pkg.floorsOf(buildingId);
+    const floors = this.#levels(buildingId, pkg);
     if (!keepOrigin || !this.#origin) this.#origin = originOf(pkg, buildingId); // kept: the view stays where it was
     const group = new THREE.Group();
     group.name = buildingId;
@@ -2334,7 +2362,7 @@ export class StoreyPathWorld extends EventTarget {
    * otherwise (or unreadable) the floor is built here. */
   async #readBaked(pkg, buildingId) {
     const baked = this.#baked;
-    const floors = pkg.floorsOf(buildingId).filter((f) => !baked.has(f.id) && pkg.hasWorld(f.id));
+    const floors = this.#levels(buildingId, pkg).filter((f) => !baked.has(f.id) && pkg.hasWorld(f.id));
     const origin = originOf(pkg, buildingId);
     const o = this.#o;
     const matches = (x, floor) => x && x.floor_id === floor.id && x.project_id === pkg.project.id
@@ -2387,6 +2415,7 @@ export class StoreyPathWorld extends EventTarget {
     const m = this.#materials;
     if (finishes?.length) return finishes.length === 1 ? m.finish(finishes[0]) : finishes.map((code) => m.finish(code));
     if (material === "floor") return m.floor(type);
+    if (material === "area") return m.area(type); // (a layout's ground, format 0.12: by type)
     if (material === "volume") return m.volume(TYPE_COLORS[type] || TYPE_COLORS.unspecified);
     return m[material] instanceof THREE.Material ? m[material] : m.wallPlain;
   }
@@ -2419,6 +2448,15 @@ export class StoreyPathWorld extends EventTarget {
     }
     this.#dress(built);
 
+    // a layout's buildings (format 0.12), named over their blocks: chosen and aimed at as
+    // a room is (first: over the areas round them), never walked into
+    for (const fp of plan.footprints ?? []) {
+      const label = this.#label(fp);
+      label.position.set(fp.label[0], e + plan.footprintHeight + 0.3, -fp.label[1]);
+      if (label.element.textContent) group.add(label);
+      built.spaces.push({ id: fp.id, space: fp.id, type: "footprint", name: fp.name, number: null, tucked: fp.tucked,
+        rings: fp.rings, label, centre: fp.centre, size: fp.size, footprint: true, building: fp.building });
+    }
     // the label of each space and zone in use
     for (const u of plan.units) {
       const label = this.#label(u);
@@ -2434,8 +2472,9 @@ export class StoreyPathWorld extends EventTarget {
     built.obstacles = new Obstacles(obstacles, built.doors.gates);
 
     if (Number.isFinite(plan.bounds[0])) {
+      const top = plan.footprints?.length ? Math.max(plan.wallHeight, plan.footprintHeight) : plan.wallHeight; // (a layout's blocks)
       built.bounds3.set(new THREE.Vector3(plan.bounds[0], e - o.slab, plan.bounds[1]),
-        new THREE.Vector3(plan.bounds[2], e + plan.wallHeight, plan.bounds[3]));
+        new THREE.Vector3(plan.bounds[2], e + top, plan.bounds[3]));
     }
     return built;
   }
@@ -2569,7 +2608,7 @@ export class StoreyPathWorld extends EventTarget {
         add(new THREE.EdgesGeometry(box), look.line, 4, THREE.LineSegments);
       }
     } else {
-      const y = found.floor.elevation + 0.02;
+      const y = found.floor.elevation + (found.space.footprint ? found.floor.plan.footprintHeight : 0) + 0.02; // (a building's block: its top)
       add(flat(found.space.rings, y), look.fill, 3);
       const edges = found.space.rings.map((rings) => ribbon(rings[0].map(([x, n]) => [x, -n]).concat([[rings[0][0][0], -rings[0][0][1]]]), y + 0.004, 0.08));
       add(edges.length > 1 ? mergeGeometries(edges) : edges[0], look.edge, 4);
@@ -2626,6 +2665,7 @@ export class StoreyPathWorld extends EventTarget {
    * ground floor 0, a mezzanine on it 1, the first floor 2, a basement -1. What is
    * stacked, shown up to and exploded apart by, as floors may share an ordinal. */
   #levelOf(floor) {
+    if (floor.properties.kind === "layout") return 0; // (a location's land, format 0.12: its one level)
     const list = this.#pkg.floorsOf(floor.properties.building_id);
     return list.indexOf(floor) - Math.max(0, list.indexOf(this.#pkg.groundFloor(floor.properties.building_id)));
   }
@@ -2707,17 +2747,19 @@ export class StoreyPathWorld extends EventTarget {
     const see = this.#xray ? 0.22 : 1;
     const m8 = this.#materials;
     for (const m of [m8.wall, ...m8.walls(), m8.wallPlain, m8.wallTop, m8.wallCut, m8.frame, m8.doorFrame, m8.door, m8.skirting,
-      m8.handle, m8.sillBoard]) {
+      m8.handle, m8.sillBoard, m8.massing]) {
       m.transparent = this.#xray;
       m.opacity = see;
       m.depthWrite = !this.#xray;
     }
     // walking, lit as indoors: less sky (the ceiling keeps the sun out but at the
-    // windows), and the nearest ceiling panels (#lightPanels)
-    this.#hemi.intensity = walking ? s.walk.hemisphere * q.ambient : s.hemisphere[2];
-    this.#scene.environmentIntensity = walking ? s.walk.environment * q.ambient : s.environment;
-    this.#sun.intensity = walking ? s.walk.sun : s.sun[1];
-    for (const light of this.#panelLights) light.visible = walking;
+    // windows), and the nearest ceiling panels (#lightPanels); on a location's land (0.12),
+    // outdoors, as seen from above
+    const indoors = walking && !wf?.plan.land;
+    this.#hemi.intensity = indoors ? s.walk.hemisphere * q.ambient : s.hemisphere[2];
+    this.#scene.environmentIntensity = indoors ? s.walk.environment * q.ambient : s.environment;
+    this.#sun.intensity = indoors ? s.walk.sun : s.sun[1];
+    for (const light of this.#panelLights) light.visible = indoors;
     this.#shadowsDirty = true;
   }
 
@@ -2759,8 +2801,8 @@ export class StoreyPathWorld extends EventTarget {
     if (!f) return { x: 0, z: 0 };
     const door = this.#frontDoor(f);
     if (door) return door;
-    const prefer = ["lobby", "corridor", "living_room", "open_area", "room"];
-    const pick = [...f.spaces].sort((a, b) => {
+    const prefer = ["lobby", "corridor", "living_room", "open_area", "room", "gate_area", "path"];
+    const pick = f.spaces.filter((s) => !s.footprint).sort((a, b) => {
       const ia = prefer.indexOf(a.type), ib = prefer.indexOf(b.type);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || b.size - a.size;
     })[0];

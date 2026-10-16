@@ -12,6 +12,7 @@
 
 import * as THREE from "three";
 import { EXTERIOR, defaultFinish, finishOf } from "../finishes.js";
+import { TYPE_COLORS } from "../theme.js";
 import { finishes } from "./finishes.js";
 
 const MACRO_EVERY = 7.3; // m: the tint against repetition (not a multiple of any finish's size)
@@ -50,6 +51,7 @@ export class Materials {
     this.#painter = painter;
     this.#finishes = new Map();
     this.#volumes = new Map();
+    this.#areas = new Map();
     // lines along edges ("model"): seen over the faces they edge, drawn a little nearer
     // (a share of the distance, so that at a glancing angle what is behind a wall is not
     // seen through it), and not in the depth the occlusion is worked out from
@@ -68,6 +70,7 @@ export class Materials {
   #painter;
   #finishes; // code → its material, made the first time a surface shows it
   #volumes;
+  #areas; // a location's land's areas (format 0.12): type → its material
   #pending = new Set(); // finishes being painted
   #clay = false; // the "model" look
   #textures = [];
@@ -101,6 +104,8 @@ export class Materials {
     this.stairs = new THREE.MeshStandardMaterial({ color: 0xc9c4ba, roughness: 0.8, ...flat }); // stone steps
     this.handle = new THREE.MeshStandardMaterial({ color: 0xc4c7cb, roughness: 0.28, metalness: 1, ...flat });
     this.lightPanel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfffaf0, emissiveIntensity: 2.2, ...flat });
+    // a location's land (format 0.12): each building on it a plain block, light stone
+    this.massing = new THREE.MeshStandardMaterial({ color: 0xe6e2da, roughness: 0.85 });
     // furniture: each vertex says how rough and how metallic it is (`_finish`); the
     // catalogue's colours a little quieter (they are chosen to tell types apart)
     this.item = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1, metalness: 1 });
@@ -211,6 +216,7 @@ export class Materials {
     this.stairs = clay(0xe4e2dd);
     this.handle = clay(0xb8bbc0, { roughness: 0.5 });
     this.lightPanel = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1.2, flatShading: true });
+    this.massing = clay(0xf4f3f0); // (a location's land's buildings, format 0.12)
     // furniture: white, keeping a hint of its colour
     this.item = clay(0xffffff, { vertexColors: true, flatShading: true, roughness: 0.85 });
     this.item.onBeforeCompile = (shader) => {
@@ -244,6 +250,22 @@ export class Materials {
   /** The floor material of a type of space, as it is when given no finish. */
   floor(type) {
     return this.finish(defaultFinish("floor", type));
+  }
+
+  /** The ground of a location's land's area of a type (format 0.12: no finish, its type's
+   * colour: grass, paving, asphalt, water): real, as it is (water glossy); model, clay
+   * lightly tinted by it, as a floor's finish is. */
+  area(type) {
+    const key = TYPE_COLORS[type] ? type : "unspecified";
+    if (!this.#areas.has(key)) {
+      const c = new THREE.Color().setStyle(TYPE_COLORS[key], THREE.SRGBColorSpace);
+      if (this.#clay) {
+        const hsl = c.getHSL({});
+        c.setHSL(hsl.h, hsl.s * 0.55, 0.74 + hsl.l * 0.14);
+      }
+      this.#areas.set(key, new THREE.MeshStandardMaterial({ color: c, roughness: key === "pool" && !this.#clay ? 0.12 : 0.95 }));
+    }
+    return this.#areas.get(key);
   }
 
   /** The materials of walls' finishes made so far (to see through them: x-ray). */
@@ -308,7 +330,7 @@ export class Materials {
   dispose() {
     this.#disposed = true;
     const seen = new Set();
-    for (const v of [...Object.values(this), ...this.#finishes.values(), ...this.#volumes.values()]) {
+    for (const v of [...Object.values(this), ...this.#finishes.values(), ...this.#volumes.values(), ...this.#areas.values()]) {
       if (v?.isMaterial && !seen.has(v)) {
         seen.add(v);
         v.dispose();

@@ -102,7 +102,15 @@
         "balcony",
         "terrace",
         "open_to_below",
-        "roof"
+        "roof",
+        "driveway",
+        "garden",
+        "courtyard",
+        "yard",
+        "path",
+        "gate_area",
+        "road",
+        "pool"
       ],
       "title": "SpaceType",
       "type": "string"

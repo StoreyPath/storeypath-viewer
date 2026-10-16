@@ -1,8 +1,8 @@
 // Type-checked by `npm run check`: the declarations describe the module as a
 // strict TypeScript application uses it.
-import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, loadPackage, normalizeItemId, route, webglSupport, type Feature,
-	type DoorMode, type Finish, type GivenItem, type Route, type WorldDoor, type WorldEvents, type WorldLook, type WorldPoint,
-	type WorldQuality } from '@storeypath/viewer-world';
+import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, isLandId, loadPackage, normalizeItemId, route, toSite, webglSupport,
+	type Feature, type DoorMode, type Finish, type FootprintProperties, type GivenItem, type Route, type Site, type WorldDoor, type WorldEvents,
+	type WorldLook, type WorldPoint, type WorldQuality } from '@storeypath/viewer-world';
 import { webglSupport as check } from '@storeypath/viewer-world/support';
 import { DrawingView, readDrawingView, type DrawingCamera, type DrawingMark } from '@storeypath/viewer-world';
 
@@ -147,4 +147,34 @@ export async function show(element: HTMLElement, data: ArrayBuffer): Promise<str
 	const again = await loadPackage(new Blob([data]));
 	world.destroy();
 	return again.project.id;
+}
+
+/** A location's layout (format 0.12): its land shown as a building of one level, the layout's
+ * ID its floor's; a camera placed where a click is, in the site's frame; its buildings found. */
+export async function land(element: HTMLElement, data: ArrayBuffer): Promise<string | null> {
+	const world = new StoreyPathWorld(element);
+	const pkg = await world.open(data);
+	const layout = pkg.layout;
+	if (!pkg.isLayout || !layout) return null;
+	console.log(world.building === pkg.landId, isLandId(layout.id), pkg.holds(layout.id), pkg.scope?.length);
+	world.setFloor(layout.id);
+	world.setItems(true);
+	const at: WorldPoint | null = world.pointAt(100, 100);
+	if (at?.local) {
+		const camera: GivenItem = { type: 'CCTV-POLE', x: at.local[0], y: at.local[1], rotation: 180 };
+		world.setFloorItems(layout.id, [camera]);
+	}
+	const footprints: Feature<FootprintProperties>[] = pkg.footprintsOn(layout.id);
+	for (const f of footprints) {
+		const site: Site | null = f.properties.site;
+		const building = f.properties.building_id;
+		console.log(f.properties.name, building, site ? toSite(site, [0, 0]) : null, building ? pkg.siteOf(building) : null);
+	}
+	world.select(footprints[0]?.id ?? null);
+	const blocks = world.plan(layout.id)?.footprints?.length ?? 0;
+	const north: number = layout.properties.north?.bearing ?? world.bearing;
+	console.log(blocks, north, pkg.placementOf(layout.id)?.site, pkg.levelsOf(pkg.landId ?? '').length,
+		pkg.hierarchy(layout.id).building, layout.properties.wall_height_m);
+	world.destroy();
+	return layout.id;
 }

@@ -18,7 +18,7 @@ import (
 // does not know are ignored.
 const (
 	FormatName    = "storeypath-package"
-	FormatVersion = "0.11.0"
+	FormatVersion = "0.12.0"
 )
 
 // oneBuildingFrom: from format 0.7 a package holds exactly one building.
@@ -28,11 +28,16 @@ const oneBuildingFrom = 7
 // project's code, -I and six digits.
 const assetIDsFrom = 8
 
+// layoutsFrom: from format 0.12 a package may hold a location's layout in place of a
+// building (Scope.Layout).
+const layoutsFrom = 12
+
 // The files of a package, by the names they usually have. A reader finds each
 // through the manifest's files, by its role; the names are for a manifest that
 // does not list a file every package has. Items and the catalogue (format 0.6), and
-// the walking network (0.8), are read only when it lists them ("items", "catalogue",
-// "navigation"): older packages have none.
+// the walking network (0.8), and a layout's own files (0.12), are read only when it lists
+// them ("items", "catalogue", "navigation", "layout", "footprints"): older packages, and
+// a building's, have none.
 const (
 	FileManifest  = "manifest.json"
 	FileLocation  = "location.geojson"
@@ -47,6 +52,10 @@ const (
 	FileCatalogue = "catalogue.json"
 	// FileNavigation (format 0.8): the building's walking network (navigation.go).
 	FileNavigation = "navigation.json"
+	// FileLayout and FileFootprints (format 0.12): a layout's package only, the
+	// location's layout and the buildings standing on it (layout.go).
+	FileLayout     = "layout.geojson"
+	FileFootprints = "footprints.geojson"
 )
 
 // usualNames: the files of a package by role, where they are when the manifest's
@@ -55,10 +64,11 @@ var usualNames = map[string]string{
 	"location": FileLocation, "buildings": FileBuildings, "floors": FileFloors, "spaces": FileSpaces,
 	"zones": FileZones, "openings": FileOpenings, "objects": FileObjects, "changes": FileChanges,
 	"items": FileItems, "catalogue": FileCatalogue, "navigation": FileNavigation,
+	"layout": FileLayout, "footprints": FileFootprints,
 }
 
 // optionalRoles: files a package has only when its manifest lists them.
-var optionalRoles = map[string]bool{"items": true, "catalogue": true, "navigation": true}
+var optionalRoles = map[string]bool{"items": true, "catalogue": true, "navigation": true, "layout": true, "footprints": true}
 
 // Manifest is manifest.json: what the package is and holds.
 type Manifest struct {
@@ -87,14 +97,19 @@ type Manifest struct {
 	Placements map[string]Placement `json:"placements"`
 	// Scope: the building the package holds (from format 0.7, always exactly one;
 	// from 0.4, the buildings it held when not the whole project; nil before, or for
-	// a whole project). What is outside it is not in the package, and its absence
-	// says nothing about it: see Holds.
+	// a whole project), or (0.12) the location's layout it holds in its place. What is
+	// outside it is not in the package, and its absence says nothing about it: see
+	// Holds.
 	Scope *Scope `json:"scope,omitempty"`
 }
 
 // Scope is the part of a project a package holds.
 type Scope struct {
+	// Buildings: the buildings it holds (from 0.7, one; a layout's package, none).
 	Buildings []string `json:"buildings"`
+	// Layout (format 0.12): the ID of the location's layout a layout's package holds,
+	// in place of a building; nil for a building's package (IsLayout).
+	Layout *string `json:"layout"`
 }
 
 // Source is the drawing a floor was read from (its file name only).
@@ -109,7 +124,9 @@ type Source struct {
 }
 
 // Placement is where a building is on earth: its anchor (local X, Y in drawing
-// metres) at (Lon, Lat), with the drawing's +Y turned to Bearing degrees.
+// metres) at (Lon, Lat), with the drawing's +Y turned to Bearing degrees. A layout's
+// placement (format 0.12, by the layout's ID) is its site's: the site's centre (X, Y
+// 0) at (Lon, Lat), the site plan's up turned to Bearing.
 type Placement struct {
 	Lon        float64 `json:"lon"`
 	Lat        float64 `json:"lat"`
@@ -120,6 +137,11 @@ type Placement struct {
 	// Placed is false for a building not placed on the map yet: exported around
 	// 0°N 0°E with its true shape and size, its position on earth unknown.
 	Placed *bool `json:"placed"`
+	// Site (format 0.12) is where the building's own frame lies on its location's
+	// site, the frame its layout is drawn in: then Lon, Lat are the site's centre and
+	// Bearing the site's and Site.Rotation. Nil for a building placed on the map by
+	// itself, for a layout's own placement, and before 0.12.
+	Site *SiteFrame `json:"site"`
 }
 
 // IsPlaced says whether the building's position on earth is known.
@@ -141,7 +163,8 @@ type Changes struct {
 	MovedAway []MovedAway `json:"moved_away"`
 }
 
-// MovedAway is an item carried to another building of the project.
+// MovedAway is an item carried to another building of the project, or (format 0.12)
+// onto a location's land: then Building is the layout's ID (IsLand).
 type MovedAway struct {
 	ID       string `json:"id"`
 	Building string `json:"building_id"`
@@ -220,6 +243,12 @@ type Package struct {
 	// packages. Catalogue: their types, nil when the package has none.
 	Items     []*Item
 	Catalogue *Catalogue
+	// Layouts and Footprints (format 0.12): a layout's package's location layout (one;
+	// Layout) and the buildings standing on it, in file order; none in a building's
+	// package. Its areas are in Spaces, its gates in Openings, what is placed on it in
+	// Items, each on the layout's ID.
+	Layouts    []*Layout
+	Footprints []*Footprint
 
 	navigation *Navigation // navigation.json (format 0.8): Navigation()
 	// drawings: each floor's drawing the manifest's sources name (format 0.11):
@@ -424,6 +453,12 @@ func Read(r io.ReaderAt, size int64, limits Limits) (*Package, error) {
 		{"openings", func(b []byte) error {
 			return decode(b, "opening", max, &p.Openings, func(f *Opening, id string, g *Geometry) { f.ID, f.Geometry = id, g })
 		}},
+		{"layout", func(b []byte) error {
+			return decode(b, "layout", max, &p.Layouts, func(f *Layout, id string, g *Geometry) { f.ID, f.Geometry = id, g })
+		}},
+		{"footprints", func(b []byte) error {
+			return decode(b, "footprint", max, &p.Footprints, func(f *Footprint, id string, g *Geometry) { f.ID, f.Geometry = id, g })
+		}},
 		{"items", func(b []byte) error {
 			return decode(b, "item", max, &p.Items, func(f *Item, id string, g *Geometry) { f.ID, f.Geometry = id, g })
 		}},
@@ -446,7 +481,8 @@ func Read(r io.ReaderAt, size int64, limits Limits) (*Package, error) {
 		}},
 		{"objects", func(b []byte) (err error) {
 			// every feature read, and maybe rows of kinds a later format adds
-			features := len(p.Locations) + len(p.Buildings) + len(p.Floors) + len(p.Spaces) + len(p.Zones) + len(p.Openings) + len(p.Items)
+			features := len(p.Locations) + len(p.Buildings) + len(p.Floors) + len(p.Spaces) + len(p.Zones) + len(p.Openings) +
+				len(p.Layouts) + len(p.Footprints) + len(p.Items)
 			p.Objects, err = readObjects(b, features+1+max)
 			return err
 		}},
@@ -553,6 +589,12 @@ func (p *Package) index() {
 	for _, f := range p.Openings {
 		add(f.ID, "opening", f)
 	}
+	for _, f := range p.Layouts {
+		add(f.ID, "layout", f)
+	}
+	for _, f := range p.Footprints {
+		add(f.ID, "footprint", f)
+	}
 	for _, f := range p.Items {
 		add(f.ID, "item", f)
 	}
@@ -567,7 +609,7 @@ func (p *Package) file(role string) string {
 }
 
 // Get is the feature with an ID: a *Location, *Building, *Floor, *Space, *Zone,
-// *Opening or *Item.
+// *Opening, *Item, or (format 0.12) *Layout or *Footprint.
 func (p *Package) Get(id string) (any, bool) {
 	f, ok := p.byID[id]
 	return f, ok
@@ -576,7 +618,8 @@ func (p *Package) Get(id string) (any, bool) {
 // Holds reports whether the package holds a building, so that what it says about
 // the building (its floors, spaces, what changed) is the whole truth: always, for a
 // package of the whole project; for a part of one, when the building is in its
-// scope. A system keeping a project's buildings leaves the others as they are.
+// scope (a layout's package, format 0.12, holds none). A system keeping a project's
+// buildings leaves the others as they are.
 func (p *Package) Holds(buildingID string) bool {
 	if p.Manifest.Scope == nil {
 		return true
@@ -598,8 +641,9 @@ func (p *Package) Zone(id string) *Zone         { f, _ := p.byID[id].(*Zone); re
 func (p *Package) Opening(id string) *Opening   { f, _ := p.byID[id].(*Opening); return f }
 func (p *Package) Item(id string) *Item         { f, _ := p.byID[id].(*Item); return f }
 
-// ItemsOn is the furniture and equipment on a floor, in file order. An item's ID
-// does not say where it is: its Floor does.
+// ItemsOn is the furniture and equipment on a floor, or (format 0.12) on a location's
+// land by its layout's ID, in file order. An item's ID does not say where it is: its
+// Floor does.
 func (p *Package) ItemsOn(floorID string) []*Item {
 	var out []*Item
 	for _, it := range p.Items {
@@ -675,7 +719,8 @@ func (p *Package) GroundFloor(buildingID string) *Floor {
 }
 
 // SpacesOn is a floor's spaces, ZonesOf a space's zones, OpeningsOn a floor's
-// openings, in file order.
+// openings, in file order. Given a layout's ID (format 0.12), SpacesOn is its areas
+// and OpeningsOn its gates.
 func (p *Package) SpacesOn(floorID string) []*Space {
 	var out []*Space
 	for _, s := range p.Spaces {
@@ -729,14 +774,15 @@ func (p *Package) UnitsOn(floorID string) []Unit {
 	return out
 }
 
-// ItemLocal is where an item stands in its building's own frame: its Local as the
-// package has it (format 0.7), or for an older package worked out from its map
-// position and heading through the building's placement (to about a centimetre).
+// ItemLocal is where an item stands in its building's own frame (format 0.12: on a
+// location's land, in its site's): its Local as the package has it (format 0.7), or
+// for an older package worked out from its map position and heading through the
+// building's placement (to about a centimetre).
 func (p *Package) ItemLocal(it *Item) (ItemLocal, error) {
 	if it.Local != nil {
 		return *it.Local, nil
 	}
-	f, err := p.Frame(it.Building)
+	f, err := p.ItemFrame(it)
 	if err != nil {
 		return ItemLocal{}, err
 	}
@@ -746,11 +792,21 @@ func (p *Package) ItemLocal(it *Item) (ItemLocal, error) {
 }
 
 // Frame is the local frame of a building: its placement, to turn lon/lat back
-// into the drawing metres Studio works in.
+// into the drawing metres Studio works in. Given a layout's ID (format 0.12), the
+// frame of its site: metres from the site's centre, y the site plan's up.
 func (p *Package) Frame(buildingID string) (LocalFrame, error) {
 	pl, ok := p.Manifest.Placements[buildingID]
 	if !ok {
-		return LocalFrame{}, fmt.Errorf("no placement for %s", buildingID)
+		return LocalFrame{}, fmt.Errorf("no placement for %s", clip(buildingID))
 	}
 	return NewLocalFrame(pl), nil
+}
+
+// ItemFrame is the frame an item's Local is in: its building's, or (format 0.12) for
+// one on a location's land, its site's (by the layout's ID, its Floor).
+func (p *Package) ItemFrame(it *Item) (LocalFrame, error) {
+	if it.OnLand() {
+		return p.Frame(it.Floor)
+	}
+	return p.Frame(it.Building)
 }

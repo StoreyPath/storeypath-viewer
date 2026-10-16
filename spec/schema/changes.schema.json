@@ -8,7 +8,7 @@
           "type": "string"
         },
         "building_id": {
-          "description": "the building of the project it is in now",
+          "description": "the building of the project it is in now, or (format 0.12) the layout of the land it stands on",
           "title": "Building Id",
           "type": "string"
         }

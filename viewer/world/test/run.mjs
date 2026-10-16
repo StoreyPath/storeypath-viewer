@@ -28,15 +28,15 @@ register(`data:text/javascript,${encodeURIComponent(`
     const path = to(specifier);
     return path ? { url: ${JSON.stringify(vendor)} + path, shortCircuit: true } : next(specifier, context);
   }`)}`);
-const { FORMAT_VERSION, byLevel, floorType, loadPackage } = await import("../../src/package.js");
-const { BUILDER, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, openSlab, originOf,
+const { FORMAT_VERSION, byLevel, floorType, fromSite, loadPackage, toSite } = await import("../../src/package.js");
+const { BUILDER, buildFloor, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, occluders, openSlab, originOf,
   outlineRect, planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
 const { TYPE_COLORS } = await import("../../src/theme.js");
 const { toLonLat } = await import("../../src/world/frame.js");
 const { qualityFor } = await import("../../src/world/gpu.js");
-const { isItemId } = await import("../../src/ids.js");
+const { isItemId, isLandId, LAND_CODE } = await import("../../src/ids.js");
 const { MODEL_TRIANGLES, parseModel } = await import("../../src/world/model.js");
 const { SealedError, isSealed, unseal } = await import("../../src/sealed.js");
 const { linesOn, readDrawingView, textsOf } = await import("../../src/drawing/view.js");
@@ -45,6 +45,9 @@ const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 const truly = (v, what) => {
   if (!v) throw new Error(what);
+};
+const equal = (a, b, what) => {
+  if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${what}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
 };
 
 // ---- in Node ------------------------------------------------------------------
@@ -140,11 +143,12 @@ test("a package of a newer minor version, or of no version, is refused; older on
     return loadPackage(bytes).then((pkg) => (pkg.manifest.format_version === version ? "read" : "read, another version"),
       (e) => e.message);
   };
-  for (const v of ["0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.11.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.12.0", "0.12.3", "0.12", "0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9",
+    "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.12.1-rc.1", "0.9.0+build.5"]) {
     truly(await said(v) === "read", `${v}: ${await said(v)}`);
   }
-  for (const v of ["0.12.0", "0.12", "0.99.0", "0.12.0-rc1", "1.0.0", "2.7.0"]) {
-    const want = `This package is format ${v}, newer than this viewer's 0.11: update the viewer.`;
+  for (const v of ["0.13.0", "0.13", "0.99.0", "0.13.0-rc1", "1.0.0", "2.7.0"]) {
+    const want = `This package is format ${v}, newer than this viewer's 0.12: update the viewer.`;
     truly(await said(v) === want, `${v}: ${await said(v)}`);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
@@ -1009,6 +1013,156 @@ test("a piece drawn a finish at a time: its triangles ordered by finish, in grou
     return w.nx > 0.9 ? "ACCENT" : "NAVY";
   });
   truly(asked > 0 && one.includes("ACCENT") && one.includes("NAVY"), `one wall otherwise: ${one}`);
+});
+
+// ---- a location's layout (format 0.12) ------------------------------------------------
+// site-plot: a made-up plot, its layout's package (a garden, parking, the yard, the street
+// beyond the boundary; walls with a vehicle gate and a pedestrian gate; four footprints, three
+// of them buildings of the project; a camera on a pole and a card reader at the pedestrian
+// gate), and its buildings' packages (site-plot-house, -guest-a, -guest-b)
+
+const sitePlot = async (name = "site-plot") => loadPackage(readFileSync(join(packages, `${name}.storeypath`)));
+/** A piece's triangles, built or not. */
+const trianglesOf = (p) => (p ? (p.geometry.index ? p.geometry.index.count : p.geometry.getAttribute("position").count) / 3 : 0);
+
+test("a layout's package (0.12): its layout, footprints, areas, gates and items by their IDs; a land's ID has no building", async () => {
+  const pkg = await sitePlot();
+  const layout = pkg.layout, id = layout?.id;
+  truly(pkg.isLayout && id === pkg.manifest.scope.layout && pkg.scope.length === 0 && pkg.layouts.length === 1, `its layout: ${id}`);
+  truly(pkg.buildings.length === 0 && pkg.floors.length === 0 && pkg.zones.length === 0 && pkg.navigation === null,
+    "no building, floor, zone or walking network");
+  const land = id.split("-").slice(0, 3).join("-");
+  truly(LAND_CODE === "LAND" && isLandId(id) && isLandId(land) && isLandId(`${id}-0004`) && !isLandId(land.replace("LAND", "HOUSE"))
+    && !isLandId("7K2Q-XM9F-4DP") && !isLandId(null), "LAND IDs told apart");
+  truly(pkg.landId === land && pkg.holds(id) && pkg.holds(land) && !pkg.holds(`${land.slice(0, -4)}HOUSE`), `held: ${pkg.landId}`);
+  equal(pkg.levelsOf(land).map((f) => f.id), [id], "the land's one level, by its ID");
+  equal(pkg.levelsOf(id).map((f) => f.id), [id], "and by its layout's");
+  truly(pkg.placementOf(land) === pkg.manifest.placements[id] && pkg.placementOf(`${id}-0004`) === pkg.manifest.placements[id]
+    && pkg.manifest.placements[id].bearing === layout.properties.north.bearing, "the site's placement, by the layout's ID");
+  // what is on it: its areas (spaces of the layout), its gates, its footprints, its items
+  equal(pkg.spacesOn(id).map((s) => s.properties.type).sort(), ["garden", "parking", "road", "yard"], "its areas");
+  truly(pkg.spacesOn(id).every((s) => s.properties.outdoor) && pkg.unitsOn(id).length === 4, "outdoor, used as wholes");
+  const gates = pkg.openings.filter((o) => o.properties.type === "gate");
+  truly(gates.length === 2 && gates.every((g) => g.properties.floor_id === id && g.properties.exterior), "two gates on it");
+  equal(pkg.footprintsOn(id).map((f) => f.properties.name).sort(), ["Guest House A", "Guest House B", "Main House", "Store"], "footprints");
+  const house = pkg.footprintsOn(id).find((f) => f.properties.name === "Main House");
+  truly(pkg.footprint(house.id) === house && pkg.footprintOf(house.properties.building_id) === house && pkg.footprint(gates[0].id) === null
+    && pkg.footprintOf("7K2Q-NONE") === null, "a footprint by its ID, and by its building");
+  truly(pkg.footprintsOn(id).filter((f) => f.properties.building_id).length === 3, "three of them buildings of the project");
+  const items = pkg.itemsOn(id), reader = items.find((i) => i.properties.type === "CARD-READER");
+  truly(items.length === 2 && items.every((i) => i.properties.building_id === null), "its items, of no building");
+  truly(gates.some((g) => g.id === reader.properties.door_id) && pkg.doorsOf(reader.properties.space_id).some((d) => d.door.id === reader.properties.door_id),
+    "the card reader serves a gate");
+  // an ID taken apart: the location found, no building, the layout as its floor
+  const area = pkg.spacesOn(id)[0], h = pkg.hierarchy(area.id);
+  truly(h.location?.id === layout.properties.location_id && h.building === null && h.floor === layout && h.object === area,
+    `an area: ${JSON.stringify([h.location?.id, h.building, h.floor?.id, h.object?.id])}`);
+  const i = pkg.hierarchy(reader.id);
+  truly(i.building === null && i.floor === layout && i.object === reader, "an item on it likewise");
+  const l = pkg.hierarchy(id);
+  truly(l.building === null && l.floor === layout && l.object === null && l.location?.id === layout.properties.location_id, "the layout");
+  // a building's package holds no layout
+  const b = await sitePlot("site-plot-house");
+  truly(!b.isLayout && b.layout === null && b.landId === null && b.footprints.length === 0 && b.navigation !== null
+    && b.holds(b.buildings[0].id), "a building's package: no layout");
+});
+
+test("a location's land (0.12) built as a level of one: its ground, areas by type open to the sky, walls with posts at its gates, a block on each footprint, its items", async () => {
+  const pkg = await sitePlot();
+  const layout = pkg.layout, land = pkg.landId;
+  const origin = originOf(pkg, land), placement = pkg.placementOf(land);
+  const { plan, pieces, obstacles, doors } = buildFloor(pkg, layout, origin);
+  const piece = (name) => pieces.find((p) => p.name === name);
+  truly(plan.land && plan.elevation === 0 && plan.wallHeight === layout.properties.wall_height_m && plan.rooms.length === 4
+    && plan.rooms.every((r) => r.outdoor), `the land's plan: ${plan.wallHeight} m walls, ${plan.rooms.length} areas`);
+  // the ground: a slab under the plot and the street beyond it; each area its type's colour, no finish
+  truly(piece("slab") && plan.outline.length === 2, `the slab under the plot and the street: ${plan.outline.length}`);
+  const street = plan.units.find((u) => u.type === "road");
+  truly(plan.outline.some((rings) => inside(rings[0], street.label[0], street.label[1])), "the street on the ground");
+  equal(pieces.filter((p) => p.name.startsWith("area:")).map((p) => p.name).sort(), ["area:garden", "area:parking", "area:road", "area:yard"],
+    "the areas' ground");
+  truly(["garden", "road", "yard", "pool", "driveway", "path", "courtyard", "gate_area"].every((t) => TYPE_COLORS[t]), "each type a colour");
+  // open to the sky: no ceiling, no ceiling panels, no floor finish, nothing along the walls indoors
+  for (const name of ["ceiling", "lights", "skirting", "stairs", "door", "heads"]) truly(!piece(name), `no ${name}`);
+  truly(!pieces.some((p) => p.name.startsWith("floor:")) && ceilingPanels(plan).length === 0 && doors.length === 0, "outdoors");
+  // the walls, as high as the layout says, open at the gates, a post each side of each
+  const walls = piece("wall");
+  walls.geometry.computeBoundingBox();
+  truly(Math.abs(walls.geometry.boundingBox.max.y - layout.properties.wall_height_m) < 1e-5 && Math.abs(walls.geometry.boundingBox.min.y) < 1e-5,
+    `walls up to ${walls.geometry.boundingBox.max.y} m`);
+  const gates = plan.ways.filter((w) => w.type === "gate");
+  truly(gates.length === 2 && trianglesOf(piece("posts")) === gates.length * 2 * 12, `posts: ${trianglesOf(piece("posts"))} triangles`);
+  const crossing = ([a, b], [x1, z1, x2, z2]) => {
+    const d = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    const c = [x1, z1], e = [x2, z2];
+    return d(a, b, c) * d(a, b, e) < 0 && d(c, e, a) * d(c, e, b) < 0;
+  };
+  for (const g of gates) { // walked through at its middle: nothing in the way, and no head over it
+    const mx = (g.a[0] + g.b[0]) / 2, mn = (g.a[1] + g.b[1]) / 2, len = Math.hypot(g.b[0] - g.a[0], g.b[1] - g.a[1]);
+    const ux = (g.b[0] - g.a[0]) / len, un = (g.b[1] - g.a[1]) / len;
+    const across = [[mx - un * 1.5, -(mn + ux * 1.5)], [mx + un * 1.5, -(mn - ux * 1.5)]];
+    truly(!obstacles.some((o) => crossing(across, o)), `${g.id}: something in the way`);
+    truly(!occluders(plan).some(([x1, z1, x2, z2, from]) => from > 0 && crossing(across, [x1, z1, x2, z2])), `${g.id}: a head over it`);
+  }
+  // each footprint a block from the ground, in the walker's way, cut low as walls are
+  const blocks = piece("massing");
+  blocks.geometry.computeBoundingBox();
+  truly(plan.footprints.length === 4 && Math.abs(blocks.geometry.boundingBox.min.y) < 1e-5
+    && Math.abs(blocks.geometry.boundingBox.max.y - plan.footprintHeight) < 1e-5, `the blocks: ${plan.footprints.length}`);
+  equal(plan.footprints.map((f) => f.name).sort(), ["Guest House A", "Guest House B", "Main House", "Store"], "named");
+  truly(cutPieces(pieces, 0).some((p) => p.name === "massingLow"), "cut low");
+  // one the site plan names not: its building's name, when the package holds the building
+  const named = await loadPackage(repack(join(packages, "site-plot.storeypath"), (files) => {
+    const fp = files.get("footprints.geojson").features.find((f) => f.properties.name === "Main House");
+    fp.properties.name = null;
+    files.get("buildings.geojson").features.push({ type: "Feature", id: fp.properties.building_id, geometry: null,
+      properties: { kind: "building", code: "HOUSE", name: "The house", location_id: layout.properties.location_id } });
+  }));
+  truly(planFloor(named, named.layout, origin).footprints.some((f) => f.name === "The house"), "its building's name");
+  const store = plan.footprints.find((f) => f.building === null);
+  truly(store?.name === "Store" && obstacles.some((o) => crossing([[store.centre.x, store.centre.z], [store.centre.x + 50, store.centre.z]], o)),
+    "a block in the walker's way");
+  truly(buildPieces(plan, { edges: true }).pieces.find((p) => p.name === "massing")?.edges?.length > 0, "lines along its edges (the model look)");
+  // its items, where `local` puts them in the site's frame: the camera on its pole at its height
+  truly(plan.items.length === 2, `items: ${plan.items.length}`);
+  for (const it of plan.items) {
+    const p = pkg.get(it.id).properties;
+    const at = inBuilding({ origin, placement }, [it.x, it.n]);
+    truly(apart(at, [p.local.x_m, p.local.y_m]) <= 1e-6, `${it.id} at ${at}, its local ${p.local.x_m},${p.local.y_m}`);
+    truly(apart([it.x, it.n], toLocal(origin, p.display_point)) <= 0.01, `${it.id}: its point on the map is elsewhere`);
+    const h = (p.heading * Math.PI) / 180;
+    truly(apart([it.fx, it.fn], [Math.sin(h), Math.cos(h)]) <= 1e-9, `${it.id}: not its heading on the map`);
+  }
+  const camera = plan.items.find((i) => i.type === "CCTV-POLE");
+  truly(camera.y === 4.5 && kindOf(camera) === "CAMERA", `the camera at ${camera.y} m`);
+  truly(buildItems(plan).some((p) => p.name === "items:high"), "drawn over the cut, at its height");
+});
+
+test("a building's placement's site (0.12): its frame on its location's site, where the layout's package puts the same place on the map", async () => {
+  const site = await sitePlot();
+  const sitePlacement = site.placementOf(site.landId);
+  for (const name of ["site-plot-house", "site-plot-guest-a", "site-plot-guest-b"]) {
+    const pkg = await sitePlot(name);
+    const b = pkg.buildings[0].id, own = pkg.manifest.placements[b], at = pkg.siteOf(b);
+    equal(at, own.site, `${name}: its site`);
+    equal(site.footprintOf(b)?.properties.site, at, `${name}: its footprint's site, as its placement's`);
+    truly(Math.abs(((own.bearing - sitePlacement.bearing - at.rotation_deg) % 360 + 360) % 360) < 1e-9
+      && own.lon === sitePlacement.lon && own.lat === sitePlacement.lat, `${name}: at the site's centre, turned with it`);
+    for (const p of [[0, 0], [own.x, own.y], [12.5, -7.25], [-30, 41]]) {
+      const there = pkg.sitePoint(b, p);
+      truly(apart(there, toSite(at, p)) === 0 && apart(fromSite(at, there), p) <= 1e-9, `${name} ${p}: there and back`);
+      // the same place on the map through either package's placement, to a millimetre
+      const a = toLonLat(own, p), c = toLonLat(sitePlacement, there);
+      const metres = [(a[0] - c[0]) * 111320 * Math.cos((a[1] * Math.PI) / 180), (a[1] - c[1]) * 110574];
+      truly(Math.hypot(...metres) <= 0.001, `${name} ${p}: ${metres} m apart`);
+    }
+    // the building stands on its footprint: the footprint's label point within its outline (in the site's frame)
+    const fp = site.footprintOf(b), origin = originOf(pkg, b);
+    const ring = pkg.buildings[0].geometry.coordinates[0].map((c) => toLocal(origin, c));
+    truly(inside(ring, ...toLocal(origin, fp.properties.display_point)), `${name}: off its footprint`);
+  }
+  const older = await loadPackage(readFileSync(join(packages, "campus-hq.storeypath")));
+  truly(older.siteOf(older.buildings[0].id) === null && older.sitePoint(older.buildings[0].id, [0, 0]) === null, "placed by itself: none");
 });
 
 // ---- in Chrome ----------------------------------------------------------------

@@ -21,6 +21,11 @@
 //
 // Local metres: x east, y up, z south, from the building's origin (originOf). A
 // plan point is [x, n] (n north, so z = −n).
+//
+// A location's layout (format 0.12) is built as a level too, its land's one: at the
+// ground, open to the sky (no ceiling, no ceiling panels), its areas coloured by type on a
+// slab under its boundary, its walls as high as the layout says with posts at its gates,
+// and each building's footprint a plain block standing on it (``footprints``).
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -68,6 +73,10 @@ const PARAPET = 1.1; // m, when the package gives no parapet height
 const ITEM_COLOR = "#8a8a8a"; // an item whose type the package does not describe (or not as #rrggbb)
 const COLOR = /^#[0-9a-f]{6}$/i; // the colours a package may give (catalogue.json): nothing else is used
 const WALL_ITEM = 1.2; // m, the bottom of an item on a wall, when the package does not say
+// a location's land (format 0.12): its walls this high when the layout does not say; a
+// building on its footprint a block this high (its own package says how high it is); a
+// post at each side of a gate, this long along the wall and this much higher than it
+const LAND = { wallHeight: 2.4, footprint: 3.5, post: 0.35, postOver: 0.2 };
 
 /** The pieces of a floor: the material each is drawn with (a name in materials.js;
  * "floor" and "volume" by the space type) and when it shows: "full", not in the
@@ -103,6 +112,13 @@ export const PIECES = {
   lights: { material: "lightPanel", view: "walk" },
   stairs: { material: "stairs", view: "full" }, // the steps of stairs and escalators, up to the floor above
   stairsLow: { material: "stairs", view: "cut" }, // those wholly under the cut, as a plan shows stairs
+  // a location's land (format 0.12): its areas' ground, area:<type>, coloured by type;
+  // each building on its footprint, a plain block (cut low as walls are); the posts at
+  // its gates
+  area: { material: "area" },
+  massing: { material: "massing", view: "full" },
+  massingLow: { material: "massing", view: "cut" },
+  posts: { material: "wallPlain", view: "full" },
   // the furniture and equipment (buildItems), coloured by vertex, kept apart from the
   // rest: those standing below the cut, and those above it (on a wall, under the
   // ceiling); each detailed, or light (a box each) for a whole building
@@ -113,13 +129,13 @@ export const PIECES = {
 };
 const TEXTURED = new Set(["floor", "wall"]); // the materials with a texture: the rest need no uv
 // the pieces cut low (cutPieces), from the full ones
-const CUT_LOW = { wall: "wallLow", wallTop: "wallCut", parapet: "parapetLow", parapetTop: "parapetCut" };
+const CUT_LOW = { wall: "wallLow", wallTop: "wallCut", parapet: "parapetLow", parapetTop: "parapetCut", massing: "massingLow" };
 /** The pieces with lines along their edges when asked for (`edges`): the walls (their
  * lines on `wall` and `parapet`), the slab, door and window frames, door leaves, window
  * boards and the items; not the wall over and under openings (it is the wall), the
  * floors, glass, skirting, architraves, handles or ceiling. */
 export const EDGED = new Set(["slab", "wall", "parapet", "frame", "doorFrame", "door", "sillBoard", "stairs", "stairsLow",
-  "items", "items:high", "items:light", "items:light:high"]);
+  "items", "items:high", "items:light", "items:light:high", "massing", "posts"]);
 
 /** Distance from point ``p`` to the segment ``a``–``b`` (plan meters). */
 function distanceToSegment(p, a, b) {
@@ -141,9 +157,10 @@ export function inside(ring, x, n) {
 /** A building's local origin: the middle of its floors (or of the building, with
  * none), and the metres in a degree of longitude and latitude there. Its
  * longitudes are taken within 180° of its first: one across the antimeridian is
- * a building's width, not the world's. */
+ * a building's width, not the world's. A location's land (format 0.12, by its ID): the
+ * middle of its layout and its areas (the road beyond its boundary too). */
 export function originOf(pkg, buildingId) {
-  const floors = pkg.floorsOf(buildingId);
+  const floors = pkg.levelsOf?.(buildingId) ?? pkg.floorsOf(buildingId);
   let ref = null, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const visit = (c) => {
     if (typeof c[0] === "number") {
@@ -153,6 +170,11 @@ export function originOf(pkg, buildingId) {
     } else c.forEach(visit);
   };
   for (const f of floors.length ? floors : [pkg.get(buildingId)]) if (f?.geometry) visit(f.geometry.coordinates);
+  for (const f of floors) {
+    if (f.properties?.kind !== "layout") continue;
+    if (f.properties.walls) visit(f.properties.walls.coordinates);
+    for (const area of pkg.spacesOn(f.id)) if (area.geometry) visit(area.geometry.coordinates);
+  }
   const lon = Number.isFinite(x0) ? wrapLongitude((x0 + x1) / 2) : 0;
   const lat = Number.isFinite(y0) ? (y0 + y1) / 2 : 0;
   return { lon, lat, kx: 111320 * Math.cos((lat * Math.PI) / 180), ky: 110540 };
@@ -289,22 +311,30 @@ function capsAndSides(g) {
 }
 
 /** What a floor holds, in local metres, with no geometry: its rooms, walls and ways
- * through. Cheap: a world that has the floor pre-built needs only this. */
+ * through. Cheap: a world that has the floor pre-built needs only this. A location's
+ * layout (format 0.12) is planned so too (``land``: true): at the ground, its areas its
+ * rooms, all open to the sky, its gates its ways through, its walls ``wall_height_m``
+ * high (none along its areas' edges), its items placed in the site's frame, and its
+ * ``footprints``, where buildings stand. */
 export function planFloor(pkg, floor, origin, options = {}) {
   const o = { ...GEOMETRY, ...options };
   const local = (c) => toLocal(origin, c);
   const polygons = (g) => polygonsOf(g, origin);
   const props = floor.properties;
-  const e = props.elevation;
-  const wallHeight = Math.max(2.4, props.height - o.slab);
+  const land = props.kind === "layout";
+  const e = land ? 0 : props.elevation;
+  const wallHeight = land ? (props.wall_height_m > 0 ? props.wall_height_m : LAND.wallHeight) : Math.max(2.4, props.height - o.slab);
   const plan = {
-    id: floor.id, elevation: e, height: props.height, ordinal: props.ordinal, wallHeight,
+    id: floor.id, elevation: e, height: land ? wallHeight : props.height, ordinal: land ? 0 : props.ordinal, wallHeight,
     parapetHeight: Math.min(props.parapet_height_m || PARAPET, wallHeight),
     thickness: props.wall_thickness_m || o.wallThickness,
     outline: polygons(floor.geometry),
     rooms: [], // the spaces: walls stand on their edges
     units: [], // what is used: the zones of a divided space, else the space
     bounds: [Infinity, Infinity, -Infinity, -Infinity], // x0, z0, x1, z1
+    land, // a location's layout (format 0.12)
+    footprints: [], // on a layout: where buildings stand
+    footprintHeight: LAND.footprint,
   };
 
   // One volume per space; a space divided into zones is used through them: each has
@@ -313,7 +343,7 @@ export function planFloor(pkg, floor, origin, options = {}) {
     const sp = space.properties;
     const rings = polygons(space.geometry);
     if (!rings.length) continue;
-    const room = { id: space.id, type: sp.type, rings, outdoor: sp.outdoor ?? OUTDOOR.has(sp.type), units: [] };
+    const room = { id: space.id, type: sp.type, rings, outdoor: land || (sp.outdoor ?? OUTDOOR.has(sp.type)), units: [] };
     plan.rooms.push(room); // a glazed veranda is not outdoor: older packages say by type
     const zones = pkg.zonesOf(space.id);
     for (const unit of zones.length ? zones : [space]) {
@@ -334,9 +364,10 @@ export function planFloor(pkg, floor, origin, options = {}) {
   }
 
   // the walls, rising to the ceiling; drawn along the rooms' edges when the package
-  // has none (older packages, drawings without wall layers)
+  // has none (older packages, drawings without wall layers); a layout's areas' edges are
+  // lines on the ground, never walls
   plan.walls = polygons(props.walls);
-  if (plan.walls.length) {
+  if (plan.walls.length || land) {
     plan.ways = pkg.openings
       .filter((x) => x.properties.floor_id === floor.id && x.properties.span && !x.properties.ignored) // deleted in review: left out
       .map((x) => {
@@ -355,20 +386,52 @@ export function planFloor(pkg, floor, origin, options = {}) {
   plan.parapets = polygons(props.parapets);
   plan.wallRings = plan.walls.flat(1).concat(plan.parapets.flat(1));
 
+  // a layout's ground: a slab under its boundary, and under each area beyond it (the road),
+  // or under its areas when it has no boundary; and the buildings standing on it
+  if (land) {
+    plan.outline = groundOf(plan.outline, plan.rooms);
+    for (const f of pkg.footprintsOn?.(floor.id) ?? []) {
+      const p = f.properties;
+      const rings = polygons(f.geometry);
+      if (!rings.length) continue;
+      const [lx, ln] = p.display_point ? local(p.display_point) : rings[0][0][0];
+      let x0 = Infinity, n0 = Infinity, x1 = -Infinity, n1 = -Infinity;
+      for (const [x, n] of rings.flat(2)) {
+        x0 = Math.min(x0, x); n0 = Math.min(n0, n); x1 = Math.max(x1, x); n1 = Math.max(n1, n);
+      }
+      // (named as the site plan names it, else as its building is, when the package holds it)
+      const name = p.name || (p.building_id && pkg.get?.(p.building_id)?.properties?.name) || p.drawing_label || null;
+      plan.footprints.push({ id: f.id, name, building: p.building_id ?? null,
+        tucked: Boolean(p.hidden || p.ignored), rings, label: [lx, ln], centre: { x: lx, z: -ln }, size: Math.max(x1 - x0, n1 - n0, 2) });
+    }
+  }
+
   // the furniture and equipment (format 0.6, planItem), and the edges of those on the
   // floor, which the walker bumps into; ``options.models``: the types' models read (0.9.2,
-  // model.js), by type code
-  const placement = pkg.manifest?.placements?.[props.building_id];
+  // model.js), by type code. On a layout (0.12), placed in the site's frame, by its placement
+  const placement = pkg.manifest?.placements?.[land ? floor.id : props.building_id];
   setItems(plan, (pkg.itemsOn?.(floor.id) ?? []).map((item) => planItem(item.id, item.properties,
     { origin, placement, wallHeight, type: pkg.itemType?.(item.properties.type), model: o.models?.get?.(item.properties.type) })));
 
   const b = plan.bounds;
-  for (const rings of [...plan.outline, ...plan.walls, ...plan.units.flatMap((u) => u.rings)]) {
+  for (const rings of [...plan.outline, ...plan.walls, ...plan.units.flatMap((u) => u.rings), ...plan.footprints.flatMap((f) => f.rings)]) {
     for (const [x, n] of rings[0]) {
       b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], -n); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], -n);
     }
   }
   return plan;
+}
+
+/** A layout's ground (format 0.12): its plot (``outline``) and the areas beyond it (a road
+ * outside the boundary: its label point not on the plot), or, with no plot, every area. */
+function groundOf(outline, rooms) {
+  const out = outline.map((rings) => [...rings]);
+  const onPlot = ([x, n]) => outline.some((rings) => inside(rings[0], x, n) && !rings.slice(1).some((h) => inside(h, x, n)));
+  for (const r of rooms) {
+    const at = r.units[0]?.label ?? r.rings[0]?.[0]?.[0];
+    if (!outline.length || (at && !onPlot(at))) out.push(...r.rings);
+  }
+  return out;
 }
 
 /** Thin walls along the edges of the rooms, open where the doors and windows are. */
@@ -498,13 +561,14 @@ export function buildPieces(plan, options = {}) {
     put("volume", room(volume, r.id), { type: r.type, hidden: r.units.length > 0 && r.units.every((u) => u.tucked) });
     for (const u of r.units) {
       if (u.type === "open_to_below") continue;
-      put("floor", room(flat(u.rings, e + 0.004), u.id), { type: u.type, hidden: u.tucked });
+      // (a layout's areas, format 0.12: the ground in its type's colour, no finish)
+      put(plan.land ? "area" : "floor", room(flat(u.rings, e + 0.004), u.id), { type: u.type, hidden: u.tucked });
     }
   }
 
   // the ceiling, seen only when walking; none over terraces and balconies; and its
   // panels, 60 cm square, where the walker's lights are (their faces down alone)
-  const ceilingPolys = plan.units.length ? roofed : plan.outline;
+  const ceilingPolys = plan.land ? [] : plan.units.length ? roofed : plan.outline; // (a layout: open to the sky)
   if (solid && ceilingPolys.length) put("ceiling", flat(ceilingPolys, e + wallHeight));
   if (solid) {
     const { half } = PANEL, y0 = wallHeight - 0.014;
@@ -554,12 +618,23 @@ export function buildPieces(plan, options = {}) {
       if (sides?.attributes.position?.count) faceRooms(sides, facing, Index);
       put(key, sides);
       put(top, caps);
-      skirting(polys, box);
+      if (!plan.land) skirting(polys, box); // (none along a layout's walls, outdoors)
     }
     if (lined) outlineEdges(set(key).edges, polys, e, e + height, jambLines(openings, height));
   };
   extruded(walls, wallHeight, "wall", "wallTop");
   extruded(parapets, parapetHeight, "parapet", "parapetTop");
+
+  // a layout's buildings (format 0.12): each a plain block on its footprint
+  for (const fp of plan.footprints ?? []) {
+    const h = plan.footprintHeight ?? LAND.footprint;
+    if (solid) {
+      const block = extrude(fp.rings, h, e);
+      block?.clearGroups();
+      put("massing", block, { hidden: fp.tucked });
+    }
+    if (lined) outlineEdges(set("massing", { hidden: fp.tucked }).edges, fp.rings, e, e + h);
+  }
 
   // door heads, frames, architraves, leaves and handles; window sills, boards, heads,
   // frames and glass
@@ -570,7 +645,7 @@ export function buildPieces(plan, options = {}) {
     return { door: (door?.boxes?.position.length ?? 0) / 3, handle: (handle?.boxes?.position.length ?? 0) / 3,
       edges: (door?.edges?.length ?? 0) / 3 };
   };
-  for (const ring of plan.wallRings) {
+  for (const ring of [...plan.wallRings, ...(plan.footprints ?? []).flatMap((fp) => fp.rings.flat(1))]) { // (a layout's buildings too)
     for (let i = 0; i + 1 < ring.length; i++) {
       obstacles.push([ring[i][0], -ring[i][1], ring[i + 1][0], -ring[i + 1][1]]);
     }
@@ -670,6 +745,10 @@ export function buildPieces(plan, options = {}) {
           edges: [was.edges, now.edges - was.edges] });
       }
       if (door.leaves.length) doors.push(door);
+    } else if (type === "gate") { // (format 0.12) a way through a layout's walls: open to the sky, a post each side
+      const { post, postOver } = LAND, depth = thickness + 0.1;
+      box("posts", at(-post), at(0), 0, wallHeight + postOver, depth);
+      box("posts", at(len), at(len + post), 0, wallHeight + postOver, depth);
     } else if (range) { // a doorway: a way through with no door
       over(range.hi);
     }
@@ -737,6 +816,7 @@ function doorLeaves(way, plan, at, len, c, ux, un) {
  * the floor to its head; one taller than the floor, through two storeys, stops at this
  * floor's ceiling); null for an open-plan join, open to the ceiling. */
 function heights(way, len, o, wallHeight) {
+  if (way.type === "gate") return null; // (a layout's gate, format 0.12: nothing over it)
   const ceiling = wallHeight - 0.02;
   if (way.type === "window") {
     const sill = Math.min(Math.max(way.sill ?? o.windowSill, 0), ceiling - 0.2);
@@ -1222,9 +1302,12 @@ export function occluders(plan, options = {}) {
   };
   edges(plan.walls, plan.wallHeight, Math.min(o.cutHeight, plan.wallHeight));
   edges(plan.parapets, plan.parapetHeight, Math.min(o.cutHeight, plan.parapetHeight));
+  const mass = plan.footprintHeight ?? LAND.footprint; // (a layout's buildings, format 0.12)
+  edges((plan.footprints ?? []).map((fp) => fp.rings).flat(1), mass, Math.min(o.cutHeight, mass));
   for (const { a, b, type, height } of plan.ways) {
     const span = [a[0], -a[1], b[0], -b[1]];
     if (type === "window") out.push([...span, 0, plan.wallHeight, Math.min(o.cutHeight, plan.wallHeight)]);
+    else if (type === "gate") continue; // (open to the sky)
     else if (type === "door" || Math.hypot(b[0] - a[0], b[1] - a[1]) <= OPEN_SPAN) { // the head over it, not cut
       out.push([...span, Math.min(type === "door" ? height ?? o.doorHead : o.doorHead, plan.wallHeight - 0.02), plan.wallHeight, 0]);
     }
@@ -1240,9 +1323,10 @@ export function cutPieces(pieces, elevation, options = {}) {
   const y = elevation + (options.cutHeight ?? GEOMETRY.cutHeight);
   const out = [];
   for (const p of pieces) {
-    const name = CUT_LOW[p.name];
+    const [base, ...more] = p.name.split(":"); // (a layout's buildings hidden in review: massing:hidden)
+    const name = CUT_LOW[base];
     if (!name) continue;
-    const cut = { name, ...PIECES[name] };
+    const cut = { name: [name, ...more].join(":"), ...PIECES[name], ...(p.hidden ? { hidden: true } : {}) };
     if (p.geometry) {
       const geometry = p.geometry.clone();
       const position = geometry.getAttribute("position"), uv = geometry.getAttribute("uv");

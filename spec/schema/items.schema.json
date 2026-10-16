@@ -95,12 +95,21 @@
           "type": "string"
         },
         "floor_id": {
+          "description": "the floor it stands on, or (format 0.12) the layout of the land it stands on",
           "title": "Floor Id",
           "type": "string"
         },
         "building_id": {
-          "title": "Building Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "the building it stands in; null for one on a location's land (format 0.12: its floor_id is the layout)",
+          "title": "Building Id"
         },
         "space_id": {
           "anyOf": [
@@ -138,7 +147,7 @@
             }
           ],
           "default": null,
-          "description": "where it stands in its building (format 0.7): its middle and turn in the building's own frame, unchanged when the building moves on the map; the footprint, display_point and heading follow from it and the building's placement"
+          "description": "where it stands in its building (format 0.7): its middle and turn in the building's own frame, unchanged when the building moves on the map; the footprint, display_point and heading follow from it and the building's placement. On a location's land (format 0.12): in the site's frame"
         },
         "display_point": {
           "description": "its middle, on the map",

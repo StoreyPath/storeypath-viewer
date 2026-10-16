@@ -3,8 +3,9 @@
 Reads StoreyPath packages (`*.storeypath`) for systems written in Go: the
 buildings, floors, spaces, zones and openings of a project with their stable IDs,
 the furniture and equipment on its floors, (format 0.8) the way from one place
-in a building to another, and (0.11) each floor's drawing when the package carries
-them. Standard library only; Go 1.25.
+in a building to another, (0.11) each floor's drawing when the package carries
+them, and (0.12) a location's layout, its land: the plot its buildings stand on.
+Standard library only; Go 1.25.
 
 ```go
 import storeypath "github.com/storeypath/storeypath-viewer/go"
@@ -49,8 +50,8 @@ for _, b := range pkg.Buildings {
   changed or cut-short file is `ErrSealedDamaged`.
 - `Validate`: the checks Studio's validator makes, each `Problem` with a stable
   `Code` (`MISSING_FILE`, `BAD_FILE`, `DUPLICATE_ID`, `PARENT`, `ZONE`, `CHANGES`,
-  `PLACEMENT`, `ITEM`, `ITEM_TYPE`, `VALUE`, `DRAWING`, …), the file and the ID it is
-  about.
+  `PLACEMENT`, `ITEM`, `ITEM_TYPE`, `VALUE`, `DRAWING`, `LAYOUT`, `FOOTPRINT`, …), the
+  file and the ID it is about.
   A file is read by its keys as written: one that differs from the format's only
   in case (`"Hidden"`) makes it a `BAD_FILE`, as Go's JSON decoder would
   otherwise read it where other readers do not. Types of spaces, zones and
@@ -58,6 +59,8 @@ for _, b := range pkg.Buildings {
 - Lookups: `Get`, `Building`, `Floor`, `Space`, `Zone`, `Opening`, `FloorsOf`,
   `SpacesOn`, `ZonesOf`, `OpeningsOn`, and `UnitsOn`: the zones of a divided space
   and every space with none, which is what a system placing people should use.
+  (Format 0.12: `Get` finds layouts and footprints too; `SpacesOn`, `OpeningsOn`,
+  `ItemsOn` and `UnitsOn` take a layout's ID as a floor's: Location layouts, below.)
 - Levels (format 0.11): a floor's `Type` is `FloorTypeFloor` (a storey, and every
   floor of an older package), `FloorTypeMezzanine` or `FloorTypeRoof` (`IsMezzanine`,
   `IsRoof`; a type a later version adds is read as a floor's). A mezzanine stands in
@@ -101,6 +104,8 @@ for _, b := range pkg.Buildings {
 - One building per package (format 0.7): `Manifest.Scope` names it; `Holds` says
   whether a package holds a building. Older packages may hold several, or a whole
   project; a StoreyPath project file (`.storeypath-project`) is refused by `Read`.
+  From 0.12 a package may hold a location's layout in place of a building
+  (`Scope.Layout`, `IsLayout`): Location layouts, below.
 - `LocalFrame`: a building's longitude and latitude back to the local metres
   Studio drew it in, and back (azimuthal equidistant on WGS84, Vincenty), within a
   millimetre of Studio; positions read from a package are within about a
@@ -138,7 +143,7 @@ Properties a later format version adds are ignored, as the format asks, and so a
 is reported by `Validate` (`VERSION`), and `CheckVersion` says so from the
 manifest's `format_version` alone: what is not a format version (`major.minor`,
 a `.patch` if any, then a `-` or `+` suffix if any: ASCII digits and letters),
-another major version, or before 1.0 a newer minor one (0.12 for this 0.11
+another major version, or before 1.0 a newer minor one (0.13 for this 0.12
 reader), with a message to update the reader. `ReadManifest` reads the manifest
 alone, so a server can refuse a package before reading the rest of it:
 
@@ -148,6 +153,77 @@ if err == nil {
 	err = storeypath.CheckVersion(m.FormatVersion)
 }
 ```
+
+## Location layouts
+
+A location's layout (format 0.12) is its land: the plot its buildings stand on, as its
+site plan draws it, with its boundary walls and gates, the open ground between the
+buildings in areas, the footprint of each building standing on it, and what is placed on
+it (cameras on poles, card readers at gates). It comes in a package of its own, beside
+its buildings' packages ([FORMAT.md](../spec/FORMAT.md), "Location layouts"): a system
+that places outdoor cameras, or says where someone outside is ("at the gate", "in the
+parking"), reads it.
+
+```go
+land, _ := storeypath.Open("site.storeypath")
+if l := land.Layout(); l != nil {                 // a layout's package (land.IsLayout())
+	site, _ := land.Frame(l.ID)                    // the site's frame: metres from its centre
+	for _, a := range land.SpacesOn(l.ID) { … }    // its areas: yard, parking, road, …
+	for _, g := range land.OpeningsOn(l.ID) { … }  // its gates
+	for _, it := range land.ItemsOn(l.ID) { … }    // what is placed on it, of no building
+	for _, f := range land.Footprints {            // the buildings standing on it
+		if f.Building != nil { … }                 // its rooms are in its own package
+	}
+	_ = site
+}
+
+// in a building's package: where the building's own frame lies on its site
+if s := pkg.Manifest.Placements[b.ID].Site; s != nil {
+	sx, sy := s.ToSite(x, y) // a point of the building, in the site's metres
+	_, _ = sx, sy            // site.ToLonLat(sx, sy): where pkg.Frame(b.ID) puts it too
+}
+```
+
+- `IsLayout` tells a layout's package (its manifest's `Scope.Layout`; `Scope.Buildings`
+  is empty): read no building in it. It holds no building, floor, zone or walking
+  network (`Navigation()` is nil).
+- `Layout()` is its layout: its ID (`LayoutID(locationID)`: the location's, then `LAND`
+  and `G00`), `Code`, `Name`, `Location`, `Area`, the plot as its `Geometry` (nil: none
+  found), its boundary `Walls` as drawn with their gates' gaps (`WallHeight` high,
+  `WallThickness` thick) and `North`: the `Bearing` the site plan's up faces and how it
+  is known (`From`: `NorthFromMap`, `NorthFromDrawing`, `NorthFromPerson`, or nil).
+- Its areas are spaces whose `Floor` is the layout's ID, outdoors, of the land's types
+  (`yard`, `parking`, `driveway`, `garden`, `courtyard`, `path`, `gate_area`, `road`
+  beyond the boundary, `pool`, `terrace`); its gates are openings of type `gate`,
+  joining the areas on each side. Draw the areas' edges as light lines: the walls are
+  the layout's `Walls`.
+- The items on it are items of no building: their `Floor` is the layout's ID, their
+  `Building` empty (`OnLand`), their `Local` in the site's frame, and a card reader's
+  `Door` may be a gate. `ItemFrame(it)` is the frame an item's `Local` is in, its
+  building's or its site's; `ItemLocal` works either way.
+- `Frame(layoutID)` is the site's frame, from its one placement (by the layout's ID):
+  metres from the site's centre, y the site plan's up.
+- `Footprints` are the buildings standing on it (`Footprint(id)`,
+  `FootprintOf(buildingID)`): each its outline as the site plan draws it, its `Building`
+  (nil: none of the project's, or not said yet), `Name`, `DrawingLabel`, and `Site`. A
+  footprint is where a building stands: its rooms are in its own package.
+- A building placed on its site has its placement's `Site` (nil: placed on the map by
+  itself): where its own frame lies on the site, its origin at (`X`, `Y`), turned
+  `Rotation` degrees clockwise. `ToSite` turns a point of the building into the site's
+  metres, `FromSite` back, `LocalToSite` an item's position and the way it faces; the
+  layout's `Frame` puts a point of the site where the building's own placement puts it
+  (its placement's `Lon`, `Lat` are the site's centre). A footprint's `Site` is its
+  building's.
+- IDs: the building segment `LandCode` (`LAND`) is the land's, no building's, and
+  `LayoutCode` (`G00`) its level: `IsLand(id)` and `ID.IsLand` tell an ID of a location's
+  land (its layout, an area, a gate, a footprint). An item carried onto the land is in
+  `Changes.MovedAway` with the layout's ID as its `Building`.
+- `Validate` checks that a layout's package holds its layout alone, by its scope, with
+  one placement, the site's, and that no building is coded `LAND` (`LAYOUT`); that its
+  footprints' buildings are buildings of its location, and one of no building has no
+  `Site` (`FOOTPRINT`); that its areas and gates are on it (`PARENT`, `OPENING`) and the
+  items on it in no building, where their `Local` puts them through the site's placement
+  (`ITEM`).
 
 ## Navigation
 

@@ -1,8 +1,9 @@
 """The conformance corpus: what every reader of the format (Studio's Python, the Go
 module in go/, the viewer's JavaScript) must read the same way.
 
-Packages of this format (0.11: one building per package, with its walking network, its
-rooms' finishes, and each piece of furniture an item of its own), made by ``campus``: one project, the demo campus (two buildings
+Packages of this format (0.12: one building per package, with its walking network, its
+rooms' finishes, and each piece of furniture an item of its own; a location's layout in a
+package of its own), made by ``campus``: one project, the demo campus (two buildings
 placed on the map, with lifts and stairs through their floors, one floor's corridor
 divided into two zones by a line drawn in review and named there, CORRIDOR and HALL,
 furniture and equipment, furnish below, and some rooms' floors and walls finished in
@@ -64,6 +65,17 @@ and stop at the first floor) and its open deck (a space of type roof, outdoor), 
 its walls. The floors are listed Ground, Mezzanine, First, Roof, the mezzanine with the
 ground floor's ordinal.
 
+packages/site-plot.storeypath (``layout``, format 0.12): a location's layout, all of it made up:
+a plot of 50 by 36 m read from a made-up site plan (samples.sample_site_plan: its property
+limits marked along them, boundary walls, a vehicle gate and a pedestrian gate on the street,
+a main house, two guest houses alike but for their names, a store, parking, a garden), its
+north arrow turned 30°; the three buildings drawn in drawings of their own (the house turned a
+right angle from the site plan), matched to their footprints (the guest houses by their names)
+and placed on them; the store's footprint of no building; on the land, a camera on a pole by
+the vehicle gate and a card reader at the pedestrian gate, serving it. The site placed on the
+map. site-plot-house, site-plot-guest-a and site-plot-guest-b are its buildings' packages, of the
+same run, each with where it stands on the site.
+
 routes.json (``routes``, which ``campus`` and ``mezzanine`` run too): ways on campus-hq,
 campus-annex and mezzanine-warehouse (format 0.8, Navigation; up to the roof, 0.11) that
 every reader must find the same, each
@@ -87,7 +99,7 @@ Readers make their own broken variants of these packages to test their checks.
 Run from studio/ after a format change, and commit the result:
 
     uv run python ../spec/conformance/make.py campus           # one step: campus, simple-office, world, routes, asset-ids,
-                                                               # drawings, mezzanine
+                                                               # drawings, mezzanine, layout
 
 Every run makes new projects, so new IDs: remake only what changed. ``world`` makes
 no project: it bakes simple-office as it is (it needs Node.js), so run it after a
@@ -104,7 +116,7 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-STEPS = ("campus", "simple-office", "world", "routes", "asset-ids", "drawings", "mezzanine")
+STEPS = ("campus", "simple-office", "world", "routes", "asset-ids", "drawings", "mezzanine", "layout")
 
 
 def main(names: list[str]) -> None:
@@ -129,6 +141,8 @@ def main(names: list[str]) -> None:
             asset_ids()
         if "drawings" in names:
             drawn_office(work)
+        if "layout" in names:
+            site_plot(work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -492,6 +506,57 @@ def furnish(ws) -> None:
     dx, dy = door.geometry["coordinates"]
     reader = place("CARD-READER", f_id, dx + (door.width or 0.9) / 2 + 0.25, dy + 0.15, rotation=180)
     reader.door_id = door.id
+
+
+def site_plot(work: Path) -> None:
+    """site-plot.storeypath and its buildings' packages (format 0.12): see the module."""
+    from shapely.geometry import shape
+
+    from storeypath.convert import convert_floor
+    from storeypath.export import export_layout_package, export_package
+    from storeypath.layout import convert_layout, place_all
+    from storeypath.samples import (Cell, Door, sample_site_plan, site_plan_region, write_floor_dxf,
+                                    write_site_plan_dxf)
+    from storeypath.workspace import Placement, SourceDrawing, Workspace
+
+    plan = sample_site_plan()
+    write_site_plan_dxf(work / "site-plan.dxf", plan)
+    # the buildings, each in a drawing of its own: the house turned a right angle from the
+    # site plan (its L standing up), the guest houses alike
+    house = [Cell(0, 0, 5, 12, ["LIVING"], "living_room", Door(5, 6, "v", +1)),
+             Cell(5, 0, 12, 18, ["HALL"], "lobby", Door(8.5, 0, "h", -1))]
+    guest = [Cell(0, 0, 8, 6, ["BEDROOM"], "bedroom", Door(4, 0, "h", -1))]
+    write_floor_dxf(work / "house.dxf", house, title="MAIN HOUSE GROUND FLOOR PLAN")
+    write_floor_dxf(work / "guest.dxf", guest, title="GUEST HOUSE GROUND FLOOR PLAN")
+    ws = Workspace.new("Made-up Plot")
+    ws.project.code = "7MJPBT"  # (the same every run: readers' tests name its places' IDs)
+    loc = ws.add_location("PLOT", "Made-up plot", address="2 Example Road")
+    made = {}
+    for code, name, drawing in (("HOUSE", "Main house", "house.dxf"), ("GUESTA", "Guest house A", "guest.dxf"),
+                                ("GUESTB", "Guest house B", "guest.dxf")):
+        made[code] = ws.add_building(loc, code, name)
+        f_id = ws.add_floor(made[code], 0, name="Ground floor", source=SourceDrawing(path=drawing))
+        convert_floor(ws, f_id, work)
+    layout = ws.add_layout(loc, SourceDrawing(path="site-plan.dxf", units="m", region=site_plan_region(plan)))
+    convert_layout(ws, layout, work)
+    place_all(ws, loc, confirm=True)  # each match applied, as a person would
+    for code, b_id in made.items():
+        assert ws.building(b_id).site is not None and ws.building(b_id).site.footprint, f"{code} was not placed"
+    ws.location(loc).placement = Placement(lon=46.6812, lat=24.7135, x=0, y=0, bearing=30.0)
+    # on the land: a camera on a pole by the vehicle gate, a card reader at the pedestrian gate
+    gates = sorted((r for r in ws.floor_objects(layout) if r.kind == "opening"), key=lambda r: r.width or 0)
+    small, wide = gates[0], gates[-1]
+    (gx0, gy0), (gx1, gy1) = wide.span
+    pole = ws.add_item("CCTV-POLE", layout, round((gx0 + gx1) / 2 + 4.0, 3), round(gy0 + 2.5, 3), rotation=180)
+    pole.values = {"view_deg": 80}
+    (px0, py0), (px1, py1) = small.span
+    reader = ws.add_item("CARD-READER", layout, round(max(px0, px1) + 0.3, 3), round(py0 + 0.35, 3), rotation=180)
+    reader.door_id = small.id
+    out = HERE / "packages"
+    export_layout_package(ws, out / "site-plot.storeypath", layout)
+    for code, name in (("HOUSE", "site-plot-house"), ("GUESTA", "site-plot-guest-a"), ("GUESTB", "site-plot-guest-b")):
+        export_package(ws, out / f"{name}.storeypath", building=made[code], bake=False)
+    print(f"wrote {out}/site-plot (.storeypath) and its buildings' packages")
 
 
 def drawn_office(work: Path) -> None:

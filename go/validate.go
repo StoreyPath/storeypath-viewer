@@ -49,14 +49,14 @@ const (
 	ProblemDuplicateID   = "DUPLICATE_ID"   // two features share an ID
 	ProblemWrongProject  = "WRONG_PROJECT"  // an ID is not of the package's project
 	ProblemIDLevel       = "ID_LEVEL"       // an ID has the wrong number of segments for its kind
-	ProblemParent        = "PARENT"         // a feature's parent is missing, or its ID does not start with it
+	ProblemParent        = "PARENT"         // a feature's parent is missing, or its ID does not start with it (0.12: a layout's location, an area's, gate's or footprint's layout)
 	ProblemZone          = "ZONE"           // a zone and its space do not list each other, or a space lists another's zone (or one twice)
-	ProblemOpening       = "OPENING"        // an opening joins a space that is not there, or on another floor
+	ProblemOpening       = "OPENING"        // an opening joins a space that is not there, or on another floor (0.12: a gate, an area not on its layout)
 	ProblemObjects       = "OBJECTS"        // objects.csv does not list exactly the features
 	ProblemChanges       = "CHANGES"        // changes.json does not agree with the package
 	ProblemGeometry      = "GEOMETRY"       // a feature's geometry is not the kind its file holds
 	ProblemScope         = "SCOPE"          // a package holds a building its scope does not list, or lacks one it does; from 0.7, not exactly one
-	ProblemItem          = "ITEM"           // an item is on a floor not in the package (or not of its building), or in a space or zone not on its floor, or serves a door not of its floor (0.10); from 0.7, without its position in its building, or with a map position or heading away from it
+	ProblemItem          = "ITEM"           // an item is on a floor not in the package (or not of its building), or in a space or zone not on its floor, or serves a door not of its floor (0.10); from 0.7, without its position in its building, or with a map position or heading away from it; (0.12) on a layout, yet in a building
 	ProblemItemType      = "ITEM_TYPE"      // an item's type is not in the package's catalogue
 	ProblemPlacement     = "PLACEMENT"      // a building of the package, or one an item stands in, has no placement in the manifest
 	ProblemValue         = "VALUE"          // a value the format does not allow: a type the manifest's types do not list, a negative capacity, a grade, mount, category or colour not of the format, a finish's code not of the form of a floor's or a wall's (format 0.9), a camera's view past all round or of no range (0.10)
@@ -65,26 +65,35 @@ const (
 	ProblemMezzanine     = "MEZZANINE"      // (0.11) a mezzanine's host is not another floor of its building of type floor (not a mezzanine, nor a roof), of its ordinal; its above_host_m is not more than 0, or its elevation is not its host's and above_host_m; a level that is not a mezzanine names a host or an above_host_m
 	ProblemFloorOrdinal  = "FLOOR_ORDINAL"  // (0.11) two levels of a building that are not mezzanines have one ordinal, or two floors of a building one code
 	ProblemRoof          = "ROOF"           // (0.11) a floor of type floor stands above a roof of its building (a roof is its building's top: only roofs stand above it)
-	ProblemDrawing       = "DRAWING"        // (0.11) a floor's drawing: a source names one not at drawings/<floor-id>.view, of a floor not in the package, or not in it; it is not a drawing view this reader reads (gzip, SPDV, its head, format 1, its arrays and batches whole), or not in metres; the manifest lists drawings/ with none named, or names some without listing it; a file under drawings/ no source names
+	ProblemDrawing       = "DRAWING"        // (0.11) a floor's drawing: a source names one not at drawings/<floor-id>.view, of a floor (0.12: or layout) not in the package, or not in it; it is not a drawing view this reader reads (gzip, SPDV, its head, format 1, its arrays and batches whole), or not in metres; the manifest lists drawings/ with none named, or names some without listing it; a file under drawings/ no source names
+	ProblemLayout        = "LAYOUT"         // (0.12) a layout's package does not hold its layout alone: its scope names another (or the package is of a format before 0.12), it holds a building, a floor, a zone or a walking network, its manifest does not list its layout's files, or its placements are not the site's alone, by the layout's ID; a building's package lists a layout's files; a layout's ID is not of its location's land, or its code not its ID's; a building's code is LAND (the land's: no building has it)
+	ProblemFootprint     = "FOOTPRINT"      // (0.12) a footprint's ID is not of its location's land; its building is not a building of its layout's location (not an ID, not a building's, the land, another location's); one of no building has a building's site
 )
 
 var kindLevel = map[string]string{
 	"location": LevelLocation, "building": LevelBuilding, "floor": LevelFloor,
 	"space": LevelObject, "zone": LevelObject, "opening": LevelObject,
+	"layout": LevelFloor, "footprint": LevelObject, // (0.12: a layout is a level of its location)
 }
 
 // knownTypes: the types of spaces, zones and openings of this format, for a
 // manifest that does not list them (manifest.json → types lists those a package
 // may use, a later format's too).
 var knownTypes = map[string][]string{
-	"space": spaceTypes, "zone": spaceTypes, "opening": {"door", "opening", "window"},
+	"space": spaceTypes, "zone": spaceTypes, "opening": {"door", "opening", "window", "gate"}, // (gate: 0.12)
 	"floor": {FloorTypeFloor, FloorTypeMezzanine, FloorTypeRoof}, // (0.11)
 }
 
-var spaceTypes = []string{"office", "room", "meeting_room", "corridor", "lobby", "elevator", "stairs", "escalator",
-	"ramp", "restroom", "kitchen", "storage", "utility", "shaft", "open_area", "unspecified", "bedroom", "living_room",
-	"dining_room", "bathroom", "dressing_room", "laundry", "prayer_room", "parking", "balcony", "terrace", "open_to_below",
-	"roof"}
+// spaceTypes: a building's rooms' (roomTypes), and a location's land's areas' (0.12:
+// landTypes, outdoors; parking and terrace are a room's types too).
+var (
+	roomTypes = []string{"office", "room", "meeting_room", "corridor", "lobby", "elevator", "stairs", "escalator",
+		"ramp", "restroom", "kitchen", "storage", "utility", "shaft", "open_area", "unspecified", "bedroom", "living_room",
+		"dining_room", "bathroom", "dressing_room", "laundry", "prayer_room", "parking", "balcony", "terrace", "open_to_below",
+		"roof"} // (roof: 0.11)
+	landTypes  = []string{"driveway", "garden", "courtyard", "yard", "path", "gate_area", "road", "pool"}
+	spaceTypes = append(slices.Clone(roomTypes), landTypes...)
+)
 
 // The values a property may have, as Studio's models allow them.
 var (
@@ -105,7 +114,7 @@ const maxRangeM = 500.0
 // knownKinds: the kinds of objects.csv rows this reader knows. Rows of others (a
 // later format's), and their IDs in changes.json, are left alone.
 var knownKinds = map[string]bool{"project": true, "location": true, "building": true, "floor": true,
-	"space": true, "zone": true, "opening": true, "item": true}
+	"space": true, "zone": true, "opening": true, "item": true, "layout": true, "footprint": true}
 
 // elevationAgreesM: how far a mezzanine's elevation may be from its host's and its
 // height above it (each kept to the millimetre).
@@ -124,6 +133,7 @@ const (
 var kindRoles = map[string]string{
 	"location": "location", "building": "buildings", "floor": "floors",
 	"space": "spaces", "zone": "zones", "opening": "openings", "item": "items",
+	"layout": "layout", "footprint": "footprints",
 }
 
 // Validate checks the package as Studio's validator does: its files, the
@@ -134,7 +144,10 @@ var kindRoles = map[string]string{
 // with through the building's placement. From 0.7 a package holds one building.
 // The walking network (0.8), when there is one: what its nodes are on and in, and
 // what its edges join. The floors' drawings (0.11), when it carries them: each
-// where its source says, a drawing view read whole, in metres.
+// where its source says, a drawing view read whole, in metres. A location's layout
+// (0.12): that a layout's package holds its layout alone, by its scope, with one
+// placement, the site's; that no building is coded LAND; that its areas and gates are
+// on it, its footprints' buildings of its location, and the items on it of no building.
 // No problems means the package can be linked to as it is.
 func (p *Package) Validate() []Problem {
 	out := append([]Problem(nil), p.problems...)
@@ -150,6 +163,7 @@ func (p *Package) Validate() []Problem {
 	// the files, where the manifest's files say
 	buildingsFile, floorsFile, spacesFile, zonesFile := p.file("buildings"), p.file("floors"), p.file("spaces"), p.file("zones")
 	openingsFile, itemsFile, objectsFile, changesFile := p.file("openings"), p.file("items"), p.file("objects"), p.file("changes")
+	layoutFile, footprintsFile := p.file("layout"), p.file("footprints")
 	fileOf := func(kind string) string { return p.file(kindRoles[kind]) }
 	if m.Format != FormatName {
 		add(ProblemFormat, FileManifest, "", "unknown format %q", m.Format)
@@ -207,8 +221,9 @@ func (p *Package) Validate() []Problem {
 	}
 
 	counts := map[string]int{"location": len(p.Locations), "buildings": len(p.Buildings), "floors": len(p.Floors),
-		"spaces": len(p.Spaces), "zones": len(p.Zones), "openings": len(p.Openings)}
-	roles := []string{"location", "buildings", "floors", "spaces", "zones", "openings"}
+		"spaces": len(p.Spaces), "zones": len(p.Zones), "openings": len(p.Openings),
+		"layout": len(p.Layouts), "footprints": len(p.Footprints)} // (a layout's files, 0.12: when read)
+	roles := []string{"location", "buildings", "floors", "spaces", "zones", "openings", "layout", "footprints"}
 	for _, role := range roles {
 		file := p.file(role)
 		if !p.read[role] { // missing or unreadable: already a problem of its own
@@ -257,6 +272,16 @@ func (p *Package) Validate() []Problem {
 		if want := kindLevel[kinds[0]]; pid.Level() != want {
 			add(ProblemIDLevel, fileOf(kinds[0]), id, "%s: a %s ID needs %d segments", id, kinds[0], levelDepth(want))
 		}
+		// a location's land (0.12): LAND is its segment, no building's; a layout and
+		// its footprints are of it
+		switch land := pid.IsLand(); {
+		case kinds[0] == "building" && land:
+			add(ProblemLayout, fileOf(kinds[0]), id, "%s: %s is a location's land (its layout): no building has it", id, LandCode)
+		case kinds[0] == "layout" && !land:
+			add(ProblemLayout, fileOf(kinds[0]), id, "%s: a layout's ID is of its location's land (…-%s-%s)", id, LandCode, LayoutCode)
+		case kinds[0] == "footprint" && !land:
+			add(ProblemFootprint, fileOf(kinds[0]), id, "%s: a footprint's ID is of its location's land (…-%s-…)", id, LandCode)
+		}
 	}
 	kindOf := func(id string) string {
 		if k := p.kinds[id]; len(k) > 0 {
@@ -274,7 +299,47 @@ func (p *Package) Validate() []Problem {
 	for _, b := range p.Buildings {
 		parent(b.ID, b.Location, "location", buildingsFile)
 	}
-	if oneBuilding { // from 0.7, a package holds one building and names it
+	var layoutScope *string // (0.12) the layout a layout's package holds, in place of a building
+	if m.Scope != nil {
+		layoutScope = m.Scope.Layout
+	}
+	if layoutScope != nil && minor(m.FormatVersion) < layoutsFrom {
+		add(ProblemLayout, FileManifest, *layoutScope, "scope names a layout, which a package of format %s cannot hold (0.12)", m.FormatVersion)
+	}
+	if layoutScope != nil { // its layout alone: no building, floor, zone or walking network; one placement, the site's
+		for _, role := range []string{"layout", "footprints"} {
+			if m.Files[role] == "" {
+				add(ProblemLayout, FileManifest, "", "a layout's package lists its %s in its manifest's files", role)
+			}
+		}
+		if p.read["layout"] { // (missing or unreadable: a problem of its own)
+			var held []string
+			for _, l := range p.Layouts {
+				held = append(held, l.ID)
+			}
+			if len(held) != 1 || held[0] != *layoutScope {
+				if len(held) == 0 {
+					held = []string{"none"}
+				}
+				add(ProblemLayout, layoutFile, *layoutScope, "scope names layout %s; the package holds %s", *layoutScope, strings.Join(held, ", "))
+			}
+		}
+		if len(m.Scope.Buildings) > 0 || len(p.Buildings) > 0 {
+			add(ProblemLayout, buildingsFile, "", "a layout's package holds no building")
+		}
+		if len(p.Floors) > 0 || len(p.Zones) > 0 {
+			add(ProblemLayout, floorsFile, "", "a layout's package holds no floors and no zones")
+		}
+		if m.Files["navigation"] != "" {
+			add(ProblemLayout, FileManifest, "", "a layout's package has no walking network")
+		}
+		if _, ok := m.Placements[*layoutScope]; !ok || len(m.Placements) != 1 {
+			add(ProblemLayout, FileManifest, *layoutScope, "a layout's package has one placement, its site's, by the layout's ID %s", *layoutScope)
+		}
+	} else if m.Files["layout"] != "" || m.Files["footprints"] != "" { // (0.12) a building's package holds no layout
+		add(ProblemLayout, FileManifest, "", "a building's package holds no layout: its manifest lists layout or footprints")
+	}
+	if layoutScope == nil && oneBuilding { // from 0.7, a package holds one building and names it
 		if m.Scope == nil || len(m.Scope.Buildings) != 1 {
 			add(ProblemScope, FileManifest, "", "a package of format %s holds one building: its manifest's scope names it", m.FormatVersion)
 		}
@@ -306,15 +371,22 @@ func (p *Package) Validate() []Problem {
 			add(ProblemPlacement, FileManifest, building, "building %s has no placement", building)
 		}
 	}
-	for _, b := range p.Buildings {
-		placed(b.ID)
-	}
-	for _, it := range p.Items {
-		placed(it.Building)
-	}
-	for _, b := range sortedKeys(m.Placements) { // and no other building
-		if p.Building(b) == nil {
-			add(ProblemPlacement, FileManifest, b, "the manifest places building %s, which is not in the package", b)
+	// (an item on a location's land, 0.12, is placed by the site's: a layout's package
+	// has that one alone, checked above)
+	onLand := func(it *Item) bool { return kindOf(it.Floor) == "layout" }
+	if layoutScope == nil {
+		for _, b := range p.Buildings {
+			placed(b.ID)
+		}
+		for _, it := range p.Items {
+			if !onLand(it) && it.Building != "" {
+				placed(it.Building)
+			}
+		}
+		for _, b := range sortedKeys(m.Placements) { // and no other building
+			if p.Building(b) == nil {
+				add(ProblemPlacement, FileManifest, b, "the manifest places building %s, which is not in the package", b)
+			}
 		}
 	}
 	for _, f := range p.Floors {
@@ -388,9 +460,32 @@ func (p *Package) Validate() []Problem {
 				f.ID, f.Elevation, host.Elevation, *f.AboveHost)
 		}
 	}
+	// a location's layout (0.12): of its location, its code its ID's, its boundary and
+	// walls polygons, its north known so or not known
+	for _, l := range p.Layouts {
+		parent(l.ID, l.Location, "location", layoutFile)
+		if codeOf(l.ID) != l.Code {
+			add(ProblemLayout, layoutFile, l.ID, "%s: its code is %s, not its ID's", l.ID, l.Code)
+		}
+		for _, g := range []*Geometry{l.Geometry, l.Walls} { // (either may be none)
+			if g != nil {
+				geometryOf(l.ID, g, layoutFile, false, add)
+			}
+		}
+		if n := l.North; n != nil && n.From != nil && !slices.Contains(northFroms, *n.From) {
+			add(ProblemValue, layoutFile, l.ID, "%s: north from %q is not map, drawing or person", l.ID, *n.From)
+		}
+	}
+	// a space's or an opening's level: a floor, or (0.12) a layout, its area or gate
+	levelOf := func(floorID string) string {
+		if kindOf(floorID) == "layout" {
+			return "layout"
+		}
+		return "floor"
+	}
 	zonesOf := map[string]map[string]bool{}
 	for _, s := range p.Spaces {
-		parent(s.ID, s.Floor, "floor", spacesFile)
+		parent(s.ID, s.Floor, levelOf(s.Floor), spacesFile)
 		zonesOf[s.ID] = map[string]bool{}
 		for _, z := range s.Zones {
 			if zonesOf[s.ID][z] {
@@ -422,7 +517,7 @@ func (p *Package) Validate() []Problem {
 		geometryOf(z.ID, z.Geometry, zonesFile, false, add)
 	}
 	for _, o := range p.Openings {
-		parent(o.ID, o.Floor, "floor", openingsFile)
+		parent(o.ID, o.Floor, levelOf(o.Floor), openingsFile)
 		for _, s := range o.Connects {
 			if kindOf(s) != "space" {
 				add(ProblemOpening, openingsFile, o.ID, "%s: connects to unknown space %s", o.ID, s)
@@ -432,6 +527,23 @@ func (p *Package) Validate() []Problem {
 		}
 		typed("opening", openingsFile, o.ID, o.Type)
 		geometryOf(o.ID, o.Geometry, openingsFile, true, add)
+	}
+	// footprints (0.12): the buildings standing on a layout, each of the layout's
+	// location (its own package holds it), or of none, then with no place on the site
+	for _, f := range p.Footprints {
+		parent(f.ID, f.Layout, "layout", footprintsFile)
+		if f.Building != nil {
+			b, err := ParseID(*f.Building)
+			switch {
+			case err != nil:
+				add(ProblemFootprint, footprintsFile, f.ID, "%s: building %v", f.ID, err)
+			case b.Level() != LevelBuilding || b.IsLand() || !strings.HasPrefix(*f.Building, locationOf(f.Layout)+"-"):
+				add(ProblemFootprint, footprintsFile, f.ID, "%s: building %s is not a building of its layout's location", f.ID, *f.Building)
+			}
+		} else if f.Site != nil {
+			add(ProblemFootprint, footprintsFile, f.ID, "%s: a footprint of no building, with a building's place on the site", f.ID)
+		}
+		geometryOf(f.ID, f.Geometry, footprintsFile, false, add)
 	}
 	// a camera's view (0.10): more than nothing, all round and maxRangeM at most
 	viewed := func(file, id, what string, deg, reach *float64) {
@@ -447,9 +559,15 @@ func (p *Package) Validate() []Problem {
 		ways[o.ID] = o.Type
 	}
 	for _, it := range p.Items {
-		if kindOf(it.Building) != "building" {
+		land := onLand(it) // (0.12) on a location's land: of no building, placed in the site's frame
+		switch {
+		case land && it.Building != "":
+			add(ProblemItem, itemsFile, it.ID, "%s: on layout %s, in building %s (what is on a location's land is in no building)",
+				it.ID, it.Floor, it.Building)
+		case land:
+		case kindOf(it.Building) != "building":
 			add(ProblemItem, itemsFile, it.ID, "%s: in building %s, which is not a building of the package", it.ID, it.Building)
-		} else if kindOf(it.Floor) != "floor" || !strings.HasPrefix(it.Floor, it.Building+"-") {
+		case kindOf(it.Floor) != "floor" || !strings.HasPrefix(it.Floor, it.Building+"-"):
 			add(ProblemItem, itemsFile, it.ID, "%s: on unknown floor %s (or not of building %s)", it.ID, it.Floor, it.Building)
 		}
 		for _, in := range []struct {
@@ -467,21 +585,26 @@ func (p *Package) Validate() []Problem {
 			add(ProblemItem, itemsFile, it.ID, "%s: serves unknown door %s (or not a door or opening of its floor)", it.ID, *it.Door)
 		}
 		viewed(itemsFile, it.ID, it.ID, it.ViewDeg, it.RangeM)
+		frame, in := it.Building, "in its building" // its Local's frame: its building's, or on the land its site's
+		if land {
+			frame, in = it.Floor, "on its site"
+		}
 		if it.Local == nil && oneBuilding {
-			add(ProblemItem, itemsFile, it.ID, "%s: no position in its building (local)", it.ID)
-		} else if f, err := p.Frame(it.Building); it.Local != nil && err == nil {
+			add(ProblemItem, itemsFile, it.ID, "%s: no position %s (local)", it.ID, in)
+		} else if f, err := p.Frame(frame); it.Local != nil && err == nil {
 			at := f.ToLonLat(it.Local.X, it.Local.Y)
 			dlon := math.Remainder(at[0]-it.Label[0], 360) // the short way, across the antimeridian too
 			off := math.Hypot(dlon*111320*math.Cos(at[1]*math.Pi/180), (at[1]-it.Label[1])*110574)
 			if off > localAgreesM {
-				add(ProblemItem, itemsFile, it.ID, "%s: its map position is %.2f m from its position in its building", it.ID, off)
+				add(ProblemItem, itemsFile, it.ID, "%s: its map position is %.2f m from its position %s", it.ID, off, in)
 			}
 			// its front faces rotation_deg counter-clockwise from the drawings' -y,
-			// which the building's bearing turns to: on the map, clockwise from north
+			// which the building's bearing (the site's) turns to: on the map, clockwise
+			// from north
 			faces := f.Placement.Bearing + 180 - it.Local.Rotation
 			if math.Abs(math.Remainder(it.Heading-faces, 360)) > headingAgreesDeg {
-				add(ProblemItem, itemsFile, it.ID, "%s: its heading %.2f° is not the way it faces in its building (%.2f°)",
-					it.ID, it.Heading, math.Mod(math.Mod(faces, 360)+360, 360))
+				add(ProblemItem, itemsFile, it.ID, "%s: its heading %.2f° is not the way it faces %s (%.2f°)",
+					it.ID, it.Heading, in, math.Mod(math.Mod(faces, 360)+360, 360))
 			}
 		}
 		if !slices.Contains(mounts, it.Mount) {
@@ -584,7 +707,7 @@ func (p *Package) Validate() []Problem {
 		if want := DrawingsDir + floor + ".view"; d.file != want {
 			add(ProblemDrawing, d.file, floor, "%s: floor %s's drawing is %s", d.file, floor, want)
 		}
-		if p.Floor(floor) == nil {
+		if k := kindOf(floor); k != "floor" && k != "layout" { // (a layout's site plan, 0.12)
 			add(ProblemDrawing, d.file, floor, "%s: the drawing of floor %s, which is not in the package", d.file, floor)
 		}
 		if d.err != nil {
@@ -649,7 +772,8 @@ func (p *Package) Validate() []Problem {
 				add(ProblemChanges, changesFile, mv.ID, "%s: %s is listed as moved away but is not an item gone from here", changesFile, mv.ID)
 			}
 			if _, here := p.kinds[mv.Building]; here || !strings.HasPrefix(mv.Building, project+"-") {
-				add(ProblemChanges, changesFile, mv.ID, "%s: %s moved to %s, not another building of the project", changesFile, mv.ID, mv.Building)
+				add(ProblemChanges, changesFile, mv.ID, "%s: %s moved to %s, not another building (or a layout, 0.12) of the project",
+					changesFile, mv.ID, mv.Building)
 			}
 			if retired[mv.ID] {
 				add(ProblemChanges, changesFile, mv.ID, "%s: %s is listed both as moved away and as retired", changesFile, mv.ID)

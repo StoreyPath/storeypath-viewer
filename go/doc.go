@@ -17,6 +17,12 @@
 // floor's drawing as drawn, when the package carries the drawings (format 0.11):
 // its bytes for a viewer, and its head.
 //
+// A location's layout (format 0.12), its land, comes in a package of its own: IsLayout
+// tells one and Layout gives it, with its areas, gates and items on the layout's ID
+// (SpacesOn, OpeningsOn, ItemsOn), its Footprints (the buildings standing on it), and
+// Frame by the layout's ID the site's frame they are in. A building's Placement.Site
+// says where its own frame lies on that site (SiteFrame.ToSite).
+//
 // The module uses only Go's standard library, so it can be pinned and vendored
 // into an offline build.
 package storeypath

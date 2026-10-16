@@ -7,13 +7,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launch, movedEast, readPackage, repack, serve, wrapped } from "./harness.mjs";
-import { LocalFrame } from "../dist/frame.js";
+import { LocalFrame, fromSite, toSite } from "../dist/frame.js";
 import { byLevel, floorFromPackage, floorType } from "../dist/package.js";
 import { TYPE_COLORS } from "../dist/colors.js";
 import { inside } from "../dist/geometry.js";
 import { FORMAT_VERSION, readPackage as readInBrowsers } from "../dist/read.js";
 import { Graph, route } from "../dist/navigation.js";
-import { ITEM_ID_ALPHABET, isItemId, itemCheckSymbol, normalizeItemId } from "../dist/ids.js";
+import { ITEM_ID_ALPHABET, isItemId, isLandId, itemCheckSymbol, normalizeItemId } from "../dist/ids.js";
 import { SealedError } from "../dist/sealed.js";
 import { linesOn, readDrawingView, textsOf } from "../../src/drawing/view.js";
 
@@ -198,11 +198,12 @@ test("a package of a newer minor version, or of no version, is refused; older on
       return e.message;
     }
   };
-  for (const v of ["0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.11.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.12.0", "0.12.3", "0.12", "0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9",
+    "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.12.1-rc.1", "0.9.0+build.5"]) {
     equal(await said(v), "read", v);
   }
-  for (const v of ["0.12.0", "0.12", "0.99.0", "0.12.0-rc1", "1.0.0", "2.7.0"]) {
-    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.11: update the viewer.`, v);
+  for (const v of ["0.13.0", "0.13", "0.99.0", "0.13.0-rc1", "1.0.0", "2.7.0"]) {
+    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.12: update the viewer.`, v);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
     "٠.٧", "０.７", 0.7, null, undefined]) {
@@ -468,6 +469,79 @@ test("no way is null; an ID the network does not have, or a package without one,
   truly(/no walking network/.test(said(() => route(pkg, "A", "B"))), "a package of 0.6");
   const g = new Graph(hq.navigation);
   equal(route(g, easy.to, easy.to).steps.at(-1).side, "here", "a Graph routes too");
+});
+
+// ---- a location's layout (format 0.12) ------------------------------------------------
+// site-plot: a made-up plot's layout, in a package of its own (a garden, parking, the yard and
+// the street beyond its boundary; walls with a vehicle gate and a pedestrian gate; four
+// footprints, three of them buildings; a camera on a pole and a card reader at a gate)
+
+const sitePlot = readPackage(join(conformance, "packages/site-plot.storeypath"));
+const LAYOUT = sitePlot.manifest.scope.layout;
+
+test("a layout's package (0.12) is read: its layout and footprints, no building, floor or network", async () => {
+  const read = await readInBrowsers(readFileSync(join(conformance, "packages/site-plot.storeypath")));
+  equal(read, sitePlot, "read in browsers as the test's own reader reads it");
+  equal([read.layouts.map((l) => l.id), read.footprints.length, read.floors.length, read.navigation], [[LAYOUT], 4, 0, null], "what it holds");
+  truly(isLandId(LAYOUT) && !isLandId(hq.manifest.scope.buildings[0]), "a land's ID");
+  equal([hq.layouts, hq.footprints], [[], []], "a building's package holds no layout");
+});
+
+test("a layout is a plan by its ID (0.12): its areas by type, its walls, its gates, its footprints named, in the site's metres", () => {
+  const plan = floorFromPackage(sitePlot, LAYOUT);
+  equal(plan.id, LAYOUT, "its ID");
+  equal(plan.spaces.map((s) => s.type).sort(), ["garden", "parking", "road", "yard"], "its areas");
+  truly(plan.spaces.every((s) => TYPE_COLORS[s.type]) && ["yard", "garden", "road", "pool", "driveway", "path", "courtyard", "gate_area"]
+    .every((t) => TYPE_COLORS[t]), "each type a colour");
+  equal(plan.spaces.find((s) => s.type === "road").name, "STREET", "named as read");
+  for (const s of plan.spaces) truly(inside(s.polygons, s.marker), `${s.id}: its label point is inside it`);
+  truly(plan.drawing.outline.length === 1 && plan.drawing.walls.length === 2 && plan.drawing.parapets.length === 0, "its plot and walls");
+  equal(plan.drawing.openings.map((o) => [o.type, Boolean(o.span)]), [["gate", true], ["gate", true]], "its gates, jamb to jamb");
+  const widths = plan.drawing.openings.map((o) => Math.hypot(o.span[1][0] - o.span[0][0], o.span[1][1] - o.span[0][1]));
+  equal(widths.map((w) => Math.round(w * 10) / 10).sort(), [1.2, 5], "a vehicle gate and a pedestrian gate");
+  // its footprints, named (the store no building's), each where its name goes inside it
+  const fps = plan.drawing.footprints;
+  equal(fps.map((f) => f.name).sort(), ["Guest House A", "Guest House B", "Main House", "Store"], "footprints");
+  equal(fps.filter((f) => f.building).length, 3, "three of them buildings");
+  for (const f of fps) truly(inside(f.polygons, f.marker), `${f.id}: its name inside it`);
+  // one the site plan names not: its building's name, when given, else what is written in it
+  const unnamed = structuredClone(sitePlot), house = unnamed.footprints.find((f) => f.properties.name === "Main House");
+  house.properties.name = null;
+  equal(floorFromPackage(unnamed, LAYOUT).drawing.footprints.find((f) => f.id === house.id).name, "MAIN HOUSE\n+0.45 FFL", "as written");
+  unnamed.buildings = [{ id: house.properties.building_id, geometry: null, properties: { name: "The house" } }];
+  equal(floorFromPackage(unnamed, LAYOUT).drawing.footprints.find((f) => f.id === house.id).name, "The house", "its building's name");
+  // the site's frame: its centre at the placement's point, its up the site plan's (north 30° from it)
+  const frame = new LocalFrame(sitePlot.manifest.placements[LAYOUT]);
+  near(frame.toLocal([sitePlot.manifest.placements[LAYOUT].lon, sitePlot.manifest.placements[LAYOUT].lat]), [0, 0], 1e-9, "its centre");
+  const [x0, y0, x1, y1] = plan.drawing.outline[0][0].reduce(([a, b, c, d], [x, y]) => [Math.min(a, x), Math.min(b, y), Math.max(c, x), Math.max(d, y)],
+    [Infinity, Infinity, -Infinity, -Infinity]);
+  near([x1 - x0, y1 - y0], [50, 36], 0.02, "a plot of 50 by 36 m, square to the site plan");
+  // its items where `local` puts them in the site's frame: the camera with its view, the card reader at its gate
+  equal(plan.items.map((i) => i.type).sort(), ["CARD-READER", "CCTV-POLE"], "its items");
+  for (const it of plan.items) {
+    const p = sitePlot.items.find((i) => i.id === it.id).properties;
+    near(it.at, [p.local.x_m, p.local.y_m], 1e-9, `${it.id} at its local point`);
+    near(it.at, frame.toLocal(p.display_point), 0.01, `${it.id}: its point on the map there too`);
+    const area = plan.spaces.find((s) => s.id === p.space_id);
+    truly(area && inside(area.polygons, it.at), `${it.id} stands in ${p.space_id}`);
+  }
+  const camera = plan.items.find((i) => i.type === "CCTV-POLE"), reader = plan.items.find((i) => i.type === "CARD-READER");
+  equal([camera.shape, camera.view], ["camera", { deg: 80, range: 30 }], "the camera's view, its own angle");
+  truly(plan.drawing.openings.some((o) => o.id === reader.door), "the card reader's door: a gate");
+  // a building's package: no footprints in its plan
+  truly(!("footprints" in floorFromPackage(hq, hq.floors[0].id).drawing), "a floor has none");
+});
+
+test("a building's frame on its location's site (0.12, its placement's site): there and back, where the layout puts it", () => {
+  const house = readPackage(join(conformance, "packages/site-plot-house.storeypath"));
+  const b = house.manifest.scope.buildings[0], own = house.manifest.placements[b], site = own.site;
+  const fp = sitePlot.footprints.find((f) => f.properties.building_id === b);
+  equal(fp.properties.site, site, "its footprint's site, as its placement's");
+  const building = new LocalFrame(own), land = new LocalFrame(sitePlot.manifest.placements[LAYOUT]);
+  for (const p of [[0, 0], [own.x, own.y], [12.5, -7.25], [-30, 41]]) {
+    near(fromSite(site, toSite(site, p)), p, 1e-9, `${p}: there and back`);
+    near(land.toLocal(building.toLonLat(p)), toSite(site, p), 0.002, `${p}: the same place on the map`);
+  }
 });
 
 // ---- in Chrome ----------------------------------------------------------------

@@ -2,7 +2,8 @@
 // symbols of Crockford's base32 and a check symbol (Luhn mod 32), written 4-4-3 with
 // hyphens: 7K2Q-XM9F-4DP. Of no project and no place: a desk carried to another
 // building keeps it. Shared by the viewers, and for a system's own pages (a search box
-// where people type the tag on a desk), in a browser or in Node.
+// where people type the tag on a desk), in a browser or in Node. And a location's land
+// (format 0.12, "Location layouts"): IDs whose building segment is LAND.
 
 /** Crockford's base32: the symbols of an item's ID (no I, L, O or U). */
 export const ITEM_ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -78,4 +79,22 @@ export function normalizeItemId(text) {
     values.push(v);
   }
   return values.length === SYMBOLS + 1 && luhnSum(values) === 0 ? written(values) : null;
+}
+
+/** The building segment of a location's land (format 0.12): reserved, no building has it.
+ * Its layout is PROJECT-LOCATION-LAND-G00, what is on it PROJECT-LOCATION-LAND-G00-0004. */
+export const LAND_CODE = "LAND";
+
+const ID_MAX = 84; // five segments of at most 16: anything longer is not taken apart
+
+/**
+ * Whether a place's ID is of a location's land (format 0.12): its land, its layout or
+ * what is on it, its third segment LAND (no building's). Never an item's ID.
+ * @param {unknown} id
+ * @returns {boolean}
+ */
+export function isLandId(id) {
+  if (typeof id !== "string" || id.length > ID_MAX || isItemId(id)) return false;
+  const segments = id.split("-");
+  return segments.length >= 3 && segments[2] === LAND_CODE;
 }

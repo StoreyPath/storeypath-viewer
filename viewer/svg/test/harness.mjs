@@ -107,7 +107,9 @@ export function readPackage(path) {
   return { manifest, floors: features("floors"), spaces: features("spaces"), zones: features("zones"),
     openings: features("openings"), items: features("items"),
     catalogue: manifest.files.catalogue ? json(manifest.files.catalogue) : null,
-    navigation: manifest.files.navigation ? json(manifest.files.navigation) : null };
+    navigation: manifest.files.navigation ? json(manifest.files.navigation) : null,
+    // a layout's package (format 0.12): its layout and footprints; none in a building's
+    layouts: features("layout"), footprints: features("footprints") };
 }
 
 const TYPES = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".html": "text/html",

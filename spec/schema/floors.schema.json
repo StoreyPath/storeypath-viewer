@@ -86,9 +86,15 @@
           "type": "number"
         },
         "type": {
-          "$ref": "#/$defs/FloorType",
           "default": "floor",
-          "description": "what level of its building it is (format 0.11): floor (a storey), mezzanine (a floor standing in another floor of its building, over part of it: its host_floor_id, its level above_host_m above that floor's) or roof (the building's roof as a level, at its top: its open deck a space of type roof, the rooms standing on it indoor; no floor stands above it). Absent (before 0.11): floor"
+          "description": "what level of its building it is (format 0.11): floor (a storey), mezzanine (a floor standing in another floor of its building, over part of it: its host_floor_id, its level above_host_m above that floor's) or roof (the building's roof as a level, at its top: its open deck a space of type roof, the rooms standing on it indoor; no floor stands above it). Absent (before 0.11): floor",
+          "enum": [
+            "floor",
+            "mezzanine",
+            "roof"
+          ],
+          "title": "Type",
+          "type": "string"
         },
         "host_floor_id": {
           "anyOf": [
@@ -209,16 +215,6 @@
       ],
       "title": "FloorProps",
       "type": "object"
-    },
-    "FloorType": {
-      "description": "What level of its building a floor is (format 0.11).",
-      "enum": [
-        "floor",
-        "mezzanine",
-        "roof"
-      ],
-      "title": "FloorType",
-      "type": "string"
     },
     "MultiPolygonGeometry": {
       "properties": {

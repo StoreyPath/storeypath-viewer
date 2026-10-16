@@ -18,6 +18,29 @@ const (
 
 var levels = []string{LevelProject, LevelLocation, LevelBuilding, LevelFloor, LevelObject}
 
+// A location's land (format 0.12): its layout is a level of the location, as a floor is
+// of its building, with the building segment LandCode (reserved: no building has it)
+// and the level LayoutCode (the only one in 0.12): K7Q2XM-SITE-LAND-G00. What is on it
+// (an area, a gate, a footprint) has five segments, K7Q2XM-SITE-LAND-G00-0004.
+const (
+	LandCode   = "LAND"
+	LayoutCode = "G00"
+)
+
+// LayoutID is the ID of a location's layout (format 0.12): PROJECT-LOCATION-LAND-G00.
+func LayoutID(locationID string) string { return locationID + "-" + LandCode + "-" + LayoutCode }
+
+// IsLand says whether a place's ID is of a location's land (format 0.12: its layout, or
+// what is on it): its building segment is LAND. Never an item's ID, nor one too long to
+// be an ID.
+func IsLand(id string) bool {
+	if len(id) > maxIDLength || IsItemID(id) {
+		return false
+	}
+	segments := strings.SplitN(id, "-", 4)
+	return len(segments) >= 3 && segments[2] == LandCode
+}
+
 var segmentRE = regexp.MustCompile(`^[A-Z0-9]{1,16}$`)
 
 // The longest an ID can be: five segments of 16, and their hyphens; an item's of
@@ -194,8 +217,13 @@ func ParseID(value string) (ID, error) {
 // String is the ID as written.
 func (id ID) String() string { return strings.Join(id.Segments, "-") }
 
-// Level is what the ID names: project, location, building, floor or object.
+// Level is what the ID names: project, location, building, floor or object. A
+// location's layout (format 0.12) is at a floor's level, what is on it an object's.
 func (id ID) Level() string { return levels[len(id.Segments)-1] }
+
+// IsLand says whether the ID is of a location's land (format 0.12): its third segment
+// is LAND, the land and not a building.
+func (id ID) IsLand() bool { return len(id.Segments) >= 3 && id.Segments[2] == LandCode }
 
 // Project is the ID's first segment, the project's code.
 func (id ID) Project() string { return id.Segments[0] }

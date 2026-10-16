@@ -15,14 +15,19 @@ A `.storeypath` package is one building as plain JSON, GeoJSON and CSV in a ZIP:
 levels (floors, mezzanines and the roof), rooms and zones, doors and windows, furniture
 and equipment with their asset tags (a card reader with the door it serves, a camera
 with what it sees), floor and wall finishes, the walking network between them, and,
-when its export asked for them, each floor's drawing as drawn. Every object has an ID
-that never changes, and a package may be sealed with a password. Packages are made with
+when its export asked for them, each floor's drawing as drawn. A location's land comes in
+a package of its own (format 0.12): its layout, the plot its buildings stand on with its
+boundary walls and gates, its outdoor areas (the yard, parking, a garden, the road beyond
+the boundary), the footprint of each building standing on it, and what is placed on it (a
+camera on a pole, a card reader at a gate), in the site's frame each building's package
+places it on. Every object has an ID that never changes, and a package may be sealed with
+a password. Packages are made with
 [StoreyPath Studio](https://github.com/StoreyPath/storeypath-studio), which pins a version
 of this repository, so a package and the code that reads it always agree.
 
 | Folder | What it is |
 |---|---|
-| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.11.0), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
+| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.12.0), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
 | [viewer/](viewer) | **The viewers**, to embed in a web app: the 3D world, a map view, the 2D plan ([viewer/svg](viewer/svg)) that needs no WebGL, the drawings themselves ([viewer/src/drawing](viewer/src/drawing)), and finding the way ([viewer/src/navigation.js](viewer/src/navigation.js)) |
 | [go/](go) | **A Go module** that reads and validates packages and finds the way in a building, standard library only |
 
@@ -50,6 +55,13 @@ floor below (an atrium, a void) is a hole in its floor's slab, the floor below s
 through it. The world knows which way north is: `viewBearing` and the `viewturn` event
 turn a compass, `turnTo(bearing)` turns the view, and `topView()` looks straight down,
 the plan's up at the top.
+
+A layout's package (format 0.12) opens as its land: the ground under its boundary, its
+areas in their colours (grass, paving, asphalt, water), open to the sky, its boundary
+walls as high as they stand with posts at its gates, the cameras and card readers on it,
+and each building's footprint a plain block standing on it, named. The land is a building
+of one level to the page: `setFloor`, `pointAt`, `worldPoint`, `setFloorItems` and `select`
+work on it in the site's frame, as on a floor in a building's.
 
 ```js
 import { StoreyPathWorld } from "./storeypath-viewer/src/world/world.js";
@@ -82,7 +94,9 @@ stairs and lifts, `changeFloor(+1)` takes you up.
 type, doors with their swings, windows, items, what a camera covers out to its range
 (the one chosen, or every camera's with `coverage`), a search, the way drawn on it. Its
 package reader lists a building's levels in their order (a mezzanine after the floor it
-stands in, the roof at the top, its deck drawn as a roof). No WebGL and no dependencies,
+stands in, the roof at the top, its deck drawn as a roof). A location's layout (format
+0.12) is a plan too: its areas by type, its boundary walls and gates, the footprints of its
+buildings outlined and named, the items on it. No WebGL and no dependencies,
 for machines with no GPU (VDI desktops, kiosks). Strict TypeScript, with its own build
 and tests.
 

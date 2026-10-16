@@ -1,11 +1,13 @@
 // A floor of a StoreyPath package (spec/FORMAT.md) as the engine's floor model:
 // its zones and undivided spaces, and its furniture and equipment, in the
 // building's local drawing metres (the drawing the way the architect drew it,
-// whatever its bearing on the map).
+// whatever its bearing on the map). A location's layout (format 0.12, a layout's
+// package) is a plan too, by its ID: its areas, boundary walls, gates, the footprints of
+// the buildings standing on it and the items on it, in the site's metres.
 
 import { LocalFrame, type Placement } from "./frame.js";
 import type { Navigation } from "./navigation.js";
-import type { FloorPlan, PlanItem, PlanOpening, PlanSpace, Polygon, XY } from "./types.js";
+import type { FloorPlan, PlanFootprint, PlanItem, PlanOpening, PlanSpace, Polygon, XY } from "./types.js";
 
 type LonLat = [number, number];
 
@@ -37,11 +39,23 @@ interface SpaceProps {
 }
 interface ZoneProps extends SpaceProps { space_id: string }
 interface OpeningProps {
-  floor_id: string; type: "door" | "window" | "opening"; span?: LonLat[] | null; swings?: LonLat[][] | null;
+  floor_id: string; type: "door" | "window" | "opening" | "gate"; span?: LonLat[] | null; swings?: LonLat[][] | null;
   hidden?: boolean; ignored?: boolean;
 }
+/** A location's layout (format 0.12): its land, a level of the location (PROJECT-LOCATION-LAND-G00); its
+ * geometry the plot. */
+interface LayoutProps {
+  kind?: "layout"; name?: string; location_id?: string; walls?: Geometry | null; wall_height_m?: number | null;
+  north?: { bearing: number; from: string | null } | null;
+}
+/** A building standing on a layout (format 0.12): its outline, name and building. */
+interface FootprintProps {
+  kind?: "footprint"; layout_id: string; building_id?: string | null; name?: string | null; drawing_label?: string | null;
+  display_point?: LonLat | null; hidden?: boolean; ignored?: boolean;
+}
 interface ItemProps {
-  floor_id: string; building_id: string; type: string; category?: string; name?: string | null;
+  /** Its building's; on a layout (format 0.12) null, its floor the layout. */
+  floor_id: string; building_id: string | null; type: string; category?: string; name?: string | null;
   mount?: "floor" | "wall" | "ceiling"; display_point: LonLat; heading: number; width_m: number; depth_m: number;
   /** Where it stands in its building's own frame (format 0.7): its middle, and its turn
    * counter-clockwise from facing -y. Moving the building on the map leaves it as it is. */
@@ -64,6 +78,12 @@ export interface PackageLike {
   catalogue?: { types: { code: string; color?: string; grade?: string | null; shape?: string | null }[] } | null;
   /** The building's walking network (navigation.json, format 0.8), or null: route() finds the way on it. */
   navigation?: Navigation | null;
+  /** A layout's package (format 0.12): its layout (layout.geojson), and the buildings standing on it
+   * (footprints.geojson); its areas are spaces of the layout, its gates openings. */
+  layouts?: Feature<LayoutProps>[];
+  footprints?: Feature<FootprintProps>[];
+  /** Buildings, for a footprint's name when the site plan gives it none (a system's own, given so). */
+  buildings?: Feature<{ name?: string | null }>[];
 }
 
 export interface FromPackageOptions {
@@ -102,12 +122,16 @@ export function inOrder<F extends Feature<FloorProps>>(floors: F[]): F[] {
   return [...floors].sort((a, b) => first.get(a.properties.building_id)! - first.get(b.properties.building_id)! || byLevel(a, b));
 }
 
-/** A floor of a package, ready to draw. */
+/** A floor of a package, ready to draw; or a location's layout (format 0.12), by its ID: its
+ * areas, walls, gates, footprints and items, in the site's metres. */
 export function floorFromPackage(pkg: PackageLike, floorId: string, options: FromPackageOptions = {}): FloorPlan {
-  const floor = pkg.floors.find((f) => f.id === floorId);
+  const layout = pkg.layouts?.find((l) => l.id === floorId);
+  const floor = layout ?? pkg.floors.find((f) => f.id === floorId);
   if (!floor) throw new Error(`no floor ${floorId} in the package`);
-  const placement = pkg.manifest.placements?.[floor.properties.building_id];
-  if (!placement) throw new Error(`no placement for ${floor.properties.building_id}`);
+  // (a layout is placed by the site's placement, by its own ID)
+  const placedBy = layout ? layout.id : (floor as Feature<FloorProps>).properties.building_id;
+  const placement = pkg.manifest.placements?.[placedBy];
+  if (!placement) throw new Error(`no placement for ${placedBy}`);
   const frame = new LocalFrame(placement);
   const local = (p: LonLat): XY => frame.toLocal(p);
   const polygons = (g: Geometry | null | undefined): Polygon[] => {
@@ -150,6 +174,18 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     const swings = (p.swings ?? []).filter((s) => s.length === 2).map((s) => [local(s[0]!), local(s[1]!)] as [XY, XY]);
     openings.push({ id: o.id, type: p.type, ...(span ? { span } : {}), ...(swings.length ? { swings } : {}) });
   }
+  // a layout's buildings (format 0.12): where each stands, named as the site plan names it
+  const footprints: PlanFootprint[] = [];
+  const buildingName = (id: string | null | undefined): string | null =>
+    (id && pkg.buildings?.find((b) => b.id === id)?.properties.name) || null;
+  for (const f of layout ? pkg.footprints ?? [] : []) {
+    const p = f.properties;
+    if (p.layout_id !== floorId || !shown(p)) continue;
+    // named as the site plan names it, else as its building is (when given), else as written
+    const name = p.name || buildingName(p.building_id) || p.drawing_label || null;
+    footprints.push({ id: f.id, polygons: polygons(f.geometry), name, building: p.building_id ?? null,
+      ...(p.display_point ? { marker: local(p.display_point) } : {}) });
+  }
   // furniture and equipment: where each stands in the building and the way it faces
   // there (format 0.7: its rotation, counter-clockwise from -y); in older packages,
   // from the map: its point, and its heading from north to the drawing's own (its +y
@@ -186,9 +222,10 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     drawing: {
       outline: polygons(floor.geometry),
       walls: polygons(floor.properties.walls),
-      parapets: polygons(floor.properties.parapets),
+      parapets: layout ? [] : polygons((floor as Feature<FloorProps>).properties.parapets),
       openings,
       containers,
+      ...(layout ? { footprints } : {}),
     },
   };
 }

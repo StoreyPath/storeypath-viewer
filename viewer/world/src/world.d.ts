@@ -5,7 +5,7 @@
 export { webglSupport, type WebGLSupport } from './support.js';
 // finding the way (format 0.8): the module both viewers share
 export { route, shortest, Graph } from './navigation.js';
-export { ITEM_ID_ALPHABET, itemCheckSymbol, isItemId, normalizeItemId } from './ids.js';
+export { ITEM_ID_ALPHABET, LAND_CODE, isLandId, itemCheckSymbol, isItemId, normalizeItemId } from './ids.js';
 // a floor's drawing as drawn (format 0.11): read (view.js) and drawn (drawing.js); its CSS is dist/drawing.css
 export { DrawingView, DRAWING_VIEW_FORMAT, readDrawingView, parseDrawingView, linesOn, textsOf } from './drawing.js';
 export type { Box, DrawingBatch, DrawingCamera, DrawingCursor, DrawingLayer, DrawingLook, DrawingMark, DrawingViewData,
@@ -103,6 +103,69 @@ export declare function byLevel(a: Feature<FloorProperties>, b: Feature<FloorPro
  * older package or of a type a later version adds. */
 export declare function floorType(floor: Feature<FloorProperties>): 'floor' | 'mezzanine' | 'roof';
 
+/** Where a building's own frame lies on its location's site (format 0.12, its placement's `site`): its
+ * origin at (x_m, y_m) of the site's frame, turned rotation_deg clockwise. */
+export interface Site {
+	x_m: number;
+	y_m: number;
+	rotation_deg: number;
+}
+
+/** A building's placement on the map (manifest.json → placements, format 0.7): the point (x, y) of
+ * its frame at (lon, lat), its drawings' +Y at `bearing`; a layout's (0.12), the site's own. */
+export interface Placement {
+	lon: number;
+	lat: number;
+	x: number;
+	y: number;
+	bearing: number;
+	/** False: not on the map yet (around 0°N 0°E). */
+	placed?: boolean;
+	/** Where its frame lies on its location's site (format 0.12); null: placed on the map by itself. */
+	site?: Site | null;
+	[key: string]: unknown;
+}
+
+/** A point of a building's own frame ([x, y], metres) in its site's frame (format 0.12), by its `site`. */
+export declare function toSite(site: Site, point: [number, number]): [number, number];
+/** A point of a site's frame (format 0.12) in a building's own frame: toSite turned back. */
+export declare function fromSite(site: Site, point: [number, number]): [number, number];
+
+/** A location's layout (layout.geojson, format 0.12): its land, a level of the location as a floor
+ * is of its building (PROJECT-LOCATION-LAND-G00). Its geometry is the plot, or null. */
+export interface LayoutProperties {
+	kind: 'layout';
+	code: string;
+	name: string;
+	location_id: string;
+	area_m2: number | null;
+	display_point: LonLat | null;
+	/** The boundary walls and fences, and walls standing on the land, as drawn with their gates' gaps. */
+	walls: Geometry | null;
+	wall_height_m: number | null;
+	wall_thickness_m: number | null;
+	/** The compass bearing the site plan's up faces, and how it is known (map, drawing, person; null: not known). */
+	north: { bearing: number; from: 'map' | 'drawing' | 'person' | null } | null;
+	[key: string]: unknown;
+}
+
+/** A building standing on a layout (footprints.geojson, format 0.12): its outline as the site plan
+ * draws it, and its building (in a package of its own), or null. */
+export interface FootprintProperties {
+	kind: 'footprint';
+	layout_id: string;
+	building_id: string | null;
+	name: string | null;
+	drawing_label: string | null;
+	area_m2: number | null;
+	display_point: LonLat | null;
+	/** Its building's placement's `site`, or null. */
+	site: Site | null;
+	hidden: boolean;
+	ignored: boolean;
+	[key: string]: unknown;
+}
+
 /** A piece of furniture or equipment (items.geojson, format 0.6). Its ID is an asset's
  * tag (format 0.8: 7K2Q-XM9F-4DP, isItemId), not its place nor its project's. Where it stands is
  * `local` (format 0.7), in its building's own frame; its point and heading on the
@@ -115,13 +178,15 @@ export interface ItemProperties {
 	/** Its type's English name. */
 	name: string;
 	floor_id: string;
-	building_id: string;
+	/** Its building's ID; on a location's layout (format 0.12) null, its `floor_id` the layout's. */
+	building_id: string | null;
 	/** Where its middle stands: null when in none. */
 	space_id: string | null;
 	zone_id: string | null;
 	/** Where it stands in its building (format 0.7; absent before): its middle in metres
 	 * of the building's drawings, and the way its front faces, degrees counter-clockwise
-	 * from their -y. What it is placed by: moving the building on the map leaves it as it is. */
+	 * from their -y. What it is placed by: moving the building on the map leaves it as it is.
+	 * On a layout (format 0.12), in the site's frame. */
 	local?: { x_m: number; y_m: number; rotation_deg: number } | null;
 	display_point: LonLat;
 	/** The way its front faces (where a desk's user sits), degrees clockwise from north. */
@@ -136,7 +201,8 @@ export interface ItemProperties {
 	values: Record<string, string | number>;
 	/** The items placed or grouped together share it (format 0.10); null: none. */
 	group?: string | null;
-	/** The door it serves (format 0.10: a card reader, a door controller): an opening of its floor. */
+	/** The door it serves (format 0.10: a card reader, a door controller): an opening of its floor (on a
+	 * layout, format 0.12, a gate). */
 	door_id?: string | null;
 	/** A camera's view (format 0.10): degrees across about the way it faces (360: all round),
 	 * and metres far; its own, else its type's; null: not a camera, or not known. */
@@ -209,8 +275,10 @@ export interface Manifest {
 	project: { id: string; name: string };
 	files: Record<string, string>;
 	/** Only some of the project's buildings (format 0.4); from 0.7 always the one building
-	 * the package holds; absent: all of them. */
-	scope?: { buildings: string[] } | null;
+	 * the package holds; absent: all of them. A layout's package (0.12): no building, and its layout. */
+	scope?: { buildings: string[]; layout?: string | null } | null;
+	/** Each building's placement (format 0.7); a layout's package (0.12), the site's, by the layout's ID. */
+	placements?: Record<string, Placement>;
 	[key: string]: unknown;
 }
 
@@ -228,6 +296,9 @@ export declare class StoreyPathPackage {
 			items?: Feature<ItemProperties>[];
 			catalogue?: Catalogue | null;
 			navigation?: Navigation | null;
+			/** A layout's package (format 0.12): its layout, and the buildings standing on it. */
+			layout?: Feature<LayoutProperties>[];
+			footprints?: Feature<FootprintProperties>[];
 		},
 		/** The archive (a JSZip), for the files read only when needed: the pre-built 3D. */
 		zip?: unknown
@@ -249,15 +320,43 @@ export declare class StoreyPathPackage {
 	readonly catalogue: Catalogue | null;
 	/** The building's walking network (navigation.json, format 0.8), or null: `route(pkg, from, to)` finds the way on it. */
 	readonly navigation: Navigation | null;
+	/** A layout's package (format 0.12): its layout (layout.geojson), and the buildings standing on it
+	 * (footprints.geojson); none in a building's package. Its areas are spaces of the layout, its gates
+	 * openings (type `gate`), the items on it items of no building. */
+	readonly layouts: Feature<LayoutProperties>[];
+	readonly footprints: Feature<FootprintProperties>[];
+	/** The package's layout (format 0.12: its scope's), or null: a building's package has none. */
+	readonly layout: Feature<LayoutProperties> | null;
+	/** Whether this is a layout's package (format 0.12: its scope's `layout`): a location's land, no building. */
+	readonly isLayout: boolean;
+	/** The land of its layout (format 0.12): PROJECT-LOCATION-LAND, the "building" the layout is the one level of; or null. */
+	readonly landId: string | null;
 	readonly project: { id: string; name: string };
 	/** The feature with this ID, or null. */
 	get(id: string): Feature | null;
-	/** The buildings the package holds when it is part of a project (from 0.7, always one), or null for the whole project. */
+	/** The buildings the package holds when it is part of a project (from 0.7, always one; a layout's, 0.12, none),
+	 * or null for the whole project. */
 	readonly scope: string[] | null;
-	/** Whether the package holds a building: always for the whole project; for a part, when it is in the scope. */
+	/** Whether the package holds a building: always for the whole project; for a part, when it is in the scope; a
+	 * layout's package (0.12), its layout (by its ID or its land's) alone. */
 	holds(buildingId: string): boolean;
 	/** Floors of a building, lowest first: by ordinal, then elevation (a mezzanine above its host). */
 	floorsOf(buildingId: string): Feature<FloorProperties>[];
+	/** A building's floors (floorsOf), or a location's land's one level (format 0.12: its layout, by the land's ID
+	 * or the layout's). */
+	levelsOf(id: string): Feature<FloorProperties | LayoutProperties>[];
+	/** A building's placement, or for a location's land, its layout or what is on it (0.12), the site's; or null. */
+	placementOf(id: string): Placement | null;
+	/** Where a building's own frame lies on its location's site (format 0.12, its placement's `site`), or null. */
+	siteOf(buildingId: string): Site | null;
+	/** A point of a building's own frame in its site's frame (format 0.12, toSite), or null when it has no `site`. */
+	sitePoint(buildingId: string, point: [number, number]): [number, number] | null;
+	/** A footprint by its ID (format 0.12), or null. */
+	footprint(id: string): Feature<FootprintProperties> | null;
+	/** The footprints on a layout (format 0.12): the buildings standing on it. */
+	footprintsOn(layoutId: string): Feature<FootprintProperties>[];
+	/** The footprint a building stands on (format 0.12, not ignored), or null. */
+	footprintOf(buildingId: string): Feature<FootprintProperties> | null;
 	spacesOn(floorId: string): Feature[];
 	zonesOf(spaceId: string): Feature[];
 	unitsOn(floorId: string): Feature[];
@@ -267,6 +366,7 @@ export declare class StoreyPathPackage {
 	itemType(code: string): ItemType | null;
 	/** The building's floor of ordinal 0 that is a storey (not a mezzanine, nor a roof), else its lowest. */
 	groundFloor(buildingId: string): Feature<FloorProperties> | null;
+	/** Where an ID says an object is; on a location's land (format 0.12) no building, its layout as its floor. */
 	hierarchy(id: string): {
 		project: { id: string; name: string };
 		location: Feature | null;
@@ -497,7 +597,7 @@ export interface WorldPoint {
 	z: number | null;
 	/** The same point in the building's own frame: [x, y], metres of its drawings (null without a placement). */
 	local: [number, number] | null;
-	/** The space or zone it is in. */
+	/** The space or zone it is in (on a layout, format 0.12: its area, or the footprint, a building's block, there). */
 	space: string | null;
 	/** The space it is in (a zone's space): aimed at a wall, the room on that side of it. */
 	room: string | null;
@@ -549,6 +649,8 @@ export interface WorldPlan {
 	/** The floor's doors with leaves, as they are now. */
 	doors: WorldDoor[];
 	bounds: unknown;
+	/** A location's layout's (format 0.12): where buildings stand, each its outline, name and building. */
+	footprints?: { id: string; name: string | null; building: string | null; rings: [number, number][][] }[];
 }
 
 /** A building of a package as a 3D world: the dollhouse view, or a walk through it. */
@@ -574,9 +676,12 @@ export declare class StoreyPathWorld extends EventTarget {
 	readonly renderer: unknown;
 	readonly scene: unknown;
 	/** Open a package (URL, Blob, File or ArrayBuffer) and show its first building:
-	 * its floors pre-built in the package (world/) where they match, the others built here. */
+	 * its floors pre-built in the package (world/) where they match, the others built here. A layout's
+	 * package (format 0.12) shows its land: a building (its land's ID) of one level, the layout's ID its
+	 * floor's: its ground, areas by type, walls, gates, items, and each building's footprint a block. */
 	open(source: string | URL | Blob | ArrayBuffer | Uint8Array): Promise<StoreyPathPackage>;
-	/** Show a building; resolves once it is shown: at once, unless its pre-built floors are still to be read. */
+	/** Show a building; resolves once it is shown: at once, unless its pre-built floors are still to be read.
+	 * A location's land (format 0.12): by its ID, or its layout's. */
 	setBuilding(id: string): Promise<void>;
 	/** Show one floor, or all with null. */
 	setFloor(id: string | null): void;
@@ -631,7 +736,8 @@ export declare class StoreyPathWorld extends EventTarget {
 	 * shown), keeping the view, mode, floor shown, selection and walker. */
 	reload(source: string | URL | Blob | ArrayBuffer | Uint8Array, options?: { floors?: string[] }): Promise<StoreyPathPackage>;
 	/** A point of the building's own frame ([x, y], metres of its drawings) in the world, and back
-	 * (null when the package does not place the building: before format 0.7). */
+	 * (null when the package does not place the building: before format 0.7). A location's land
+	 * (format 0.12): a point of its site's frame, where its items' `local` are. */
 	worldPoint(point: [number, number]): { x: number; z: number } | null;
 	buildingPoint(point: { x: number; z: number }): [number, number] | null;
 	/** Walking from a point of a floor (local metres, as worldPoint gives; in a room, else the middle of the

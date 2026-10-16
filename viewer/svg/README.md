@@ -42,6 +42,17 @@ following the plan's camera; `readPackage` gives a floor's as `drawing(floorId)`
 floor above; the roof at the top); `floorType(floor)` says what level each is (`"floor"`,
 `"mezzanine"` or `"roof"`), and a roof's open deck is drawn as a space of type `roof`.
 
+A location's layout (format 0.12: its land, in a package of its own) is a plan as a floor
+is: `floorFromPackage(pkg, layoutId)` (`readPackage` gives `layouts` and `footprints`;
+`isLandId` tells a land's IDs). Its areas are its units, each in its type's colour (grass
+for a garden; paving for the yard, a path, a courtyard, the ground at a gate; asphalt for a
+driveway, parking and the road; water for a pool) and named as read; its boundary walls,
+its gates, the footprint of each building standing on it outlined and named (the
+building itself is in its own package), and the items on it, a camera with what it sees.
+Its metres are the site's frame: its centre at 0, 0, the site plan's up as y, where the
+items' `local` are. A building's placement may say where its own frame lies on that site
+(`site`): `toSite(site, [x, y])` puts a point of its plan there, `fromSite` back.
+
 ## What is shown
 
 - **Units**: the zones of a divided space and the spaces with no zones — what
@@ -49,7 +60,12 @@ floor above; the roof at the top); `floorType(floor)` says what level each is (`
   `data-sp-id`. A divided space's outline is drawn over its zones; zone edges
   are light dashed lines, not walls.
 - **Walls** and **parapets** as filled shapes, with their door and window gaps.
-- **Doors** with their swings as drawn; **windows**; **openings** (doorways).
+- **Doors** with their swings as drawn; **windows**; **openings** (doorways); a
+  layout's **gates** (format 0.12), dashed across the way through, as openings are.
+- A layout's **footprints** (format 0.12): where each building stands on it, outlined
+  over its areas (`data-sp-footprint`, and `data-sp-building` its building's ID), its
+  name over it as a label; not chosen (a click goes through it). A floor
+  model gives them as `drawing.footprints`, each `{ id, polygons, name, building, marker }`.
 - **Labels** in screen space: upright and the same size at any zoom, shown only
   where they fit inside their space, each line in its own direction
   (`unicode-bidi: plaintext`: Arabic and English mix). They sit on the space's
@@ -125,7 +141,8 @@ over it, its way's line, its marks and its labels, each its own `<svg>` in a
 `--sp-route-casing-width`, `--sp-route-halo`, `--sp-route-halo-width`, `--sp-route-flow`,
 `--sp-route-done`, `--sp-route-arrow`, `--sp-route-start`, `--sp-route-end`,
 `--sp-route-room`, `--sp-route-marker-ring`, `--sp-route-change`, `--sp-route-badge`,
-`--sp-route-chip`, `--sp-route-chip-text`, `--sp-route-chip-sub`, with dark values
+`--sp-route-chip`, `--sp-route-chip-text`, `--sp-route-chip-sub`; a layout's `--sp-gate`,
+`--sp-footprint` and `--sp-footprint-edge`, with dark values
 under `prefers-color-scheme: dark` or `theme: "dark"`), or style the classes (`.sp-unit`, `.sp-zone`, `.sp-selected`,
 `.sp-highlight`, `.sp-dim`, `.sp-type-office`, `.sp-style-wayfinding`, `.sp-theme-dark`, …). Space colours follow their type
 unless `styleOf` or `colors` says otherwise.
@@ -174,7 +191,7 @@ Older packages' items are placed by their point and heading on the map.
 ## Tests
 
 `npm test` builds, then checks the frame, the package reader (a floor's drawing on its plan
-too) and the way every reader
+too; a location's layout as a plan, its site's frame) and the way every reader
 finds (`routes.json`) against `spec/conformance/`, and the engine in headless Chrome with real input: clicks,
 drags, the wheel, two-finger pinches, the keyboard, resizing, reduced motion, both
 y directions. Positions must hold to a pixel. Set `CHROME` to a Chrome or Chromium

@@ -11,4 +11,7 @@ export const TYPE_COLORS: Record<string, string> = {
   dressing_room: "#c9b2d9", laundry: "#9cc9b4", prayer_room: "#d4b8e0", parking: "#c4c4bc",
   balcony: "#b7d9a8", terrace: "#cfe3b0", open_to_below: "#f4f4f2", unspecified: "#dedbd3",
   roof: "#c9cfd6", // (format 0.11) a roof's open deck
+  // (format 0.12) a location's land's areas: paving, asphalt, grass and water
+  yard: "#ddd6c8", path: "#d6c8ae", courtyard: "#e4dccb", gate_area: "#cdc3b0",
+  driveway: "#a9acb0", road: "#8f9399", garden: "#8fc27a", pool: "#5fb3e3",
 };

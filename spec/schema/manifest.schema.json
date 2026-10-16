@@ -84,6 +84,18 @@
           "description": "false: the building is not placed on the map yet; it is exported around 0\u00b0N 0\u00b0E with its true shape and size, but its position on earth is not known",
           "title": "Placed",
           "type": "boolean"
+        },
+        "site": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SiteFrame"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(format 0.12) where the building's own frame lies on its location's site, the frame its layout is drawn in; null: placed on the map by itself. A layout's own placement has none: it is the site's"
         }
       },
       "required": [
@@ -115,21 +127,60 @@
       "type": "object"
     },
     "Scope": {
-      "description": "The building a package holds (from format 0.7, exactly one; before, the part of\nthe project it held when not all of it).",
+      "description": "The building a package holds (from format 0.7, exactly one; before, the part of\nthe project it held when not all of it), or (0.12) the location's layout it holds.",
       "properties": {
         "buildings": {
-          "description": "IDs of the buildings in the package (from 0.7: one); the rest of the project is not in it, and its absence says nothing about it",
+          "description": "IDs of the buildings in the package (from 0.7: one; a layout's package: none); the rest of the project is not in it, and its absence says nothing about it",
           "items": {
             "type": "string"
           },
           "title": "Buildings",
           "type": "array"
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(format 0.12) the ID of the location's layout the package holds, in place of a building",
+          "title": "Layout"
         }
       },
       "required": [
         "buildings"
       ],
       "title": "Scope",
+      "type": "object"
+    },
+    "SiteFrame": {
+      "description": "Where a building's own frame lies on its location's site (format 0.12).",
+      "properties": {
+        "x_m": {
+          "description": "its frame's origin in the site's frame, metres",
+          "title": "X M",
+          "type": "number"
+        },
+        "y_m": {
+          "title": "Y M",
+          "type": "number"
+        },
+        "rotation_deg": {
+          "description": "how far it is turned, degrees clockwise: a point (x, y) of its frame is at (x_m + x cos r + y sin r, y_m - x sin r + y cos r) in the site's",
+          "title": "Rotation Deg",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x_m",
+        "y_m",
+        "rotation_deg"
+      ],
+      "title": "SiteFrame",
       "type": "object"
     },
     "SourceInfo": {
@@ -185,7 +236,7 @@
       "type": "string"
     },
     "format_version": {
-      "default": "0.11.0",
+      "default": "0.12.0",
       "title": "Format Version",
       "type": "string"
     },

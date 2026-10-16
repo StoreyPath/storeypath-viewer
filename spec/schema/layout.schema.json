@@ -1,0 +1,311 @@
+{
+  "$defs": {
+    "LayoutFeature": {
+      "properties": {
+        "type": {
+          "const": "Feature",
+          "default": "Feature",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "geometry": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "MultiPolygon": "#/$defs/MultiPolygonGeometry",
+                  "Polygon": "#/$defs/PolygonGeometry"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PolygonGeometry"
+                },
+                {
+                  "$ref": "#/$defs/MultiPolygonGeometry"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "its boundary: the plot (null: none found)",
+          "title": "Geometry"
+        },
+        "properties": {
+          "$ref": "#/$defs/LayoutProps"
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "properties"
+      ],
+      "title": "LayoutFeature",
+      "type": "object"
+    },
+    "LayoutProps": {
+      "additionalProperties": true,
+      "description": "A location's layout (format 0.12): its land, a level of the location.",
+      "properties": {
+        "kind": {
+          "const": "layout",
+          "title": "Kind",
+          "type": "string"
+        },
+        "code": {
+          "description": "its level's code: G00",
+          "title": "Code",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "location_id": {
+          "title": "Location Id",
+          "type": "string"
+        },
+        "area_m2": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the plot's area",
+          "title": "Area M2"
+        },
+        "display_point": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Point"
+        },
+        "walls": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "MultiPolygon": "#/$defs/MultiPolygonGeometry",
+                  "Polygon": "#/$defs/PolygonGeometry"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PolygonGeometry"
+                },
+                {
+                  "$ref": "#/$defs/MultiPolygonGeometry"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the boundary walls and fences, and walls standing on the land, as drawn, with their gates' gaps; wall_height_m high",
+          "title": "Walls"
+        },
+        "wall_thickness_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the boundary walls' typical thickness",
+          "title": "Wall Thickness M"
+        },
+        "wall_height_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "how high the walls stand above the ground",
+          "title": "Wall Height M"
+        },
+        "north": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/North"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "which way north is on the site plan: the site's bearing"
+        }
+      },
+      "required": [
+        "kind",
+        "code",
+        "name",
+        "location_id"
+      ],
+      "title": "LayoutProps",
+      "type": "object"
+    },
+    "MultiPolygonGeometry": {
+      "properties": {
+        "type": {
+          "const": "MultiPolygon",
+          "title": "Type",
+          "type": "string"
+        },
+        "coordinates": {
+          "items": {
+            "items": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "title": "MultiPolygonGeometry",
+      "type": "object"
+    },
+    "North": {
+      "properties": {
+        "bearing": {
+          "description": "the compass bearing the site plan's up faces, degrees clockwise from north",
+          "title": "Bearing",
+          "type": "number"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "enum": [
+                "map",
+                "drawing",
+                "person"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "how it is known: map (the site is placed on the map), drawing (its site plan's north arrow), person (set in Studio); null: not known, up taken as north",
+          "title": "From"
+        }
+      },
+      "required": [
+        "bearing",
+        "from"
+      ],
+      "title": "North",
+      "type": "object"
+    },
+    "PolygonGeometry": {
+      "properties": {
+        "type": {
+          "const": "Polygon",
+          "title": "Type",
+          "type": "string"
+        },
+        "coordinates": {
+          "items": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "title": "PolygonGeometry",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "type": {
+      "const": "FeatureCollection",
+      "default": "FeatureCollection",
+      "title": "Type",
+      "type": "string"
+    },
+    "features": {
+      "items": {
+        "$ref": "#/$defs/LayoutFeature"
+      },
+      "title": "Features",
+      "type": "array"
+    }
+  },
+  "required": [
+    "features"
+  ],
+  "title": "FeatureCollection[LayoutFeature]",
+  "type": "object"
+}

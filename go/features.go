@@ -150,11 +150,12 @@ type Zone struct {
 }
 
 // Opening is a door, a window, or a way through with no door (openings.geojson);
-// its geometry is a point in the wall.
+// its geometry is a point in the wall. On a location's layout (format 0.12), a gate.
 type Opening struct {
 	ID       string
 	Geometry *Geometry
-	// Type: door, window or opening.
+	// Type: door, window or opening; gate (format 0.12), a way through a location's
+	// boundary walls, on its layout.
 	Type  string `json:"type"`
 	Floor string `json:"floor_id"`
 	// Connects: the one or two spaces it joins; Exterior when it leads outside.
@@ -210,29 +211,34 @@ type Item struct {
 	// workstation's desk, chair and pedestal; a meeting table and its chairs); nil: none.
 	Group *string `json:"group"`
 	// Door is the door it serves (format 0.10: a card reader, a door controller, of a
-	// type that ServesDoor): an opening of its floor, never a window; nil: none.
+	// type that ServesDoor): an opening of its floor, never a window (format 0.12, on a
+	// location's land: a gate); nil: none.
 	Door *string `json:"door_id"`
 	// ViewDeg and RangeM are a camera's view (format 0.10: of a type of shape camera):
 	// how wide it sees, degrees across about the way its front faces (360: all round),
 	// and how far, metres; its own, else its type's. Nil: not a camera, or not known.
-	ViewDeg  *float64 `json:"view_deg"`
-	RangeM   *float64 `json:"range_m"`
-	Name     string   `json:"name"`
-	Floor    string   `json:"floor_id"`
-	Building string   `json:"building_id"`
+	ViewDeg *float64 `json:"view_deg"`
+	RangeM  *float64 `json:"range_m"`
+	Name    string   `json:"name"`
+	// Floor is the floor it stands on and Building that floor's building; on a
+	// location's land (format 0.12, OnLand), Floor is the layout's ID and Building is
+	// empty (null in the package): it is in no building.
+	Floor    string `json:"floor_id"`
+	Building string `json:"building_id"`
 	// Space, and Zone when the space is divided, are where its middle stood when
-	// the package was exported: nil when it is in none.
+	// the package was exported: nil when it is in none. On a location's land, Space is
+	// the area it stands in.
 	Space *string `json:"space_id"`
 	Zone  *string `json:"zone_id"`
 	// Local (format 0.7) is where it stands in its building: what it is placed by.
 	// Moving the building on the map never changes it, so a system keeping the
 	// history of where items have been keeps this (and the floor), not the map
 	// position. Nil in older packages: Package.ItemLocal works it out from Label
-	// and Heading.
+	// and Heading. On a location's land (format 0.12), its place in the site's frame.
 	Local *ItemLocal `json:"local"`
 	// Label is its middle on the map, and Heading the way its front faces (where a
 	// desk's user sits) in degrees clockwise from north: both follow from Local and
-	// the building's placement.
+	// the building's placement (on a location's land, its layout's: Package.ItemFrame).
 	Label   LonLat  `json:"display_point"`
 	Heading float64 `json:"heading"`
 	// Width along its front, Depth front to back, Height (m).
@@ -248,6 +254,10 @@ type Item struct {
 	// owns are never in a package: that system keeps them, by the item's ID.
 	Values map[string]any `json:"values"`
 }
+
+// OnLand says whether an item stands on a location's land (format 0.12): its Floor is a
+// layout's ID (IsLand), and it is in no building.
+func (it *Item) OnLand() bool { return IsLand(it.Floor) }
 
 // ItemLocal is where an item stands in its building's own frame: its middle (X,
 // Y: metres from the origin of the building's drawings, shared by all its floors)

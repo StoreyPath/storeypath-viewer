@@ -2,7 +2,9 @@
 // desktops and kiosks without a GPU). One floor at a time: its spaces and zones,
 // walls, doors with their swings, windows and openings, its furniture and
 // equipment, with labels that stay upright and readable at any zoom, in any
-// language and direction.
+// language and direction. A location's layout (format 0.12) is drawn the same way: its
+// areas as spaces, its boundary walls, its gates, the footprints of the buildings standing
+// on it (outlined and named: data-sp-footprint), and the items on it.
 //
 // The engine draws what it is given (setFloor: the floor model in types.ts) and
 // leaves meaning to its host: the host says how each space looks (styleOf), what
@@ -200,7 +202,8 @@ export class FloorPlanEngine extends EventTarget {
    * is drawn again alone: the way's flowing dots do not paint the whole plan again). */
   private readonly box: HTMLDivElement;
   private readonly overlays: SVGSVGElement[];
-  private readonly layers: Record<"outline" | "units" | "containers" | "items" | "selection" | "walls" | "openings" | "route", SVGGElement>;
+  private readonly layers: Record<"outline" | "units" | "containers" | "footprints" | "items" | "selection" | "walls" | "openings" | "route",
+    SVGGElement>;
   private readonly routeMarks: SVGGElement;
   private readonly labelLayer: SVGGElement;
   private readonly pinLayer: SVGGElement;
@@ -250,14 +253,15 @@ export class FloorPlanEngine extends EventTarget {
       outline: svg("g", { class: "sp-outline" }),
       units: svg("g", { class: "sp-units" }),
       containers: svg("g", { class: "sp-containers" }),
+      footprints: svg("g", { class: "sp-footprints" }), // a layout's buildings (format 0.12), over its areas
       items: svg("g", { class: "sp-items" }), // over the spaces, under the walls and the labels
       selection: svg("g", { class: "sp-selection" }),
       route: svg("g", { class: "sp-route-rooms" }), // a way's destination lit, under the walls
       walls: svg("g", { class: "sp-walls" }),
       openings: svg("g", { class: "sp-openings" }),
     };
-    this.world.append(this.layers.outline, this.layers.units, this.layers.containers, this.layers.items, this.layers.selection,
-      this.layers.route, this.layers.walls, this.layers.openings);
+    this.world.append(this.layers.outline, this.layers.units, this.layers.containers, this.layers.footprints, this.layers.items,
+      this.layers.selection, this.layers.route, this.layers.walls, this.layers.openings);
     // a way, in screen space (as wide, its corners as round and its dots as far apart at
     // any zoom): its line over the walls and doors, its marks over it; both under the labels
     this.routeLine = svg("g", { class: "sp-route" });
@@ -325,6 +329,23 @@ export class FloorPlanEngine extends EventTarget {
       this.paths.set(s.id, path);
       const lines = this.lines(s);
       if (lines.length) this.labels.set(s.id, this.makeLabel(lines));
+    }
+    // a layout's buildings (format 0.12): each where it stands, outlined, named over it; not chosen
+    for (const f of d.footprints ?? []) {
+      if (!f.polygons.length) continue;
+      const b = boundsOf(f.polygons);
+      boundsOf(f.polygons, box);
+      this.boxes.set(f.id, b);
+      this.markers.set(f.id, f.marker && inside(f.polygons, f.marker) ? f.marker : poleOf(f.polygons, Math.max(0.02, (b[2] - b[0]) / 200)));
+      const path = svg("path", { d: pathOf(f.polygons), "data-sp-footprint": f.id });
+      if (f.building) path.setAttribute("data-sp-building", f.building);
+      this.layers.footprints.append(path);
+      const name = f.name?.trim();
+      if (!name) continue;
+      path.append(Object.assign(svg("title"), { textContent: name }));
+      const label = this.makeLabel([name]);
+      label.text.classList.add("sp-label-footprint");
+      this.labels.set(f.id, label);
     }
     this.measureLabels();
     for (const c of d.containers ?? []) this.layers.containers.append(svg("path", { d: pathOf(c.polygons), "data-sp-container": c.id }));
@@ -671,7 +692,7 @@ export class FloorPlanEngine extends EventTarget {
 
   private drawOpening(o: PlanOpening): SVGElement[] {
     const out: SVGElement[] = [];
-    const cls = o.type === "window" ? "sp-window" : o.type === "opening" ? "sp-way" : "sp-door";
+    const cls = o.type === "window" ? "sp-window" : o.type === "opening" ? "sp-way" : o.type === "gate" ? "sp-gate" : "sp-door";
     if (o.type === "door" && o.span && o.swings?.length) {
       for (const [h, q] of o.swings) {
         const from = (p: XY): number => Math.hypot(p[0] - h[0], p[1] - h[1]);

@@ -31,7 +31,8 @@ export interface PlanSpace {
 
 export interface PlanOpening {
   id: string;
-  type: "door" | "window" | "opening";
+  /** A gate (format 0.12) is a way through a location's boundary walls, on its layout. */
+  type: "door" | "window" | "opening" | "gate";
   /** Across the wall, jamb to jamb. */
   span?: [XY, XY];
   /** A door's leaves as drawn: each [hinge, free edge when open]. */
@@ -48,6 +49,22 @@ export interface PlanDrawing {
   openings?: PlanOpening[];
   /** Spaces divided into zones: their outline, drawn over their zones. */
   containers?: { id: string; polygons: Polygon[] }[];
+  /** On a location's layout (format 0.12): where its buildings stand, outlined and named. */
+  footprints?: PlanFootprint[];
+}
+
+/** Where a building stands on a location's layout (format 0.12): its outline as the site plan
+ * draws it, named, and its building (shown in a package of its own). Drawn over the areas,
+ * not chosen. */
+export interface PlanFootprint {
+  id: string;
+  polygons: Polygon[];
+  /** What the site plan names it (its building's name in a system's own records, given so). */
+  name?: string | null;
+  /** The building standing on it, or null: none of the project's. */
+  building?: string | null;
+  /** Where its name goes: a point inside it. Found when not given. */
+  marker?: XY;
 }
 
 /** A piece of furniture or equipment: a desk, a photocopier, an access point… Drawn

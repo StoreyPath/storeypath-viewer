@@ -177,7 +177,8 @@
       "enum": [
         "door",
         "opening",
-        "window"
+        "window",
+        "gate"
       ],
       "title": "OpeningType",
       "type": "string"

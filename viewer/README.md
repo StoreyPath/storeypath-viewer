@@ -16,6 +16,11 @@ whose Review edits on top of the 3D world through its [editing API](#the-3d-worl
 - **`FloorPlanEngine`** in [`svg/`](svg/), one floor as a plain SVG plan: no WebGL
   and no dependencies, for machines with no GPU (VDI desktops, kiosks). Strict
   TypeScript, with its own build and tests.
+
+Each reads a building's package, and a location's layout's (format 0.12: its land, the
+plot its buildings stand on, in a package of its own): the 3D world shows the land with a
+block on each building's footprint, the 2D plan draws it as it draws a floor, the map view
+lays it on the map ([a location's land](#a-locations-land)).
 - **`DrawingView`** in [`src/drawing/`](src/drawing/), a drawing as its own program
   shows it: every line, hatch, text and layer of a floor's drawing, drawn with WebGL,
   under the plan or on its own (format 0.11: a package carries its floors' drawings
@@ -72,8 +77,8 @@ install `three` and `jszip` alongside it.
 
 | Method | |
 |---|---|
-| `open(source)` | load a package (URL, `Blob`, `File`, `ArrayBuffer`); builds its first building |
-| `setBuilding(id)` | build and show a building; a promise, resolved once it is shown |
+| `open(source)` | load a package (URL, `Blob`, `File`, `ArrayBuffer`); builds its first building (a layout's package, format 0.12: its land, [below](#a-locations-land)) |
+| `setBuilding(id)` | build and show a building (or a location's land: its ID, `PROJECT-LOCATION-LAND`, or its layout's); a promise, resolved once it is shown |
 | `setFloor(id)` | one floor, or `null` for all; when walking, go to that floor |
 | `setMode("dollhouse" \| "walk", { at, floor, heading, back })` | orbit, or stand at the front door to walk in; walking from `at` (`{ x, z }`, local metres: the middle of the nearest room when in none), on `floor`, facing `heading`; back to orbiting, round the whole building, or with `back`, where the view was before walking |
 | `startWalking()`, `stopWalking()` | kept for pages written before the mouse was never taken: the first is `setMode("walk")`, the second does nothing ([walking](#walking)) |
@@ -130,7 +135,8 @@ their type's 3D model when it has one (format 0.9.2: `models/<CODE>.glb`, made t
 item's size; one that cannot be read leaves the type its shape), on
 their floor, where they
 stand in their building (format 0.7: `local`, put on the map by the building's
-placement, as its walls are; older packages: their point and heading on the map).
+placement, as its walls are; on a location's land, format 0.12, in its site's frame;
+older packages: their point and heading on the map).
 They cost nothing until shown: their geometry is made the first time a floor
 shows them (a copy of one template a kind and size: a thousand desks in
 milliseconds), detailed when one floor is shown, a box each when more are (taken
@@ -171,6 +177,29 @@ to open or shut, by the walker or the page) and `dooraim` (`{ id, open, under }`
 walking: the door <kbd>E</kbd> works changed, or what it would do; `id` null for none).
 `walklock` (`{ locked }`) is said as the walk view starts and ends, for pages written
 when walking took the mouse.
+
+### A location's land
+
+A layout's package (format 0.12, [FORMAT.md](../spec/FORMAT.md) "Location layouts") opens
+as its land: a "building" of one level, its ID the land's (`PROJECT-LOCATION-LAND`:
+`world.building`), its floor's the layout's (`PROJECT-LOCATION-LAND-G00`). The ground is a
+slab under the plot's boundary (and under an area beyond it: the road), each area on it
+in its type's colour (grass for a garden; paving for the yard, a path, a courtyard, the
+ground at a gate; asphalt for a driveway, parking and the road; water for a pool), all
+open to the sky: no ceiling, no ceiling panels, lit as outdoors when walking. Its walls
+stand `wall_height_m` high, open at its gates, a post each side of each; the items on it
+stand where their `local` puts them in the site's frame (a camera on a pole at its
+height, a card reader by its gate). Each building's footprint is a plain block a few
+metres high standing on it, named over it (its `name`; the buildings themselves are in
+their own packages): chosen and aimed at as a room is (`select(footprintId)`, `pointAt`
+gives its ID as `space`), in the walker's way, cut low in the cutaway view, listed by
+`plan(layoutId).footprints`.
+
+What a page does with a floor it does with the land: `setFloor(layoutId)`, `pointAt` and
+`worldPoint` / `buildingPoint` (their `[x, y]` the site's frame, where the layout's items'
+`local` are), `setFloorItems(layoutId, items)`, `ghost`, `mark`, `select` of an area, a
+gate's card reader or a footprint, `updateSpace` of an area. Studio's Review opens its
+`preview.storeypath?building=<land id>` so. A building's package is shown as it always was.
 
 ### Looks and quality
 
@@ -499,6 +528,10 @@ install `maplibre-gl` and `jszip` alongside it.
 Properties: `package`, `building`, `floor`, `mode`, `selected`, `map` (the
 MapLibre map, for anything else).
 
+A layout's package (format 0.12) is shown as its land: its plot as its one floor, its
+areas flat on it, the footprints of the buildings standing on it outlined as buildings
+are; `building` is the land's ID.
+
 Events (`addEventListener`, data in `event.detail`): `load`, `buildingchange`,
 `floorchange`, `modechange`, `select` (`{ id, feature }`, `id` is `null` when
 cleared).
@@ -536,6 +569,21 @@ floors in its order, by ordinal then elevation (`byLevel`): Ground, Mezzanine, F
 Roof; `groundFloor` is the floor of ordinal 0 that is a storey. The 3D world stacks,
 explodes and shows floors in that order, and walking from stairs or a lift goes to the
 next floor up or down they serve.
+
+A location's layout (format 0.12) travels in a package of its own (`isLayout`: its
+manifest's `scope.layout`; `scope` is `[]`, `holds(id)` its layout's ID or its land's
+alone): `layout` (the layout, or null; `layouts`, the collection), `landId`
+(`PROJECT-LOCATION-LAND`), `footprints`, `footprint(id)`, `footprintsOn(layoutId)`,
+`footprintOf(buildingId)` (the footprint a building stands on). Its areas are spaces of the
+layout (`spacesOn(layoutId)`, `unitsOn`), its gates openings of type `gate`, the items on it
+`itemsOn(layoutId)` (their `building_id` null). `levelsOf(id)` gives a building's floors or
+a land's one level, its layout; `hierarchy(id)` of an ID on the land has no building, its
+layout as its floor; `isLandId(id)` and `LAND_CODE` (`ids.js`) tell a land's IDs. A
+building's placement may say where its frame lies on its location's site (`site`):
+`siteOf(buildingId)`, `sitePoint(buildingId, [x, y])` (a point of its frame in the site's,
+where the layout's points are), `toSite(site, [x, y])` and `fromSite(site, [x, y])`;
+`placementOf(id)` gives a building's placement, or a land's (the site's own). A building's
+package holds no layout: `layout` is null, `footprints` empty.
 
 ## Examples
 

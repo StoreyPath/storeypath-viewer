@@ -28,8 +28,25 @@ frame a second or so.
 
 The module exports `StoreyPathWorld`, `loadPackage`, `StoreyPathPackage`,
 `TYPE_COLORS`, `webglSupport` and, to find the way through a building (format 0.8),
-`route`, `Graph` and `shortest` (the module both viewers share); `dist/world.d.ts`
+`route`, `Graph` and `shortest` (the module both viewers share); for a location's land
+(format 0.12), `isLandId`, `LAND_CODE`, `toSite` and `fromSite`; `dist/world.d.ts`
 declares them.
+
+A location's layout (format 0.12) comes in a package of its own, and opens as its land:
+a "building" of one level (`world.building` the land's ID, `PROJECT-LOCATION-LAND`; its
+floor's ID the layout's), its ground under its boundary, its areas coloured by type and
+open to the sky, its walls `wall_height_m` high with posts at its gates, the items on it,
+and each building's footprint a plain block standing on it, named (see ../README.md, "A
+location's land"). `setFloor`, `pointAt`, `worldPoint` and `buildingPoint` (in the site's
+frame), `setFloorItems` and `select` work on it as on a floor.
+
+```ts
+const pkg = await world.open(layoutPackage);              // pkg.isLayout: its land shown
+const layout = pkg.layout!;
+world.setFloor(layout.id);
+world.setFloorItems(layout.id, [{ type: "CCTV-POLE", x: 2.5, y: -15.5, rotation: 180 }]); // in the site's frame
+world.select(pkg.footprintsOn(layout.id)[0].id);          // a building's block
+```
 
 ```ts
 import { route, type Route } from "@storeypath/viewer-world";

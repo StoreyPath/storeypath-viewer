@@ -1,0 +1,268 @@
+{
+  "$defs": {
+    "FootprintFeature": {
+      "properties": {
+        "type": {
+          "const": "Feature",
+          "default": "Feature",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "geometry": {
+          "description": "the building's outline, as the site plan draws it",
+          "discriminator": {
+            "mapping": {
+              "MultiPolygon": "#/$defs/MultiPolygonGeometry",
+              "Polygon": "#/$defs/PolygonGeometry"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PolygonGeometry"
+            },
+            {
+              "$ref": "#/$defs/MultiPolygonGeometry"
+            }
+          ],
+          "title": "Geometry"
+        },
+        "properties": {
+          "$ref": "#/$defs/FootprintProps"
+        }
+      },
+      "required": [
+        "id",
+        "geometry",
+        "properties"
+      ],
+      "title": "FootprintFeature",
+      "type": "object"
+    },
+    "FootprintProps": {
+      "additionalProperties": true,
+      "description": "A building standing on a location's land (format 0.12): its outline on the layout.",
+      "properties": {
+        "kind": {
+          "const": "footprint",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layout_id": {
+          "title": "Layout Id",
+          "type": "string"
+        },
+        "building_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the building of the location standing on it (in a package of its own); null: none (not a building of the project, or not matched yet)",
+          "title": "Building Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "what the site plan names it, as read",
+          "title": "Name"
+        },
+        "drawing_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the text written in it on the drawing, as written (its lines joined by a line break; never changed in review): a key to match on, beside the ID",
+          "title": "Drawing Label"
+        },
+        "area_m2": {
+          "title": "Area M2",
+          "type": "number"
+        },
+        "display_point": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Display Point",
+          "type": "array"
+        },
+        "site": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SiteFrame"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "where the building's own frame lies on the site (its placements' site): null when it has none"
+        },
+        "hidden": {
+          "default": false,
+          "title": "Hidden",
+          "type": "boolean"
+        },
+        "ignored": {
+          "default": false,
+          "title": "Ignored",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "layout_id",
+        "area_m2",
+        "display_point"
+      ],
+      "title": "FootprintProps",
+      "type": "object"
+    },
+    "MultiPolygonGeometry": {
+      "properties": {
+        "type": {
+          "const": "MultiPolygon",
+          "title": "Type",
+          "type": "string"
+        },
+        "coordinates": {
+          "items": {
+            "items": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "title": "MultiPolygonGeometry",
+      "type": "object"
+    },
+    "PolygonGeometry": {
+      "properties": {
+        "type": {
+          "const": "Polygon",
+          "title": "Type",
+          "type": "string"
+        },
+        "coordinates": {
+          "items": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "title": "PolygonGeometry",
+      "type": "object"
+    },
+    "SiteFrame": {
+      "description": "Where a building's own frame lies on its location's site (format 0.12).",
+      "properties": {
+        "x_m": {
+          "description": "its frame's origin in the site's frame, metres",
+          "title": "X M",
+          "type": "number"
+        },
+        "y_m": {
+          "title": "Y M",
+          "type": "number"
+        },
+        "rotation_deg": {
+          "description": "how far it is turned, degrees clockwise: a point (x, y) of its frame is at (x_m + x cos r + y sin r, y_m - x sin r + y cos r) in the site's",
+          "title": "Rotation Deg",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x_m",
+        "y_m",
+        "rotation_deg"
+      ],
+      "title": "SiteFrame",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "type": {
+      "const": "FeatureCollection",
+      "default": "FeatureCollection",
+      "title": "Type",
+      "type": "string"
+    },
+    "features": {
+      "items": {
+        "$ref": "#/$defs/FootprintFeature"
+      },
+      "title": "Features",
+      "type": "array"
+    }
+  },
+  "required": [
+    "features"
+  ],
+  "title": "FeatureCollection[FootprintFeature]",
+  "type": "object"
+}

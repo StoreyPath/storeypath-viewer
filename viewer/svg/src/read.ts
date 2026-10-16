@@ -7,7 +7,7 @@ import { inOrder, type PackageLike } from "./package.js";
 
 export const FORMAT = "storeypath-package";
 /** The format version this viewer reads, any patch of it (spec/FORMAT.md, "Versioning"). */
-export const FORMAT_VERSION = "0.11";
+export const FORMAT_VERSION = "0.12";
 export const SUPPORTED_MAJOR_VERSION = Number(FORMAT_VERSION.split(".")[0]);
 
 const VERSION = /^(\d+)\.(\d+)(\.\d+)?([-+][0-9A-Za-z.-]+)?$/;
@@ -69,6 +69,9 @@ export async function readPackage(source: ArrayBuffer | Uint8Array | Blob,
     return name ? ((await json(name)) as { features: never[] }).features : [];
   };
   const [floors, spaces, zones, openings, items] = await Promise.all(["floors", "spaces", "zones", "openings", "items"].map(features));
+  // a layout's package (format 0.12): the location's land, and the buildings standing on it;
+  // a role the manifest does not list is not in the package
+  const [layouts, footprints] = await Promise.all(["layout", "footprints"].map(features));
   // the types of the items (format 0.6): their colours
   const catalogue = manifest.files["catalogue"] ? ((await json(manifest.files["catalogue"])) as PackageLike["catalogue"]) : null;
   // the walking network (format 0.8): route() finds the way on it
@@ -81,7 +84,7 @@ export async function readPackage(source: ArrayBuffer | Uint8Array | Blob,
   };
   // each building's floors in its order: a mezzanine (0.11) between its host and the floor above
   return { manifest, floors: inOrder(floors!), spaces: spaces!, zones: zones!, openings: openings!, items: items!, catalogue, navigation,
-    drawing };
+    layouts: layouts!, footprints: footprints!, drawing };
 }
 
 interface Entry {

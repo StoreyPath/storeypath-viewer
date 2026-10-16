@@ -4,6 +4,10 @@
 //   await viewer.open("/campus.storeypath");
 //   viewer.select("K7Q2XM-RUH-HQ-F02-0142");
 //   viewer.addEventListener("select", (e) => console.log(e.detail.id));
+//
+// A location's layout (format 0.12, a layout's package) is shown as its land: a "building"
+// (PROJECT-LOCATION-LAND) of one floor, the layout's plot, its areas flat on it, the
+// footprints of the buildings standing on it outlined as buildings are.
 
 import maplibregl from "maplibre-gl";
 
@@ -108,8 +112,8 @@ export class StoreyPathViewer extends EventTarget {
 
     this.#setData();
 
-    this.setBuilding(pkg.buildings[0]?.id, { fit: false });
-    this.fitTo(pkg.buildings, { duration: 0 });
+    this.setBuilding(pkg.buildings[0]?.id ?? pkg.landId, { fit: false }); // (a layout's package, 0.12: its land)
+    this.fitTo(pkg.buildings.length ? pkg.buildings : [pkg.layout, ...pkg.spaces], { duration: 0 });
     this.#emit("load", { package: pkg });
     return pkg;
   }
@@ -129,6 +133,8 @@ export class StoreyPathViewer extends EventTarget {
   #setData() {
     const pkg = this.#pkg;
     const floorInfo = new Map(pkg.floors.map((f) => [f.id, f.properties]));
+    // a layout (format 0.12): its land's one floor, at the ground
+    for (const l of pkg.layouts) floorInfo.set(l.id, { elevation: 0, height: l.properties.wall_height_m || 2.4, building_id: pkg.landId });
     const styled = (features, extra, keep = () => true) => ({
       type: "FeatureCollection",
       features: features
@@ -136,8 +142,8 @@ export class StoreyPathViewer extends EventTarget {
         .map((f) => ({ ...f, properties: { ...f.properties, _id: f.id, ...extra(f) } })),
     });
     const shown = (f) => this.#shown(f);
-    this.#map.getSource("sp-buildings").setData(styled(pkg.buildings, () => ({})));
-    this.#map.getSource("sp-floors").setData(styled(pkg.floors, (f) => ({ _elev: f.properties.elevation })));
+    this.#map.getSource("sp-buildings").setData(styled([...pkg.buildings, ...pkg.footprints], () => ({})));
+    this.#map.getSource("sp-floors").setData(styled([...pkg.floors, ...pkg.layouts], (f) => ({ _elev: f.properties.elevation ?? 0 })));
     this.#map.getSource("sp-openings").setData(styled(pkg.openings, () => ({}), shown));
     this.#map.getSource("sp-spaces").setData( // what is used: zones, and spaces with none
       styled(pkg.units, (s) => {
@@ -154,8 +160,8 @@ export class StoreyPathViewer extends EventTarget {
       this.#building = id;
       this.#emit("buildingchange", { id });
     }
-    this.setFloor(floor ?? this.#pkg.groundFloor(id)?.id);
-    if (fit) this.fitTo([this.#pkg.get(id)]);
+    this.setFloor(floor ?? this.#pkg.groundFloor(id)?.id ?? this.#pkg.levelsOf(id)[0]?.id);
+    if (fit) this.fitTo([this.#pkg.get(id) ?? this.#pkg.levelsOf(id)[0]]);
   }
 
   setFloor(id) {
@@ -182,7 +188,8 @@ export class StoreyPathViewer extends EventTarget {
     const space = this.#pkg?.get(id);
     if (!space || space.properties.kind !== "space") return false;
     const floorId = space.properties.floor_id;
-    const buildingId = this.#pkg.get(floorId).properties.building_id;
+    const level = this.#pkg.get(floorId).properties;
+    const buildingId = level.kind === "layout" ? this.#pkg.landId : level.building_id; // (an area of a layout, 0.12: its land)
     if (buildingId !== this.#building) this.setBuilding(buildingId, { floor: floorId, fit: false });
     else if (floorId !== this.#floor) this.setFloor(floorId);
     this.#selected = id;

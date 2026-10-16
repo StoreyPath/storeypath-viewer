@@ -13,6 +13,30 @@ export interface Placement {
   x: number;
   y: number;
   bearing: number;
+  /** Where the building's frame lies on its location's site (format 0.12), or null: placed on the map by itself. */
+  site?: Site | null;
+}
+
+/** Where a building's own frame lies on its location's site (format 0.12): its origin at (x_m, y_m) of
+ * the site's frame (metres from the site's centre, the site plan's up as y), turned rotation_deg clockwise. */
+export interface Site {
+  x_m: number;
+  y_m: number;
+  rotation_deg: number;
+}
+
+/** A point of a building's own frame in its site's frame (format 0.12), by its placement's ``site``:
+ * (x_m + x cos r + y sin r, y_m − x sin r + y cos r). A layout's plan is in the site's frame. */
+export function toSite(site: Site, [x, y]: readonly [number, number]): XY {
+  const r = (site.rotation_deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  return [site.x_m + x * c + y * s, site.y_m - x * s + y * c];
+}
+
+/** A point of a site's frame (format 0.12) in a building's own frame: toSite turned back. */
+export function fromSite(site: Site, [x, y]: readonly [number, number]): XY {
+  const r = (site.rotation_deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const dx = x - site.x_m, dy = y - site.y_m;
+  return [dx * c - dy * s, dx * s + dy * c];
 }
 
 const A = 6378137.0;

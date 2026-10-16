@@ -15,6 +15,9 @@
   --sp-door: #f08c00;
   --sp-window: #22b8cf;
   --sp-way: #f08c00;
+  --sp-gate: #f08c00; /* a location's layout (format 0.12): a way through its boundary walls */
+  --sp-footprint: #ece9e2; /* where a building stands on it */
+  --sp-footprint-edge: #6f6c66;
   --sp-fill-opacity: 0.55;
   --sp-label: #1d1d1f;
   --sp-label-strong: #1d1d1f;
@@ -75,6 +78,9 @@
   --sp-door: #c4c1ba;
   --sp-window: #b3cfd9;
   --sp-way: #cfccc5;
+  --sp-gate: #cfccc5;
+  --sp-footprint: #efede8;
+  --sp-footprint-edge: #b4b2ac;
   --sp-label: #8b8d93;
   --sp-label-strong: #23252a;
   --sp-label-halo: rgba(247, 246, 242, 0.92);
@@ -115,6 +121,10 @@
 
 .sp-containers path { fill: none; stroke: var(--sp-container); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 
+/* a location's layout (format 0.12): where its buildings stand, outlined over its areas */
+.sp-footprints path { fill: var(--sp-footprint); stroke: var(--sp-footprint-edge); stroke-width: 1.5; vector-effect: non-scaling-stroke;
+  pointer-events: none; }
+
 .sp-wall { fill: var(--sp-wall); stroke: none; pointer-events: none; }
 .sp-parapet { fill: var(--sp-parapet); stroke: none; pointer-events: none; }
 
@@ -123,9 +133,10 @@
 .sp-swing { stroke-linejoin: round; }
 .sp-window { stroke: var(--sp-window); stroke-width: 3; }
 .sp-way { stroke: var(--sp-way); stroke-width: 2.5; stroke-dasharray: 4 4; }
+.sp-gate { stroke: var(--sp-gate); stroke-width: 3; stroke-dasharray: 6 4; } /* (format 0.12) as a way through, a layout's boundary's */
 .sp-style-wayfinding .sp-door { stroke-width: 1.25; }
 .sp-style-wayfinding .sp-window { stroke-width: 2; }
-.sp-style-wayfinding .sp-way { stroke-width: 1.5; }
+.sp-style-wayfinding .sp-way, .sp-style-wayfinding .sp-gate { stroke-width: 1.5; }
 
 /* furniture and equipment, as Studio draws them: the footprint in its type's colour,
    its front darker; overhead (on the ceiling) dashed and pale */
@@ -167,6 +178,7 @@
 .sp-labels .sp-label-sub { font-weight: 400; font-size: 0.85em; }
 .sp-style-wayfinding .sp-labels text { font-weight: 500; letter-spacing: 0.01em; }
 .sp-labels text.sp-label-strong { fill: var(--sp-label-strong); font-weight: 650; }
+.sp-labels text.sp-label-footprint { fill: var(--sp-label-strong); font-weight: 700; letter-spacing: 0.02em; } /* a building's name (0.12) */
 
 .sp-pin path { fill: var(--sp-pin); stroke: var(--sp-pin-dot); stroke-width: 1.5; }
 .sp-pin circle { fill: var(--sp-pin-dot); }
@@ -300,6 +312,8 @@
     --sp-container: rgba(255, 255, 255, 0.45);
     --sp-wall: #111114;
     --sp-parapet: #6e6e76;
+    --sp-footprint: #4a4a51;
+    --sp-footprint-edge: #b9b9c0;
     --sp-label: #f1f1f3;
     --sp-label-strong: #ffffff;
     --sp-label-halo: rgba(20, 20, 24, 0.85);
@@ -332,6 +346,9 @@
     --sp-door: #4a4d55;
     --sp-window: #36525d;
     --sp-way: #4a4d55;
+    --sp-gate: #4a4d55;
+    --sp-footprint: #2a2c31;
+    --sp-footprint-edge: #50535b;
     --sp-label: #7c808a;
     --sp-label-strong: #eef0f3;
     --sp-label-halo: rgba(30, 32, 36, 0.9);
@@ -346,6 +363,8 @@
   --sp-container: rgba(255, 255, 255, 0.45);
   --sp-wall: #111114;
   --sp-parapet: #6e6e76;
+  --sp-footprint: #4a4a51;
+  --sp-footprint-edge: #b9b9c0;
   --sp-label: #f1f1f3;
   --sp-label-strong: #ffffff;
   --sp-label-halo: rgba(20, 20, 24, 0.85);
@@ -378,6 +397,9 @@
   --sp-door: #4a4d55;
   --sp-window: #36525d;
   --sp-way: #4a4d55;
+  --sp-gate: #4a4d55;
+  --sp-footprint: #2a2c31;
+  --sp-footprint-edge: #50535b;
   --sp-label: #7c808a;
   --sp-label-strong: #eef0f3;
   --sp-label-halo: rgba(30, 32, 36, 0.9);

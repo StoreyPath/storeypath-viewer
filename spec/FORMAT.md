@@ -1,11 +1,13 @@
-# StoreyPath package format — version 0.11.0
+# StoreyPath package format — version 0.12.0
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
 elevators, …), the zones that divide open spaces, the doors between spaces, and the
 furniture and equipment on them. A project of several buildings is several packages,
-one each (One building per package). It is a ZIP archive of plain JSON, GeoJSON and
-CSV files, so any system can read it without special software.
+one each (One building per package). A location's land, its layout (the plot its
+buildings stand on, its boundary walls and gates, its outdoor areas, what is placed on
+it), travels in a package of its own (Location layouts, 0.12). It is a ZIP archive of
+plain JSON, GeoJSON and CSV files, so any system can read it without special software.
 
 Sent where others could read it, a package may be sealed with a password
 (`*.storeypath.enc`): what it holds is a package as below, and how it is opened is in
@@ -17,7 +19,7 @@ A copy of this document is included in every package.
 
 | File | Contents |
 |---|---|
-| `manifest.json` | Format version, project, export number, file list, counts, the building's placement, and the building it holds (`scope`) |
+| `manifest.json` | Format version, project, export number, file list, counts, the building's placement, and the building it holds (`scope`; or the layout, 0.12) |
 | `location.geojson` | Locations (sites, campuses) |
 | `buildings.geojson` | The building, with its footprint |
 | `floors.geojson` | Floors, with their outline, order, elevation and height, and what level each is: a floor, a mezzanine (with the floor it stands in) or the roof (Levels, 0.11) |
@@ -33,12 +35,16 @@ A copy of this document is included in every package.
 | `world/<floor-id>.glb` | Optional: each floor already built in 3D, as binary glTF (Pre-built 3D) |
 | `models/<CODE>.glb` | Optional: an item type's 3D model, as binary glTF (Models, 0.9.2) |
 | `drawings/<floor-id>.view` | Optional: each floor's drawing as drawn, its part of its drawing in the building's own frame (Drawings, 0.11) |
+| `layout.geojson` | A layout's package only: the location's layout, its land, with its boundary and walls (Location layouts, 0.12) |
+| `footprints.geojson` | A layout's package only: the buildings standing on the layout, each its outline and its building (Location layouts, 0.12) |
 | `FORMAT.md` | This document |
 
 Readers locate each file through `manifest.json → files`, by its role (`location`,
 `buildings`, `floors`, `spaces`, `zones`, `openings`, `objects`, `changes`, `items`,
-`catalogue`, `navigation`); the names in the table are the defaults. A floor's drawing is
-found through its source (`manifest.json → sources`, Drawings).
+`catalogue`, `navigation`; a layout's package, `layout` and `footprints`, 0.12); the names
+in the table are the defaults. A role the manifest does not list is not in the package (a
+building's package lists no `layout`; a layout's package no `navigation`). A floor's
+drawing is found through its source (`manifest.json → sources`, Drawings).
 
 **JSON.** Keys are case-sensitive: a key that differs from the format's only in case is
 not that key, and a reader may refuse the file. Every number is finite (NaN and
@@ -74,6 +80,10 @@ PROJECT-LOCATION-BUILDING-FLOOR-OBJECT        K7Q2XM-RUH-HQ-F02-0142
   place. A place's ID never has that form (Studio's project codes are six symbols, and
   it refuses a building code that would give one): a reader taking an ID apart into
   its segments refuses an asset ID.
+- A location's land (0.12) has the building segment `LAND`, which no building has: its
+  layout is `K7Q2XM-RUH-LAND-G00` (a level of the location, as a floor is of its
+  building), what is on it `K7Q2XM-RUH-LAND-G00-0004` (Location layouts). Taken apart, its
+  location is its location; its "building" is the land, no building of the project.
 
 Importing systems should store our ID as the key of their own mapping, and use
 `changes.json` on each new export to add, update and remove mappings.
@@ -103,6 +113,12 @@ position in the frame (`local`). The anchor point (`x`, `y`) of a placement is t
 point of the frame put at (`lon`, `lat`): it may move between exports; the frame
 does not.
 
+**A location's site** (0.12). The buildings of a location stand on its site: a plan in
+metres, its origin the site's centre, its y the site plan's up. A building placed on its
+site (not on the map by itself) has the site's centre as its placement's (`lon`, `lat`),
+and its placement says where its frame lies on the site (`site`: Location layouts). The
+location's layout is drawn in the site's frame.
+
 ## Features
 
 Every feature has a top-level `id` and a `properties.kind`. Readers must ignore
@@ -113,6 +129,9 @@ convex hull of its buildings (or null).
 
 **building** — `code`, `name`, `location_id`, `display_point`. Geometry: footprint (or
 null if no floor has been converted).
+
+**layout** and **footprint** (0.12): a location's land and the buildings standing on it,
+in a layout's own package (Location layouts).
 
 **floor** — a level of the building: `code`, `name`, `building_id`, `type` (`floor`,
 `mezzanine` or `roof`: Levels), `ordinal` (0 = ground, negative = below ground; a
@@ -185,11 +204,15 @@ Space types: `office`, `room`, `meeting_room`, `corridor`, `lobby`, `elevator`,
 `open_area`, `unspecified`, `bedroom`, `living_room`, `dining_room`, `bathroom`
 (private; public toilets are `restroom`), `dressing_room`, `laundry`, `prayer_room`,
 `parking`, `balcony`, `terrace`, `open_to_below` (a void over the floor below), `roof`
-(0.11: the open roof of a building, its deck behind the parapets, on a roof level).
+(0.11: the open roof of a building, its deck behind the parapets, on a roof level);
+outdoors, a location's land's areas (0.12, Location layouts): `yard` (the plot's open
+ground round its buildings), `driveway`, `garden`, `courtyard` (open ground closed round
+by buildings or walls), `path`, `gate_area` (the ground at a gate), `road` (beyond the
+plot's boundary), `pool`.
 
 Opening types: `door`, `window` (glazing in a wall: not a way through), `opening` (a
-way through a wall with no door: a doorway). Openings join spaces; the zones of a
-space need none.
+way through a wall with no door: a doorway), `gate` (0.12: a way through a location's
+boundary walls, on its layout). Openings join spaces; the zones of a space need none.
 
 Zones use the space types.
 
@@ -204,9 +227,12 @@ One row per ID, including the project itself:
 `id, kind, type, name, number, project_id, location_id, building_id, floor_id,
 floor_ordinal, area_m2, lon, lat, hidden, ignored, space_id, drawing_label`
 
-`kind` is `project`, `location`, `building`, `floor`, `space`, `zone`, `opening` or
-`item` (0.6). A reader skips rows of a kind it does not know: a later format may add some.
-Parent columns are empty where they do not apply; `space_id` is a zone's space.
+`kind` is `project`, `location`, `building`, `floor`, `space`, `zone`, `opening`,
+`item` (0.6), `layout` or `footprint` (0.12). A reader skips rows of a kind it does not
+know: a later format may add some. Parent columns are empty where they do not apply;
+`space_id` is a zone's space. What is on a location's land (0.12) is in no building: its
+`building_id` is empty and its `floor_id` is the layout's (the layout's own row has
+neither).
 `lon`/`lat` is the label point (spaces, zones, buildings, locations) or the door
 position (openings).
 
@@ -244,8 +270,9 @@ the manifest's `export.previous_sequence`.
   items its packages held that were taken away since. An ID in use again is not
   listed. A system that skipped an export uses it to clean up its mappings.
 - `moved_away`: items the building's last package held that stand in another building
-  now (not retired: that building's package holds them). An item is never both moved
-  away and retired.
+  now (not retired: that building's package holds them), its ID their `building_id`; or
+  (0.12) on a location's land, the layout's ID their `building_id`. An item is never both
+  moved away and retired. A layout's package (Location layouts) lists its own so.
 
 ## Items
 
@@ -280,6 +307,9 @@ Like every ID, an item's is never issued again once it is retired.
   that does not read the catalogue. The geometry is its footprint, a Polygon.
 - `space_id`, and `zone_id` when the space is divided, are where its middle stands at
   export: null when it is in none.
+- On a location's land (0.12, Location layouts) an item's `floor_id` is the layout's ID,
+  its `building_id` null, its `local` its place in the site's frame, and its `space_id`
+  the area it stands in.
 - `local` (0.7) is where it stands in its building: its middle in the building's own
   frame (`x_m`, `y_m`: metres from the origin of the building's drawings), and the way
   its front faces there (`rotation_deg`, counter-clockwise: 0 is the drawings' −y, 90
@@ -298,7 +328,8 @@ Like every ID, an item's is never issued again once it is retired.
   the group an item keeps that ID. Studio moves and turns a group's items together.
 - `door_id` (0.10) is the door an item serves, for a type that `serves_door`: a card
   reader, a door controller, an exit button, an intercom. It is the ID of an opening of the
-  item's floor, a `door` or an `opening` (never a `window`); null, or absent, none. Studio
+  item's floor, a `door`, an `opening` or (0.12, on a layout) a `gate` (never a `window`);
+  null, or absent, none. Studio
   links one placed within 2 m of a door to the nearest, and a person may link it to another.
   A door deleted since leaves it null in the package (the link comes back with the door).
 - `view_deg` and `range_m` (0.10) are a camera's view, an item of a type of shape `camera`:
@@ -800,9 +831,15 @@ building's outside: `WALL-PAINT-WHITE`):
 | `restroom`, `bathroom`, `laundry` | `FLOOR-PORCELAIN-WHITE` | `WALL-TILE-WHITE` |
 | `storage`, `utility`, `shaft`, `unspecified`, `open_to_below`, `roof` | `FLOOR-CONCRETE` | `WALL-PAINT-WHITE` |
 
+A location's land's areas (0.12: `yard`, `driveway`, `garden`, `courtyard`, `path`, `gate_area`, `road`,
+`pool`) have no finishes and no defaults of their own in 0.12: a reader draws them by their type (a
+garden green, a road dark), or, finishing them, as `unspecified`.
+
 ## One building per package
 
-From 0.7 a package holds exactly one building: `manifest.json → scope` names it.
+From 0.7 a package holds exactly one building: `manifest.json → scope` names it. From
+0.12 a package may hold a location's layout in its place (Location layouts): `scope.layout`
+names it, `scope.buildings` is empty.
 
 ```json
 "scope": { "buildings": ["7KQ2MX-SITE-ENG"] }
@@ -958,6 +995,112 @@ it: drawn under the plan, the drawing lies on it.
 
 Readers that do not show drawings ignore the folder.
 
+## Location layouts (0.12)
+
+A location's layout is its land: the plot its buildings stand on, as its site plan draws
+it. Its boundary (the property limits), the walls and fences round it with their gates,
+the open ground between the buildings in areas (the yard, parking, a driveway, a garden,
+the road beyond the boundary), the footprint of each building standing on it, and the
+items placed on it (cameras on poles and walls, card readers at gates, barriers, lights).
+A system that places outdoor cameras, or says where someone outside is ("at the gate",
+"in the parking"), reads it.
+
+**A package of its own.** A layout is exported as a building is, in a package of its own,
+beside its location's buildings' packages:
+
+```json
+"scope": { "buildings": [], "layout": "K7Q2XM-SITE-LAND-G00" },
+"files": { …, "layout": "layout.geojson", "footprints": "footprints.geojson" },
+"placements": { "K7Q2XM-SITE-LAND-G00": { "lon": 46.6812, "lat": 24.7135, "x": 0, "y": 0, "bearing": 30,
+                                          "placed": true, … } }
+```
+
+- `scope.layout` names the layout; `scope.buildings` is empty. It holds the layout
+  (`layout.geojson`), its footprints (`footprints.geojson`), its areas (`spaces.geojson`), its
+  gates (`openings.geojson`), the items on it (`items.geojson`) and its location;
+  `buildings.geojson`, `floors.geojson` and `zones.geojson` are empty, and it has no
+  `navigation.json` (ways outdoors are for a later version).
+- `changes.json` is about the layout: what changed on the land since its last package
+  (`previous_sequence`), as a building's is about the building. An item is in one package:
+  the building's it stands in, or the layout's; one carried between them is `moved_away`
+  from one and `changed` in the other.
+- `placements` holds one placement, the site's own, by the layout's ID: the site's centre (`x`
+  and `y` 0) at `lon`, `lat`, the site plan's up at `bearing`. `placed` is false for a site not
+  on the map yet (around 0°N 0°E, as an unplaced building; its bearing may still be known,
+  `north`).
+- A building's package holds no layout: its manifest lists no `layout` or `footprints`.
+
+**IDs.** A layout is a level of its location, as a floor is a level of its building: its ID
+has a floor's four segments, the third the reserved `LAND` (no building has it), the fourth
+the land's level, `G00` (the only one in 0.12): `K7Q2XM-SITE-LAND-G00`. What is on it has
+five segments, as any space or opening: `K7Q2XM-SITE-LAND-G00-0004` an area, a gate or a
+footprint. They are stable as rooms' are: a site plan read again keeps each one's that is
+still there. A reader taking an ID apart finds the location as in any ID; a third segment
+`LAND` is the land, not a building.
+
+**The site's frame.** A layout is drawn in its site's frame (Coordinates): its areas, walls,
+gates and footprints are where the site's placement puts them on the map, and its items'
+`local` are metres of that frame (0 at the site's centre, y the site plan's up). A building
+of the location stands on the site where its placement's `site` says, in its own package:
+
+```json
+"placements": { "K7Q2XM-SITE-HQ": { "lon": 46.6812, "lat": 24.7135, "x": 94.0, "y": 59.0, "bearing": 120,
+                                    "site": { "x_m": -59.0, "y_m": 94.0, "rotation_deg": 90 }, … } }
+```
+
+`site` is where its own frame lies on the site: its origin at (`x_m`, `y_m`) of the site's
+frame, turned `rotation_deg` clockwise, so a point (x, y) of the building is at
+(`x_m` + x cos r + y sin r, `y_m` − x sin r + y cos r) on the site. Its placement's `lon`,
+`lat` are the site's centre's, its `bearing` the site's and `rotation_deg`: the building's
+package and the layout's put it at the same place on the map. `site` is null (or absent,
+before 0.12) for a building placed on the map by itself.
+
+**layout** — `code` (`G00`), `name`, `location_id`, `area_m2` (the plot's), `display_point`,
+`walls` (the boundary walls and fences, and walls standing on the land, as drawn, with their
+gates' gaps: a Polygon or MultiPolygon, or null), `wall_height_m` (how high they stand),
+`wall_thickness_m`, `north` (`bearing`: the compass bearing the site plan's up faces, as the
+placement's; `from`: how it is known: `map`, the site placed on the map; `drawing`, the site
+plan's north arrow; `person`, set by a person; null, not known, up taken as north).
+Geometry: its boundary, the plot (or null: none found).
+
+```json
+{ "type": "Feature", "id": "K7Q2XM-SITE-LAND-G00", "geometry": { "type": "Polygon", … },
+  "properties": { "kind": "layout", "code": "G00", "name": "Layout", "location_id": "K7Q2XM-SITE",
+                  "area_m2": 1800.0, "walls": { "type": "MultiPolygon", … }, "wall_height_m": 2.4,
+                  "wall_thickness_m": 0.25, "north": { "bearing": 30.0, "from": "drawing" }, … } }
+```
+
+**footprint** — `layout_id`, `building_id` (the building of the location standing on it, in a
+package of its own; null: none of the project's, or not yet said), `name` (what the site plan
+names it, as read), `drawing_label` (its texts as written), `area_m2`, `display_point`, `site`
+(its building's placement's `site`, or null), `hidden`, `ignored`. Geometry: the building's
+outline as the site plan draws it (often its roof, wider than its walls): Polygon or
+MultiPolygon. A footprint is where a building stands, not the building: a system keys its
+buildings to `building_id`, and finds their rooms in their own packages.
+
+**Areas** are the layout's spaces (`floor_id` the layout's ID), `outdoor`, of the land's types
+(Types: `yard`, `parking`, `driveway`, `garden`, `courtyard`, `path`, `gate_area`, `road`,
+`pool`, `terrace`; a person may give any). Their edges are lines on the ground (a kerb, a
+fence, a change of paving), not walls: draw them as light lines and walk across them; the
+walls are the layout's `walls`. In 0.12 they have no zones, stacks, finishes or grade, and a
+`capacity` only as a person set it.
+
+**Gates** are the layout's openings of type `gate`: ways through its walls, `span` jamb to jamb,
+`width_m`, `connects` the areas on each side (inside, then the road outside when there is
+one), `exterior` true when one side is outside the plot (the road, or no area).
+
+**Items** on a layout: `floor_id` the layout's ID, `building_id` null, `local` their place in the
+site's frame; `heading` follows from the layout's placement as a building's items' does. A
+camera's view (`view_deg`, `range_m`) is drawn on the land as on a floor; a card reader's
+`door_id` may be a gate.
+
+**What a reader does.** Tell a layout's package by `scope.layout`, and read no building in it.
+Key its objects by their IDs, as any. Draw the land under the buildings: its areas by type,
+its boundary, its walls `wall_height_m` high, its gates; and each building on its footprint, by
+its placement on the map, or by its `site` in the site's frame. Take an ID whose third segment is
+`LAND` as a location's land. A reader of 0.11 knows none of this: it refuses a 0.12 package
+(Versioning).
+
 ## Changes from 0.2
 
 - `zones.geojson` and the `zone` kind: open areas are one space divided into zones,
@@ -981,6 +1124,33 @@ Readers that do not show drawings ignore the folder.
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.11
+
+- Location layouts (Location layouts): a location's land, in a package of its own, beside its
+  buildings': `scope.layout` (`scope.buildings` empty), `layout.geojson` (kind `layout`: the
+  plot as its geometry, its `walls`, `wall_height_m`, `wall_thickness_m`, `north`) and
+  `footprints.geojson` (kind `footprint`: each building standing on it, `building_id`, `site`),
+  the files' roles `layout` and `footprints`; its areas are spaces of the layout, its gates
+  openings, the items on it items of no building. Its IDs: the building segment `LAND`, which no
+  building has, and its level `G00`. A reader must:
+  - tell a layout's package by `scope.layout`, and read no building in it;
+  - take an ID whose third segment is `LAND` as a location's land, not a building;
+  - read a layout's placement (the site's own, by the layout's ID) and a building's placement's
+    `site` (where its frame lies on its location's site);
+  - know the space types `yard`, `driveway`, `garden`, `courtyard`, `path`, `gate_area`,
+    `road` and `pool`, and the opening type `gate`;
+  - read an item's `building_id` as null on a layout (its `floor_id` the layout's ID), and a
+    `door_id` that is a gate;
+  - read `objects.csv`'s kinds `layout` and `footprint`, a layout's objects with no
+    `building_id`;
+  - read a `moved_away` item's `building_id` as a layout's ID when it went onto the land.
+  A validator checks that a layout's package holds its layout alone (no building, floor, zone
+  or walking network), with one placement, by the layout's ID; that no building's code is
+  `LAND`; that the layout's areas and gates are on it, its footprints' buildings of its
+  location, and an item on it of no building.
+- A minor version: a reader of 0.11 refuses a 0.12 package (Versioning); a reader of 0.12 reads
+  0.11 and earlier ones as before (no layouts; no building's `site`).
 
 ## Changes from 0.10
 
@@ -1147,6 +1317,17 @@ open deck behind its parapets (spaces of type `roof`). `routes.json` holds ways 
 too: up the stairs by the mezzanine, to a room on it, by lift past it, and up the stairs
 to the roof.
 
+`site-plot` (0.12) is a location's layout (Location layouts), all of it made up: a plot of 50 by
+36 m read from a site plan, its property limits marked along them, its boundary walls with a
+vehicle gate and a pedestrian gate on the street, a main house (an L) in its middle and two
+guest houses alike but for their names, all three placed on their footprints by the site plan
+(the house turned a right angle from how its own drawing has it, the guest houses told apart by
+their names), a store no building of the project is (its footprint of no building), parking, a
+garden, the yard round them, and the street beyond the boundary; north 30° from the plan's up.
+On it, a camera on a pole by the gate and a card reader at the pedestrian gate (its `door_id`
+the gate). `site-plot-house`, `site-plot-guest-a` and `site-plot-guest-b` are the three
+buildings' packages of the same export run, each with its `site`.
+
 A reader that takes packages from uploads bounds what it reads. A building's package
 is a few megabytes; the Go module reads by default at most 64 MiB a file and 256 MiB in
 all, a file at most 100 times its size in the archive (files above 1 MiB), and at most
@@ -1159,9 +1340,9 @@ can process a package. A reader reads packages of its own major version that are
 newer than it, and ignores unknown files, properties, and `objects.csv` rows of kinds it
 does not know (as 0.6 added items), with the IDs of those rows where `changes.json` lists
 them. Before 1.0 a minor version may change what a package means (0.4's `scope`, 0.7's
-one building per package), so a reader refuses a package of a newer minor version
-(0.12 for a reader of 0.11), saying it must be updated; a newer patch version (0.11.1)
-only adds properties and is read. From 1.0, a reader reads any package of its major
+one building per package, 0.12's layouts), so a reader refuses a package of a newer minor
+version (0.13 for a reader of 0.12), saying it must be updated; a newer patch version
+(0.12.1) only adds properties and is read. From 1.0, a reader reads any package of its major
 version. A format version is ASCII `major.minor`, an optional `.patch`, and an optional
 `-` or `+` suffix (`^[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.-]+)?$`); a reader refuses
 anything else as not a format version.

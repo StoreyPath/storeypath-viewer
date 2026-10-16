@@ -3,11 +3,12 @@
 
 import JSZip from "jszip";
 
+import { isLandId } from "./ids.js";
 import { isSealed, unseal } from "./sealed.js";
 
 export const FORMAT = "storeypath-package";
 /** The format version this viewer reads, any patch of it (spec/FORMAT.md, "Versioning"). */
-export const FORMAT_VERSION = "0.11";
+export const FORMAT_VERSION = "0.12";
 export const SUPPORTED_MAJOR_VERSION = Number(FORMAT_VERSION.split(".")[0]);
 
 const VERSION = /^(\d+)\.(\d+)(\.\d+)?([-+][0-9A-Za-z.-]+)?$/;
@@ -30,6 +31,9 @@ export function checkVersion(version) {
 const COLLECTIONS = ["location", "buildings", "floors", "spaces", "openings"];
 const SINCE_0_3 = ["zones"]; // parts of open spaces; none in older packages
 const SINCE_0_6 = ["items"]; // furniture and equipment; none in older packages
+// a layout's package (0.12): the location's land and the buildings standing on it; a role
+// the manifest does not list is not in the package (a building's package has neither)
+const SINCE_0_12 = ["layout", "footprints"];
 
 /**
  * Load a package from a URL, Blob, File or ArrayBuffer. One sealed with a password
@@ -62,7 +66,7 @@ export async function loadPackage(source, { password } = {}) {
   checkVersion(manifest.format_version);
   const collections = {};
   for (const role of COLLECTIONS) collections[role] = (await read(manifest.files[role])).features;
-  for (const role of [...SINCE_0_3, ...SINCE_0_6]) {
+  for (const role of [...SINCE_0_3, ...SINCE_0_6, ...SINCE_0_12]) {
     collections[role] = manifest.files[role] ? (await read(manifest.files[role])).features : [];
   }
   collections.catalogue = manifest.files.catalogue ? await read(manifest.files.catalogue) : null;
@@ -74,7 +78,7 @@ export async function loadPackage(source, { password } = {}) {
 export class StoreyPathPackage {
   /** ``zip``: the archive, for the files read only when needed (the pre-built 3D). */
   constructor(manifest, { location, buildings, floors, spaces, openings, zones = [], items = [], catalogue = null,
-    navigation = null }, zip = null) {
+    navigation = null, layout = [], footprints = [] }, zip = null) {
     this.manifest = manifest;
     this._zip = zip;
     this.locations = location;
@@ -88,9 +92,15 @@ export class StoreyPathPackage {
     // the building's walking network (navigation.json, format 0.8), or null: route()
     // in navigation.js finds the way on it
     this.navigation = navigation;
+    // a location's layout (format 0.12, a layout's package): its land (layout.geojson: its
+    // plot, boundary walls, north) and the buildings standing on it (footprints.geojson);
+    // its areas are spaces of the layout, its gates openings, what is on it items. None in
+    // a building's package
+    this.layouts = layout;
+    this.footprints = footprints;
 
     this.byId = new Map();
-    for (const list of [location, buildings, floors, spaces, zones, openings, items]) {
+    for (const list of [location, buildings, floors, spaces, zones, openings, items, layout, footprints]) {
       for (const f of list) this.byId.set(f.id, f);
     }
     this._itemsByFloor = groupBy(items, (i) => i.properties.floor_id);
@@ -101,6 +111,7 @@ export class StoreyPathPackage {
     this._unitsByFloor = groupBy(this.units, (u) => u.properties.floor_id);
     this._floorsByBuilding = groupBy(floors, (f) => f.properties.building_id);
     for (const list of this._floorsByBuilding.values()) list.sort(byLevel);
+    this._footprintsByLayout = groupBy(footprints, (f) => f.properties.layout_id);
     this._spacesByFloor = groupBy(spaces, (s) => s.properties.floor_id);
     this._doorsBySpace = new Map();
     for (const o of openings) {
@@ -121,15 +132,38 @@ export class StoreyPathPackage {
   }
 
   /** The buildings the package holds when it is part of a project (format 0.4; from
-   * 0.7, always one), or null for the whole project. */
+   * 0.7, always one), or null for the whole project. A layout's package (0.12) holds
+   * none: [] (its layout is ``layout``). */
   get scope() {
     return this.manifest.scope?.buildings ?? null;
   }
 
+  /** Whether this is a layout's package (format 0.12, its scope's ``layout``): a location's
+   * land, and no building. */
+  get isLayout() {
+    return typeof this.manifest.scope?.layout === "string";
+  }
+
+  /** The location's layout the package holds (format 0.12: its scope's), or null: a
+   * building's package has none. */
+  get layout() {
+    const id = this.manifest.scope?.layout;
+    return (id ? this.get(id) : null) ?? this.layouts[0] ?? null;
+  }
+
+  /** The land of the package's layout (format 0.12): PROJECT-LOCATION-LAND, the "building"
+   * its layout is the one level of; null without a layout. */
+  get landId() {
+    const layout = this.layout;
+    return layout ? landOf(layout.id) : null;
+  }
+
   /** Whether the package holds a building: always, for the whole project; for a
    * part, when the building is in its scope. What is outside it is not in the
-   * package, and its absence says nothing about it. */
+   * package, and its absence says nothing about it. A layout's package (0.12) holds its
+   * layout (by its ID, or its land's) and no building. */
   holds(buildingId) {
+    if (this.isLayout) return buildingId === this.manifest.scope.layout || buildingId === landOf(this.manifest.scope.layout);
     return this.scope === null || this.scope.includes(buildingId);
   }
 
@@ -193,6 +227,62 @@ export class StoreyPathPackage {
     return this._floorsByBuilding.get(buildingId) ?? [];
   }
 
+  /** The levels of a building (its floors, as floorsOf) or of a location's land (format
+   * 0.12: its layout, its one level; by the land's ID, PROJECT-LOCATION-LAND, or the
+   * layout's own). What a viewer shows a building or a land by. */
+  levelsOf(id) {
+    if (!isLandId(id)) return this.floorsOf(id);
+    return this.layouts.filter((l) => l.id === id || landOf(l.id) === id);
+  }
+
+  /** A building's placement on the map (format 0.7, manifest.json → placements), or, for a
+   * location's land, its layout or what is on it (0.12), the site's own (by the layout's
+   * ID): the site's centre at its lon, lat, the site plan's up at its bearing. Null when
+   * the package has none. */
+  placementOf(id) {
+    const placements = this.manifest.placements ?? {};
+    if (placements[id]) return placements[id];
+    if (!isLandId(id)) return null;
+    const layout = this.layouts.find((l) => l.id === id || landOf(l.id) === landOf(id));
+    return layout ? placements[layout.id] ?? null : null;
+  }
+
+  /** Where a building's own frame lies on its location's site (format 0.12: its
+   * placement's ``site``: { x_m, y_m, rotation_deg }), or null: placed on the map by
+   * itself, or a package before 0.12. */
+  siteOf(buildingId) {
+    return validSite(this.manifest.placements?.[buildingId]?.site) ?? null;
+  }
+
+  /** A point of a building's own frame ([x, y], metres of its drawings) in its site's
+   * frame (format 0.12: metres from the site's centre, the site plan's up as y), through
+   * its placement's ``site`` (toSite); null when it has none. A layout's points, and its
+   * items' ``local``, are in the site's frame already. */
+  sitePoint(buildingId, point) {
+    const site = this.siteOf(buildingId);
+    return site ? toSite(site, point) : null;
+  }
+
+  /** A footprint by its ID (format 0.12: where a building stands on its location's
+   * layout), or null. */
+  footprint(id) {
+    const f = this.get(id);
+    return f?.properties.kind === "footprint" ? f : null;
+  }
+
+  /** The footprints on a layout (format 0.12): the buildings standing on it, each its
+   * outline as the site plan draws it and its building (``building_id``, or null). */
+  footprintsOn(layoutId) {
+    return this._footprintsByLayout.get(layoutId) ?? [];
+  }
+
+  /** The footprint a building stands on (format 0.12: one whose ``building_id`` is it, not
+   * ignored in review), or null: none in this package (a building's package holds no
+   * layout), or the site plan does not show it. */
+  footprintOf(buildingId) {
+    return this.footprints.find((f) => f.properties.building_id === buildingId && !f.properties.ignored) ?? null;
+  }
+
   spacesOn(floorId) {
     return this._spacesByFloor.get(floorId) ?? [];
   }
@@ -231,6 +321,8 @@ export class StoreyPathPackage {
    * Everything an ID says about where an object is:
    * PROJECT-LOCATION-BUILDING-FLOOR-OBJECT. An item's ID (an asset's tag,
    * 7K2Q-XM9F-4DP) says nothing of it: its floor does, and the item is the object.
+   * On a location's land (format 0.12: its third segment LAND) there is no building:
+   * ``building`` is null and its layout is its ``floor`` (an item on it likewise).
    */
   hierarchy(id) {
     const item = this.get(id);
@@ -240,7 +332,7 @@ export class StoreyPathPackage {
     return {
       project: this.manifest.project,
       location: at(2),
-      building: at(3),
+      building: isLandId(id) ? null : at(3),
       floor: at(4),
       object: segments.length === 5 ? this.get(id) : null,
     };
@@ -272,6 +364,33 @@ export class StoreyPathPackage {
     }
     return hits;
   }
+}
+
+/** A location's land (format 0.12) of a land's ID (its layout's, or what is on it):
+ * PROJECT-LOCATION-LAND. */
+function landOf(id) {
+  return id.split("-").slice(0, 3).join("-");
+}
+
+/** A placement's ``site`` (format 0.12) as it must be, or null. */
+function validSite(site) {
+  return site && ["x_m", "y_m", "rotation_deg"].every((k) => Number.isFinite(site[k])) ? site : null;
+}
+
+/** A point of a building's own frame ([x, y], metres) in its site's frame (format 0.12),
+ * by its placement's ``site``: its origin at (x_m, y_m), turned rotation_deg clockwise, so
+ * (x, y) is at (x_m + x cos r + y sin r, y_m − x sin r + y cos r). */
+export function toSite(site, [x, y]) {
+  const r = (site.rotation_deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  return [site.x_m + x * c + y * s, site.y_m - x * s + y * c];
+}
+
+/** A point of a site's frame ([x, y], metres from its centre, format 0.12) in a building's
+ * own frame, by its placement's ``site``: toSite turned back. */
+export function fromSite(site, [x, y]) {
+  const r = (site.rotation_deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const dx = x - site.x_m, dy = y - site.y_m;
+  return [dx * c - dy * s, dx * s + dy * c];
 }
 
 /** What level of its building a floor is (format 0.11, its `type`): "floor" (a storey),
