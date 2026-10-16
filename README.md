@@ -2,9 +2,9 @@
 
 <p align="center">
   <b>The StoreyPath package format, and everything that reads it.</b><br>
-  A 3D world you can orbit and walk through, a 2D plan that needs no GPU, the way from a
-  kiosk to an office, and a Go reader: for any web app or system that wants indoor maps
-  with IDs that never change.
+  A 3D world you can orbit and walk through, a 2D plan that needs no GPU, the drawing
+  itself as it was drawn, the way from a kiosk to an office, and a Go reader: for any web
+  app or system that wants indoor maps with IDs that never change.
 </p>
 
 <p align="center">
@@ -12,9 +12,11 @@
 </p>
 
 A `.storeypath` package is one building as plain JSON, GeoJSON and CSV in a ZIP: its
-floors, rooms and zones, doors and windows, furniture and equipment with their asset tags,
-floor and wall finishes, and the walking network between them. Every object has an ID
-that never changes. Packages are made with
+levels (floors, mezzanines and the roof), rooms and zones, doors and windows, furniture
+and equipment with their asset tags (a card reader with the door it serves, a camera
+with what it sees), floor and wall finishes, the walking network between them, and,
+when its export asked for them, each floor's drawing as drawn. Every object has an ID
+that never changes, and a package may be sealed with a password. Packages are made with
 [StoreyPath Studio](https://github.com/StoreyPath/storeypath-studio), which pins a version
 of this repository, so a package and the code that reads it always agree.
 
@@ -40,6 +42,14 @@ takes Low on built-in, virtual or software graphics). Orbit it as a dollhouse, o
 or all, cut away, lifted apart, or in x-ray:
 
 ![X-ray: see-through walls, every room a translucent volume in its type's colour, desks and sofas inside](docs/images/xray.webp)
+
+Every level stands where it is (format 0.11): a mezzanine at its own height over part of
+its floor, on a slab of its own; the roof's deck open to the sky behind its parapets, the
+rooms standing on it under their ceilings, nothing built above it. A room open to the
+floor below (an atrium, a void) is a hole in its floor's slab, the floor below seen
+through it. The world knows which way north is: `viewBearing` and the `viewturn` event
+turn a compass, `turnTo(bearing)` turns the view, and `topView()` looks straight down,
+the plan's up at the top.
 
 ```js
 import { StoreyPathWorld } from "./storeypath-viewer/src/world/world.js";
@@ -69,18 +79,23 @@ stairs and lifts, `changeFloor(+1)` takes you up.
 ![A floor as an SVG plan: rooms coloured by type, doors with their swings, windows, desks in benches with their chairs, access points](docs/images/plan.webp)
 
 `FloorPlanEngine` ([viewer/svg](viewer/svg)) draws one floor as a plain SVG plan: rooms by
-type, doors with their swings, windows, items, a search, the way drawn on it. No WebGL and
-no dependencies, for machines with no GPU (VDI desktops, kiosks). Strict TypeScript, with
-its own build and tests.
+type, doors with their swings, windows, items, what a camera covers out to its range
+(the one chosen, or every camera's with `coverage`), a search, the way drawn on it. Its
+package reader lists a building's levels in their order (a mezzanine after the floor it
+stands in, the roof at the top, its deck drawn as a roof). No WebGL and no dependencies,
+for machines with no GPU (VDI desktops, kiosks). Strict TypeScript, with its own build
+and tests.
 
 ## The drawing under the plan
 
 A package can carry each floor's drawing as drawn, when its export was asked to (format
 0.11): every line, hatch and text of the floor's part of its drawing, in the building's
 own metres. `DrawingView` draws it with WebGL, on its own (CAD or Print, its layers shown
-and hidden) or under the 2D plan, following it as it moves; a system that works on the
-drawing itself reads its lines and texts (`readDrawingView`, or the Go module's
-`Drawing`). StoreyPath Studio's drawing viewer is the same view.
+and hidden, its texts sharp at any zoom, the pointer in metres) or under the 2D plan,
+following it as it moves, and outlines and names parts of it (`marks`, each one to
+click if you like); a system that works on the drawing itself reads its lines and texts
+(`readDrawingView`, or the Go module's `Drawing`). StoreyPath Studio's drawing viewer is
+the same view: it outlines the plans it found on a sheet, and the parts read as floors.
 
 ## Finding the way
 
@@ -127,9 +142,11 @@ for _, u := range pkg.UnitsOn(floorID) { … }            // the rooms and zones
 way, err := pkg.Route(kioskItemID, officeID, storeypath.RouteOptions{Accessible: true})
 ```
 
-Buildings, floors, spaces, zones and openings with their IDs, items and their catalogue,
-capacities and grades, finishes, lifts' and stairs' stacks, and the way: standard library
-only. [go/README.md](go/README.md).
+Buildings, floors with their levels (floor, mezzanine or roof), spaces, zones and
+openings with their IDs, items and their catalogue (a card reader's door, a camera's
+view), capacities and grades, finishes, lifts' and stairs' stacks, the way, each floor's
+drawing when the package carries it, and packages sealed with a password: standard
+library only. [go/README.md](go/README.md).
 
 ## Use it
 
