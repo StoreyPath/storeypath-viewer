@@ -18,7 +18,7 @@ import (
 // does not know are ignored.
 const (
 	FormatName    = "storeypath-package"
-	FormatVersion = "0.12.0"
+	FormatVersion = "0.13.0"
 )
 
 // oneBuildingFrom: from format 0.7 a package holds exactly one building.
@@ -31,6 +31,10 @@ const assetIDsFrom = 8
 // layoutsFrom: from format 0.12 a package may hold a location's layout in place of a
 // building (Scope.Layout).
 const layoutsFrom = 12
+
+// siteRoutesFrom: from format 0.13 a layout's package has its land's walking network,
+// linked to its buildings' (Site).
+const siteRoutesFrom = 13
 
 // The files of a package, by the names they usually have. A reader finds each
 // through the manifest's files, by its role; the names are for a manifest that

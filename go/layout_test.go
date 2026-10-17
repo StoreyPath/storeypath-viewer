@@ -42,9 +42,10 @@ func TestALayoutsPackageHoldsTheLandAlone(t *testing.T) {
 		*l.North.From != NorthFromMap {
 		t.Errorf("the layout: %+v", *l)
 	}
-	// no building, floor, zone or walking network; one placement, the site's
-	if len(p.Buildings)+len(p.Floors)+len(p.Zones) != 0 || p.Navigation() != nil || p.Holds("7MJPBT-PLOT-HOUSE") {
-		t.Errorf("%d buildings, %d floors, %d zones, a network %v", len(p.Buildings), len(p.Floors), len(p.Zones), p.Navigation() != nil)
+	// no building, floor or zone; its land's walking network (0.13); one placement, the site's
+	if n := p.Navigation(); len(p.Buildings)+len(p.Floors)+len(p.Zones) != 0 || n == nil || n.Layout == nil || *n.Layout != l.ID ||
+		p.Holds("7MJPBT-PLOT-HOUSE") {
+		t.Errorf("%d buildings, %d floors, %d zones, a network %v", len(p.Buildings), len(p.Floors), len(p.Zones), n != nil)
 	}
 	site, err := p.Frame(l.ID)
 	if err != nil || len(p.Manifest.Placements) != 1 || site.Placement.X != 0 || site.Placement.Y != 0 || site.Placement.Bearing != 30 ||
@@ -108,9 +109,9 @@ func TestALayoutsPackageHoldsTheLandAlone(t *testing.T) {
 	if h := linked["7MJPBT-PLOT-HOUSE"]; h == nil || h.Site.Rotation != 90 || h.DrawingLabel == nil || !strings.Contains(*h.DrawingLabel, "\n") {
 		t.Errorf("the house: %+v", h)
 	}
-	// a camera on a pole and a card reader at the pedestrian gate, of no building
+	// a camera on a pole, a card reader at the pedestrian gate and a kiosk inside it, of no building
 	items := p.ItemsOn(l.ID)
-	if len(items) != 2 {
+	if len(items) != 3 {
 		t.Fatalf("%d items on the land", len(items))
 	}
 	var reader, camera *Item
@@ -151,7 +152,7 @@ func TestALayoutsPackageHoldsTheLandAlone(t *testing.T) {
 			t.Errorf("%s (%s): building %q", row.ID, row.Kind, row.Building)
 		}
 	}
-	if kinds["layout"] != 1 || kinds["footprint"] != 4 || kinds["item"] != 2 || kinds["building"] != 0 {
+	if kinds["layout"] != 1 || kinds["footprint"] != 4 || kinds["item"] != 3 || kinds["building"] != 0 {
 		t.Errorf("objects.csv's kinds: %v", kinds)
 	}
 }
@@ -300,8 +301,28 @@ func TestALayoutsPackageIsChecked(t *testing.T) {
 		})},
 		{"a layout's package with a building", sitePlot, ProblemLayout, "holds no building", adding(FileBuildings, shed)},
 		{"a layout's package with a floor", sitePlot, ProblemLayout, "no floors", adding(FileFloors, shedFloor)},
-		{"a layout's package with a walking network", sitePlot, ProblemLayout, "walking network", sitePlotManifest(func(doc map[string]any) {
-			doc["files"].(map[string]any)["navigation"] = FileNavigation
+		{"a layout's package of 0.12 with a walking network", sitePlot, ProblemLayout, "walking network", sitePlotManifest(func(doc map[string]any) {
+			doc["format_version"] = "0.12.0"
+		})},
+		{"a link to another door than its entrance's", sitePlot, ProblemNavigation, "does not join", editJSON(FileNavigation, func(doc map[string]any) {
+			for _, e := range doc["edges"].([]any) {
+				if e := e.(map[string]any); e["kind"] == "link" {
+					e["from"] = e["from"].(string) + "9"
+					return
+				}
+			}
+		})},
+		{"an entrance into a building not on its footprint", sitePlot, ProblemNavigation, "does not stand on footprint",
+			editJSON(FileNavigation, func(doc map[string]any) {
+				for _, n := range doc["nodes"].([]any) {
+					if n := n.(map[string]any); n["kind"] == "entrance" {
+						n["building_id"] = "7MJPBT-PLOT-ELSE"
+						return
+					}
+				}
+			})},
+		{"a node of the land's network off the layout", sitePlot, ProblemNavigation, "unknown layout", editJSON(FileNavigation, func(doc map[string]any) {
+			doc["nodes"].([]any)[0].(map[string]any)["floor_id"] = house + "-F00"
 		})},
 		{"a layout's package with two placements", sitePlot, ProblemLayout, "one placement", sitePlotManifest(func(doc map[string]any) {
 			pl := doc["placements"].(map[string]any)
@@ -395,7 +416,7 @@ func TestALayoutsPackageIsChecked(t *testing.T) {
 			return []byte(strings.Join(kept, ""))
 		}},
 		{"a layout's package of a format newer than the reader's", sitePlot, ProblemVersion, "update the reader",
-			sitePlotManifest(func(doc map[string]any) { doc["format_version"] = "0.13.0" })},
+			sitePlotManifest(func(doc map[string]any) { doc["format_version"] = "0.14.0" })},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

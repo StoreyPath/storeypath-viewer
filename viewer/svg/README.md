@@ -122,7 +122,7 @@ Hidden spaces (set in review) are left out unless `showHidden`; ignored ones alw
 | `camera()` / `setCamera(c)` | the view: screen = (x·k + tx, ∓y·k + ty) |
 | `toScreen(p)` / `toPlan(s)` | between plan metres and the element's CSS pixels |
 | events | `select` (`detail: { id, space, item }`: the space or the item chosen, from a click, a tap or the keyboard), `camerachange`, `floorchange` (`{ id }`), and a way's: `routestep` (`{ index, step, leg, floor_id }`), `routeprogress` (`{ metres, total, fraction, leg, step, floor_id, at }`, each frame while it plays), `routeplay` (`{ state }`: playing, paused, ended, stopped), `routefloor` (`{ floor_id, reason }`: the engine would show another floor; cancelable, or show it yourself with `setFloor`) |
-| `ROUTE_GLYPHS`, `glyphOf(by)` | the pictures of the badges (stairs, lift, escalator, ramp, up, down: 24 × 24 path data, to be stroked), for a page's list of steps |
+| `ROUTE_GLYPHS`, `glyphOf(by)` | the pictures of the badges (stairs, lift, escalator, ramp, entrance, up, down: 24 × 24 path data, to be stroked), for a page's list of steps |
 
 A drawing's y grows upwards; set `yDown: true` on a floor model whose y grows
 downwards (as a page's does).
@@ -178,6 +178,19 @@ engine.addEventListener("routestep", (e) => mark(e.detail.index));
 await engine.playRoute();                   // a dot walks it, floor by floor
 ```
 
+Across a site (format 0.13), `siteRoute(layoutPkg, buildingPkgs, from, to)` finds the way
+from a gate, a kiosk or a point on the land into a building (the main README, "Across a
+site"): its first leg is on the layout, in the site's frame, so give `floorPlan` each leg's
+own package (the layout's for the layout's ID, a building's for its floors). A way into or out
+of a building is a step `enter` or `leave` that ends a leg as a ride's `take` does; its badge
+says "Into Main house · Ground floor" (a door's picture: `ROUTE_GLYPHS.entrance`).
+
+```js
+const pkgOf = (id) => (id === layoutId ? land : buildings.find((b) => b.floors.some((f) => f.id === id)));
+engine.showRoute(siteRoute(land, buildings, gateId, officeId), { fit: true, style: "wayfinding",
+  floorPlan: (id) => floorFromPackage(pkgOf(id), id) });
+```
+
 ## Coordinates
 
 `floorFromPackage` turns the package's longitude and latitude back into the
@@ -192,7 +205,7 @@ Older packages' items are placed by their point and heading on the map.
 
 `npm test` builds, then checks the frame, the package reader (a floor's drawing on its plan
 too; a location's layout as a plan, its site's frame) and the way every reader
-finds (`routes.json`) against `spec/conformance/`, and the engine in headless Chrome with real input: clicks,
+finds (`routes.json`, and its ways across a site) against `spec/conformance/`, and the engine in headless Chrome with real input: clicks,
 drags, the wheel, two-finger pinches, the keyboard, resizing, reduced motion, both
 y directions. Positions must hold to a pixel. Set `CHROME` to a Chrome or Chromium
 if it is not in the usual place; `BROWSER=0 node test/run.mjs` runs the tests in Node alone.

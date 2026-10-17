@@ -4,13 +4,13 @@
 
 export { webglSupport, type WebGLSupport } from './support.js';
 // finding the way (format 0.8): the module both viewers share
-export { route, shortest, Graph } from './navigation.js';
+export { route, shortest, siteGraph, siteRoute, Graph } from './navigation.js';
 export { ITEM_ID_ALPHABET, LAND_CODE, isLandId, itemCheckSymbol, isItemId, normalizeItemId } from './ids.js';
 // a floor's drawing as drawn (format 0.11): read (view.js) and drawn (drawing.js); its CSS is dist/drawing.css
 export { DrawingView, DRAWING_VIEW_FORMAT, readDrawingView, parseDrawingView, linesOn, textsOf } from './drawing.js';
 export type { Box, DrawingBatch, DrawingCamera, DrawingCursor, DrawingLayer, DrawingLook, DrawingMark, DrawingViewData,
 	DrawingViewEvents, DrawingViewHead, DrawingViewOptions } from './drawing.js';
-export type { Navigation, NavEdge, NavFloor, NavNode, NavPlace, Route, RouteChange, RouteLeg, RouteStep, RouteOptions,
+export type { Navigation, NavEdge, NavFloor, NavNode, NavPlace, Route, RouteChange, RouteLeg, RouteStep, RouteOptions, LandPoint, SitePart,
 	Routable } from './navigation.js';
 import type { Navigation, Route, RouteStep } from './navigation.js';
 

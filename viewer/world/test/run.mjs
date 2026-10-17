@@ -37,6 +37,7 @@ const { TYPE_COLORS } = await import("../../src/theme.js");
 const { toLonLat } = await import("../../src/world/frame.js");
 const { qualityFor } = await import("../../src/world/gpu.js");
 const { isItemId, isLandId, LAND_CODE } = await import("../../src/ids.js");
+const { siteRoute } = await import("../../src/navigation.js");
 const { MODEL_TRIANGLES, parseModel } = await import("../../src/world/model.js");
 const { SealedError, isSealed, unseal } = await import("../../src/sealed.js");
 const { linesOn, readDrawingView, textsOf } = await import("../../src/drawing/view.js");
@@ -143,12 +144,12 @@ test("a package of a newer minor version, or of no version, is refused; older on
     return loadPackage(bytes).then((pkg) => (pkg.manifest.format_version === version ? "read" : "read, another version"),
       (e) => e.message);
   };
-  for (const v of ["0.12.0", "0.12.3", "0.12", "0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9",
-    "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.12.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.13.0", "0.13.2", "0.13", "0.12.0", "0.12.3", "0.12", "0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10",
+    "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.13.1-rc.1", "0.9.0+build.5"]) {
     truly(await said(v) === "read", `${v}: ${await said(v)}`);
   }
-  for (const v of ["0.13.0", "0.13", "0.99.0", "0.13.0-rc1", "1.0.0", "2.7.0"]) {
-    const want = `This package is format ${v}, newer than this viewer's 0.12: update the viewer.`;
+  for (const v of ["0.14.0", "0.14", "0.99.0", "0.14.0-rc1", "1.0.0", "2.7.0"]) {
+    const want = `This package is format ${v}, newer than this viewer's 0.13: update the viewer.`;
     truly(await said(v) === want, `${v}: ${await said(v)}`);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
@@ -1018,8 +1019,9 @@ test("a piece drawn a finish at a time: its triangles ordered by finish, in grou
 // ---- a location's layout (format 0.12) ------------------------------------------------
 // site-plot: a made-up plot, its layout's package (a garden, parking, the yard, the street
 // beyond the boundary; walls with a vehicle gate and a pedestrian gate; four footprints, three
-// of them buildings of the project; a camera on a pole and a card reader at the pedestrian
-// gate), and its buildings' packages (site-plot-house, -guest-a, -guest-b)
+// of them buildings of the project; a camera on a pole, a card reader at the pedestrian gate
+// and a kiosk inside it; its land's walking network, 0.13), and its buildings' packages
+// (site-plot-house, -guest-a, -guest-b)
 
 const sitePlot = async (name = "site-plot") => loadPackage(readFileSync(join(packages, `${name}.storeypath`)));
 /** A piece's triangles, built or not. */
@@ -1029,8 +1031,8 @@ test("a layout's package (0.12): its layout, footprints, areas, gates and items 
   const pkg = await sitePlot();
   const layout = pkg.layout, id = layout?.id;
   truly(pkg.isLayout && id === pkg.manifest.scope.layout && pkg.scope.length === 0 && pkg.layouts.length === 1, `its layout: ${id}`);
-  truly(pkg.buildings.length === 0 && pkg.floors.length === 0 && pkg.zones.length === 0 && pkg.navigation === null,
-    "no building, floor, zone or walking network");
+  truly(pkg.buildings.length === 0 && pkg.floors.length === 0 && pkg.zones.length === 0 && pkg.navigation?.layout === id,
+    "no building, floor or zone; its land's walking network (0.13)");
   const land = id.split("-").slice(0, 3).join("-");
   truly(LAND_CODE === "LAND" && isLandId(id) && isLandId(land) && isLandId(`${id}-0004`) && !isLandId(land.replace("LAND", "HOUSE"))
     && !isLandId("7K2Q-XM9F-4DP") && !isLandId(null), "LAND IDs told apart");
@@ -1050,7 +1052,7 @@ test("a layout's package (0.12): its layout, footprints, areas, gates and items 
     && pkg.footprintOf("7K2Q-NONE") === null, "a footprint by its ID, and by its building");
   truly(pkg.footprintsOn(id).filter((f) => f.properties.building_id).length === 3, "three of them buildings of the project");
   const items = pkg.itemsOn(id), reader = items.find((i) => i.properties.type === "CARD-READER");
-  truly(items.length === 2 && items.every((i) => i.properties.building_id === null), "its items, of no building");
+  truly(items.length === 3 && items.every((i) => i.properties.building_id === null), "its items, of no building");
   truly(gates.some((g) => g.id === reader.properties.door_id) && pkg.doorsOf(reader.properties.space_id).some((d) => d.door.id === reader.properties.door_id),
     "the card reader serves a gate");
   // an ID taken apart: the location found, no building, the layout as its floor
@@ -1124,7 +1126,7 @@ test("a location's land (0.12) built as a level of one: its ground, areas by typ
     "a block in the walker's way");
   truly(buildPieces(plan, { edges: true }).pieces.find((p) => p.name === "massing")?.edges?.length > 0, "lines along its edges (the model look)");
   // its items, where `local` puts them in the site's frame: the camera on its pole at its height
-  truly(plan.items.length === 2, `items: ${plan.items.length}`);
+  truly(plan.items.length === 3, `items: ${plan.items.length}`);
   for (const it of plan.items) {
     const p = pkg.get(it.id).properties;
     const at = inBuilding({ origin, placement }, [it.x, it.n]);
@@ -1136,6 +1138,16 @@ test("a location's land (0.12) built as a level of one: its ground, areas by typ
   const camera = plan.items.find((i) => i.type === "CCTV-POLE");
   truly(camera.y === 4.5 && kindOf(camera) === "CAMERA", `the camera at ${camera.y} m`);
   truly(buildItems(plan).some((p) => p.name === "items:high"), "drawn over the cut, at its height");
+});
+
+test("a way across the site (0.13), on the packages the 3D world reads: as Studio finds it", async () => {
+  const routes = JSON.parse(readFileSync(join(packages, "../routes.json"), "utf8"));
+  const read = new Map();
+  const of = async (name) => read.get(name) ?? read.set(name, await loadPackage(readFileSync(join(packages, name)))).get(name);
+  for (const c of routes.site_routes) {
+    const got = siteRoute(await of(c.layout), await Promise.all(c.buildings.map(of)), c.from, c.to, { accessible: c.accessible });
+    equal(got, c.expect, c.name);
+  }
 });
 
 test("a building's placement's site (0.12): its frame on its location's site, where the layout's package puts the same place on the map", async () => {

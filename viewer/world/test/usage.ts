@@ -1,10 +1,27 @@
 // Type-checked by `npm run check`: the declarations describe the module as a
 // strict TypeScript application uses it.
-import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, isLandId, loadPackage, normalizeItemId, route, toSite, webglSupport,
+import { FINISHES, StoreyPathWorld, finishOf, floorFinish, isItemId, isLandId, loadPackage, normalizeItemId, route, siteGraph, siteRoute, toSite,
+	webglSupport,
 	type Feature, type DoorMode, type Finish, type FootprintProperties, type GivenItem, type Route, type Site, type WorldDoor, type WorldEvents,
 	type WorldLook, type WorldPoint, type WorldQuality } from '@storeypath/viewer-world';
 import { webglSupport as check } from '@storeypath/viewer-world/support';
 import { DrawingView, readDrawingView, type DrawingCamera, type DrawingMark } from '@storeypath/viewer-world';
+
+/** The way across a location's site (format 0.13): from its first gate to a room, on its layout's package and
+ * its buildings'; from a point on the land too. Its steps' words, each way in or out a step of its own. */
+export async function acrossTheSite(layout: ArrayBuffer, buildings: ArrayBuffer[], room: string): Promise<string[]> {
+	const land = await loadPackage(layout);
+	const others = await Promise.all(buildings.map((b) => loadPackage(b)));
+	const gate = land.navigation?.nodes.find((n) => n.kind === 'gate')?.opening_id;
+	if (!land.navigation || !gate) return [];
+	const way: Route | null = siteRoute(land, others, gate, room, { accessible: true });
+	const site = siteGraph(land, others);
+	const fromHere: Route | null = siteRoute(site, null, { x_m: 12.5, y_m: -8 }, room);
+	const into = (way?.changes ?? []).filter((c) => c.by === 'entrance' && c.direction === 'in').length;
+	const entrances = land.navigation.nodes.filter((n) => n.kind === 'entrance' && n.steps === true).map((n) => n.rise_m ?? 0);
+	console.log(into, entrances, fromHere?.from, site.nearest(0, 0));
+	return (way?.steps ?? []).map((s) => (s.kind === 'enter' || s.kind === 'leave' ? `${s.text} (${s.building_id})` : s.text));
+}
 
 /** A floor's drawing (format 0.11) under a plan: its own view, following the plan's camera. */
 export async function drawingOf(element: HTMLElement, data: ArrayBuffer, floor: string): Promise<number> {

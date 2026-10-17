@@ -18,9 +18,18 @@ import (
 // cost, its line in the building's own frame, and whether it is accessible (stairs
 // and escalators are not). Studio works it out when it exports; a reader finds a way
 // on it with Route, the same way every reader does (spec/FORMAT.md, "Navigation").
+//
+// A layout's package (format 0.13) has its land's network: its areas, a node in each
+// gate, kiosks on the land, and an entrance at each building's door to the outside,
+// linked to the same door's node in the building's own package (a link edge). A Site
+// puts it and its buildings' networks together, to find a way across the site
+// (spec/FORMAT.md, "Routes across a site").
 type Navigation struct {
 	// SpeedMS: how fast a person walks, metres a second (what the walks' Seconds are).
-	SpeedMS   float64    `json:"speed_m_s"`
+	SpeedMS float64 `json:"speed_m_s"`
+	// Layout (0.13): a layout's package's, the layout's ID (the floor of its land); nil
+	// for a building's.
+	Layout    *string    `json:"layout"`
 	Buildings []string   `json:"buildings"`
 	Floors    []NavFloor `json:"floors"` // lowest first
 	Places    []NavPlace `json:"places"`
@@ -31,7 +40,8 @@ type Navigation struct {
 	graph *navGraph
 }
 
-// NavFloor is a floor of the network, as a step names it.
+// NavFloor is a floor of the network, as a step names it; a layout's (0.13) is the
+// layout, its Building empty (null in JSON).
 type NavFloor struct {
 	ID        string  `json:"id"`
 	Building  string  `json:"building_id"`
@@ -41,10 +51,11 @@ type NavFloor struct {
 }
 
 // NavPlace is a space or zone the network goes through or to, and what a step calls
-// it: its Label ("OFFICE 112", "Room 114", "the corridor").
+// it: its Label ("OFFICE 112", "Room 114", "the corridor"). On a layout (0.13), an
+// area (a space), a gate (Kind opening) or a building standing on it (Kind footprint).
 type NavPlace struct {
 	ID    string  `json:"id"`
-	Kind  string  `json:"kind"` // space or zone
+	Kind  string  `json:"kind"` // space or zone; opening or footprint (0.13)
 	Space *string `json:"space_id"`
 	Floor string  `json:"floor_id"`
 	Type  string  `json:"type"`
@@ -59,10 +70,12 @@ type NavLocal struct {
 
 // NavNode is a node of the network. Its ID is made from what it is, so it stays
 // from one export to the next: door:<opening ID>, approach:<opening ID>@<space ID>,
-// room:<space or zone ID>, kiosk:<item ID>, lift:<object code>@<floor ID>, ….
+// room:<space or zone ID>, kiosk:<item ID>, lift:<object code>@<floor ID>, …; on a
+// layout (0.13), entrance:<the building's opening ID> too.
 type NavNode struct {
 	ID string `json:"id"`
-	// Kind: door, entrance, approach, room, kiosk, lift, stairs, escalator or ramp.
+	// Kind: door, entrance, approach, room, kiosk, lift, stairs, escalator or ramp; gate
+	// (0.13, a layout's).
 	Kind  string `json:"kind"`
 	Floor string `json:"floor_id"`
 	// Space and Zone: where it is (nil for a door: Spaces says what it joins).
@@ -77,13 +90,22 @@ type NavNode struct {
 	Spaces  []string `json:"spaces"`
 	Item    *string  `json:"item_id"`
 	Stack   *string  `json:"stack"`
+	// A layout's entrance (0.13): Footprint, the footprint its building stands on (and
+	// its Spaces); Building, the building it leads into (Opening its door there); Steps,
+	// a step into it known there (true), none (false), or not known (nil); Rise, how far
+	// its floor stands above the ground there, metres, as the site plan writes them.
+	Footprint *string  `json:"footprint_id"`
+	Building  *string  `json:"building_id"`
+	Steps     *bool    `json:"steps"`
+	Rise      *float64 `json:"rise_m"`
 }
 
 // NavEdge is a way between two nodes, both ways; Path is its line from From to To.
 type NavEdge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
-	// Kind: walk, door, lift, stairs, escalator or ramp.
+	// Kind: walk, door, lift, stairs, escalator or ramp; link (0.13, a layout's: an
+	// entrance on the land to its building's door, in the building's package; no Path).
 	Kind    string  `json:"kind"`
 	Length  float64 `json:"length_m"`
 	Seconds float64 `json:"seconds"`
@@ -125,7 +147,9 @@ type Leg struct {
 	Metres float64      `json:"metres"`
 }
 
-// Change is a ride between floors: by lift, stairs, escalator or ramp.
+// Change is a ride between floors: by lift, stairs, escalator or ramp; across a site
+// (0.13), By "entrance": into a building from the land (Direction "in") or out of it
+// ("out"), Floors 0.
 type Change struct {
 	By        string `json:"by"`
 	FromFloor string `json:"from_floor_id"`
@@ -133,11 +157,11 @@ type Change struct {
 	FromNode  string `json:"from_node"`
 	ToNode    string `json:"to_node"`
 	Floors    int    `json:"floors"`    // how many of the building's floors apart
-	Direction string `json:"direction"` // up or down
+	Direction string `json:"direction"` // up or down (in or out)
 }
 
-// Step is what to tell a person: its Kind (start, walk, take, arrive), the values of
-// that kind, and Text in English. A system words steps in its own language from the
+// Step is what to tell a person: its Kind (start, walk, take, arrive; enter and leave
+// across a site, 0.13), the values of that kind, and Text in English. A system words steps in its own language from the
 // kind and the values; in JSON a step has its kind's keys alone (null where a value
 // is not known), as every reader gives it.
 type Step struct {
@@ -154,7 +178,9 @@ type Step struct {
 	Metres int     `json:"metres"`
 	Along  *string `json:"along"`
 	To     string  `json:"to"`
-	// take: the ride
+	// enter and leave (0.13): the building, and its footprint as Place
+	Building *string `json:"building_id"`
+	// take: the ride (enter, leave: FromFloor and ToFloor too)
 	By        string `json:"by"`
 	FromFloor string `json:"from_floor_id"`
 	ToFloor   string `json:"to_floor_id"`
@@ -174,6 +200,8 @@ func (s Step) MarshalJSON() ([]byte, error) {
 		keys = []string{"kind", "floor_id", "metres", "along", "to", "place", "text"}
 	case "take":
 		keys = []string{"kind", "by", "from_floor_id", "to_floor_id", "floors", "direction", "text"}
+	case "enter", "leave":
+		keys = []string{"kind", "building_id", "place", "from_floor_id", "to_floor_id", "text"}
 	case "arrive":
 		keys = []string{"kind", "place", "floor_id", "side", "text"}
 	default:
@@ -181,7 +209,7 @@ func (s Step) MarshalJSON() ([]byte, error) {
 	}
 	values := map[string]any{"kind": s.Kind, "text": s.Text, "node": s.Node, "node_kind": s.NodeKind, "place": s.Place,
 		"floor_id": s.Floor, "metres": s.Metres, "along": s.Along, "to": s.To, "by": s.By, "from_floor_id": s.FromFloor,
-		"to_floor_id": s.ToFloor, "floors": s.Floors, "direction": s.Direction, "side": s.Side}
+		"to_floor_id": s.ToFloor, "floors": s.Floors, "direction": s.Direction, "side": s.Side, "building_id": s.Building}
 	var b strings.Builder
 	b.WriteByte('{')
 	for i, k := range keys {
@@ -292,7 +320,17 @@ func (n *Navigation) prepared() *navGraph {
 
 var arrivals = map[string]bool{"room": true, "lift": true, "stairs": true, "escalator": true, "ramp": true}
 var verticals = map[string]bool{"lift": true, "stairs": true, "escalator": true, "ramp": true}
-var doorKinds = map[string]bool{"door": true, "entrance": true}
+var doorKinds = map[string]bool{"door": true, "entrance": true, "gate": true}
+
+// landNodes: the nodes of a layout a point on the land starts at (Site.Nearest).
+var landNodes = map[string]bool{"room": true, "approach": true, "kiosk": true, "gate": true, "entrance": true}
+
+// linkKind is a layout's edge from an entrance on the land to its building's door
+// (0.13); entranceBy the change it makes.
+const (
+	linkKind   = "link"
+	entranceBy = "entrance"
+)
 
 func is(s *string, v string) bool { return s != nil && *s == v }
 func set(s *string) bool          { return s != nil && *s != "" }
@@ -312,6 +350,9 @@ func (g *navGraph) ends(ref string, items map[string][2]*string) ([]string, erro
 		sort.Strings(found)
 		return found, nil
 	}
+	if g.nodes["door:"+ref] != nil { // an opening's: its door's or gate's node
+		return []string{"door:" + ref}, nil
+	}
 	if g.nodes["kiosk:"+ref] != nil {
 		return []string{"kiosk:" + ref}, nil
 	}
@@ -327,6 +368,9 @@ func (g *navGraph) ends(ref string, items map[string][2]*string) ([]string, erro
 
 func (g *navGraph) placeOf(id string) *string {
 	n := g.nodes[id]
+	if n.Kind == "gate" { // a gate is a place of its own
+		return n.Opening
+	}
 	if doorKinds[n.Kind] {
 		if len(n.Spaces) > 0 {
 			return &n.Spaces[0]
@@ -509,6 +553,14 @@ func (n *Navigation) route(from, to string, accessible bool, items map[string][2
 	for _, ride := range rides {
 		a, b := path[ride[0]], path[ride[len(ride)-1]+1]
 		fa, fb := g.nodes[a].Floor, g.nodes[b].Floor
+		if edges[ride[0]].Kind == linkKind { // (0.13) between the land and a building: in from its entrance, or out
+			c := Change{By: entranceBy, FromFloor: fa, ToFloor: fb, FromNode: a, ToNode: b, Direction: "out"}
+			if set(g.nodes[a].Footprint) {
+				c.Direction = "in"
+			}
+			r.Changes = append(r.Changes, c)
+			continue
+		}
 		apart := g.order[fb] - g.order[fa]
 		c := Change{By: edges[ride[0]].Kind, FromFloor: fa, ToFloor: fb, FromNode: a, ToNode: b, Floors: apart,
 			Direction: "up"}
@@ -545,6 +597,8 @@ func (g *navGraph) steps(path []string, edges []*NavEdge, runs [][]int, starts [
 		text = "Start at the entrance into " + g.label(here)
 	case "door":
 		text = "Start at the door of " + g.label(here)
+	case "gate":
+		text = "Start at " + g.label(here)
 	default:
 		text = "Start in " + g.label(here)
 	}
@@ -603,7 +657,27 @@ func (g *navGraph) steps(path []string, edges []*NavEdge, runs [][]int, starts [
 			steps = append(steps, Step{Kind: "walk", Floor: g.nodes[path[starts[k]]].Floor, Metres: m, Along: along,
 				To: to, Place: place, Text: text})
 		}
-		if !last {
+		if !last && changes[k].By == entranceBy { // (0.13) into a building from the land, or out of it
+			c := changes[k]
+			land := g.nodes[c.ToNode]
+			if c.Direction == "in" {
+				land = g.nodes[c.FromNode]
+			}
+			var building *string
+			label := "the building"
+			if len(land.Spaces) > 0 {
+				building = &land.Spaces[0]
+				if p := g.places[*building]; p != nil && p.Label != "" {
+					label = p.Label
+				}
+			}
+			step := Step{Kind: "leave", Building: land.Building, Place: building, FromFloor: c.FromFloor, ToFloor: c.ToFloor,
+				Text: "Go out of " + label}
+			if c.Direction == "in" {
+				step.Kind, step.Text = "enter", "Go into "+label
+			}
+			steps = append(steps, step)
+		} else if !last {
 			c := changes[k]
 			name := c.ToFloor
 			if f := g.floors[c.ToFloor]; f != nil && f.Name != "" {

@@ -4,7 +4,8 @@ Reads StoreyPath packages (`*.storeypath`) for systems written in Go: the
 buildings, floors, spaces, zones and openings of a project with their stable IDs,
 the furniture and equipment on its floors, (format 0.8) the way from one place
 in a building to another, (0.11) each floor's drawing when the package carries
-them, and (0.12) a location's layout, its land: the plot its buildings stand on.
+them, (0.12) a location's layout, its land: the plot its buildings stand on, and
+(0.13) the way across it, from a gate into any building or from one to another.
 Standard library only; Go 1.25.
 
 ```go
@@ -253,7 +254,8 @@ for _, leg := range way.Legs {
 
 - From and to: a node's ID (`kiosk:<item>`, `door:<opening>`, `room:<space>`, …),
   a space's or zone's ID (where it is arrived at: a divided space's nearest zone),
-  or an item's (a kiosk's node; any other, the zone or space it stands in).
+  an opening's (its node, format 0.13), or an item's (a kiosk's node; any other, the
+  zone or space it stands in).
 - `RouteOptions{Accessible: true}`: lifts and ramps alone, no stairs or escalators.
 - A `Route` has its `Nodes`, `Legs` (the walking on each floor between rides: the
   line to draw, as `LocalFrame` turns it onto the map), `Changes` (each ride: by
@@ -266,6 +268,36 @@ for _, leg := range way.Legs {
   node, space and zone IDs alone. Both may be used from several goroutines.
 
 `ErrNoNavigation` is returned for a package without a network (older than 0.8).
+
+### Across a site (format 0.13)
+
+A location's layout's package carries its land's walking network: its areas walked, a
+node in each gate, kiosks on the land, and an entrance at each building's door to the
+outside, linked (an edge of kind `link`) to the same door's node in the building's own
+package (spec/FORMAT.md, "Routes across a site"). `NewSite` puts the layout's package and
+its buildings' together; `Site.Route` finds the way across them as Studio and the viewers
+do (`routes.json → site_routes`):
+
+```go
+site, err := storeypath.NewSite(layout, house, annex) // a layout's package (ErrNotLayout), its buildings'
+way, err := site.Route(gateID, officeSpaceID, storeypath.RouteOptions{})
+// "Start at the pedestrian gate", "Walk 28 m through the yard to the entrance", "Go into Main house", …
+way, err = site.RouteFrom(12.5, -8, officeSpaceID, storeypath.RouteOptions{}) // from a point on the land
+way, err = storeypath.SiteRoute(layout, []*storeypath.Package{house, annex}, gateID, officeSpaceID, opts)
+```
+
+- From and to: a gate's, a kiosk's, an area's, a room's or an item's ID in any of the
+  packages; a point on the land (x, y in the site's frame) is its nearest node (`Nearest`),
+  whose ID is the way's `From`.
+- Each way into or out of a building is a `Change` of its own (`By` "entrance", `Direction`
+  "in" or "out", `Floors` 0) and a `Step` "enter" or "leave" (`Building`, `Place` its
+  footprint): "Go into Main house". A leg on the layout (its `Floor` the layout's ID) is in
+  the site's frame (`Frame` by the layout's ID), one on a floor in its building's.
+- With `Accessible`, no entrance with a step known is taken (`NavNode.Steps`, `Rise`: its
+  floor above the ground, as the site plan writes them).
+- A building whose package is not given is not reached (its rooms: `ErrNotInNetwork`).
+  `Validate` checks a layout's network as a building's (its nodes on the layout), and each
+  link: from an entrance on the land to `door:` its door, an opening of its building.
 
 ## Tests
 

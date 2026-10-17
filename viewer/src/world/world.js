@@ -3364,14 +3364,14 @@ export class StoreyPathWorld extends EventTarget {
   }
 }
 
-/** The leg each step of a way is on: the start and walks on theirs, a ride on the leg it
- * leaves, the arrival on the last. */
+/** The leg each step of a way is on: the start and walks on theirs, a ride (or a way into
+ * or out of a building, 0.13) on the leg it leaves, the arrival on the last. */
 function stepLegs(route) {
   let leg = 0;
   const last = Math.max(0, route.legs.length - 1);
   return (route.steps ?? []).map((s) => {
     if (s.kind === "arrive") return last;
-    if (s.kind === "take") return Math.min(last, leg++);
+    if (s.kind === "take" || s.kind === "enter" || s.kind === "leave") return Math.min(last, leg++);
     return Math.min(last, leg);
   });
 }

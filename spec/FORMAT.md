@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.12.0
+# StoreyPath package format — version 0.13.0
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -6,8 +6,9 @@ elevators, …), the zones that divide open spaces, the doors between spaces, an
 furniture and equipment on them. A project of several buildings is several packages,
 one each (One building per package). A location's land, its layout (the plot its
 buildings stand on, its boundary walls and gates, its outdoor areas, what is placed on
-it), travels in a package of its own (Location layouts, 0.12). It is a ZIP archive of
-plain JSON, GeoJSON and CSV files, so any system can read it without special software.
+it), travels in a package of its own (Location layouts, 0.12), with the ways across it into
+each building (Routes across a site, 0.13). It is a ZIP archive of plain JSON, GeoJSON and
+CSV files, so any system can read it without special software.
 
 Sent where others could read it, a package may be sealed with a password
 (`*.storeypath.enc`): what it holds is a package as below, and how it is opened is in
@@ -30,7 +31,7 @@ A copy of this document is included in every package.
 | `changes.json` | IDs added, changed and retired since the previous export |
 | `items.geojson` | Furniture and equipment on the floors: desks, photocopiers, access points, sofas, TVs, … (format 0.6) |
 | `catalogue.json` | The types of items: their codes, names, sizes, how they are mounted, and the details each carries (format 0.6) |
-| `navigation.json` | The walking network of the building: where a person can walk, and how long it takes, for finding the way (format 0.8) |
+| `navigation.json` | The walking network of the building: where a person can walk, and how long it takes, for finding the way (format 0.8); a layout's package's, its land's, linked to its buildings' at their entrances (Routes across a site, 0.13) |
 | `schema/*.schema.json` | JSON Schema for every JSON file |
 | `world/<floor-id>.glb` | Optional: each floor already built in 3D, as binary glTF (Pre-built 3D) |
 | `models/<CODE>.glb` | Optional: an item type's 3D model, as binary glTF (Models, 0.9.2) |
@@ -43,7 +44,7 @@ Readers locate each file through `manifest.json → files`, by its role (`locati
 `buildings`, `floors`, `spaces`, `zones`, `openings`, `objects`, `changes`, `items`,
 `catalogue`, `navigation`; a layout's package, `layout` and `footprints`, 0.12); the names
 in the table are the defaults. A role the manifest does not list is not in the package (a
-building's package lists no `layout`; a layout's package no `navigation`). A floor's
+building's package lists no `layout`; a layout's package of 0.12 no `navigation`). A floor's
 drawing is found through its source (`manifest.json → sources`, Drawings).
 
 **JSON.** Keys are case-sensitive: a key that differs from the format's only in case is
@@ -412,7 +413,9 @@ stand to use it. A system running kiosks links each of its own to such an item b
 the item's ID: the item's floor is the kiosk's floor, and its `local` position (its
 `display_point` on the map) is the "you are here" of the kiosk's maps, and where a
 way to an office will start. A kiosk moved keeps its ID, so the link holds; one
-retired leaves its kiosk without a place until it is linked again.
+retired leaves its kiosk without a place until it is linked again. A kiosk may stand on
+a location's land (an item of its layout, at a gate say: 0.13): a way from it crosses the
+land into a building (Routes across a site).
 
 Items are for asset management: where things are, and where they have been. They
 are not inventory: nothing in a package says who holds what. An inventory system
@@ -582,7 +585,8 @@ takes. Studio makes it from the package's spaces, zones, openings, stacks and ki
 so that every reader finds the same way between two places without working out any
 geometry: Studio, the Go module and the viewers route on it the same way (Routing). A
 package of format 0.8 may lack it (a reader then has no network to route on); one of
-an earlier format has none.
+an earlier format has none. A layout's package (0.13) has its land's network, linked to its
+buildings' at their entrances, for ways across a site (Routes across a site).
 
 ```json
 {
@@ -665,9 +669,10 @@ spaces for underscores, `elevator` as "lift" and `unspecified` as "room".
 
 A way is asked for from a place to a place, each one of: a node's ID; a space's ID
 (its `lift`, `stairs`, `escalator`, `ramp` or `room` node; for a space divided into
-zones, its zones' `room` nodes); a zone's ID (its `room` node); an item's ID (a
-kiosk's node, else the zone or space it stands in). A place of several nodes is any of
-them. With `accessible`, no edge whose `accessible` is false is taken.
+zones, its zones' `room` nodes); a zone's ID (its `room` node); an opening's ID (its
+node, `door:<opening ID>`: a door's, an entrance's, a gate's; 0.13); an item's ID (a
+kiosk's node, else the zone or space it stands in), in that order. A place of several
+nodes is any of them. With `accessible`, no edge whose `accessible` is false is taken.
 
 Every reader takes the same way: each edge costs round(`cost` × 10), a whole number;
 the nodes are taken in order of their distance from the start and, at one distance,
@@ -1018,8 +1023,8 @@ beside its location's buildings' packages:
 - `scope.layout` names the layout; `scope.buildings` is empty. It holds the layout
   (`layout.geojson`), its footprints (`footprints.geojson`), its areas (`spaces.geojson`), its
   gates (`openings.geojson`), the items on it (`items.geojson`) and its location;
-  `buildings.geojson`, `floors.geojson` and `zones.geojson` are empty, and it has no
-  `navigation.json` (ways outdoors are for a later version).
+  `buildings.geojson`, `floors.geojson` and `zones.geojson` are empty. From 0.13 it has its
+  land's walking network, `navigation.json` (Routes across a site); one of 0.12 has none.
 - `changes.json` is about the layout: what changed on the land since its last package
   (`previous_sequence`), as a building's is about the building. An item is in one package:
   the building's it stands in, or the layout's; one carried between them is `moved_away`
@@ -1101,6 +1106,122 @@ its placement on the map, or by its `site` in the site's frame. Take an ID whose
 `LAND` as a location's land. A reader of 0.11 knows none of this: it refuses a 0.12 package
 (Versioning).
 
+## Routes across a site (0.13)
+
+A layout's package has a walking network of its own, `navigation.json`, as a building's has:
+its land's. Its entrances name each building's doors to the outside by their IDs, so a way is
+found across packages: from a gate, a kiosk or a point on the land into a building, to a room
+or an item, or from a room in one building to a room in another by the land. A reader takes
+the layout's package and its buildings' (of the same export run), puts their networks
+together, and finds the way on them as in one building (Routing).
+
+```json
+{
+  "speed_m_s": 1.3,
+  "layout": "K7Q2XM-SITE-LAND-G00",
+  "buildings": [],
+  "floors": [ { "id": "K7Q2XM-SITE-LAND-G00", "building_id": null, "name": "Layout", "ordinal": 0,
+                "elevation": 0.0 } ],
+  "places": [ { "id": "K7Q2XM-SITE-LAND-G00-0010", "kind": "opening", "space_id": null,
+                "floor_id": "K7Q2XM-SITE-LAND-G00", "type": "gate", "label": "the pedestrian gate" },
+              { "id": "K7Q2XM-SITE-LAND-G00-0007", "kind": "footprint", "space_id": null,
+                "floor_id": "K7Q2XM-SITE-LAND-G00", "type": "building", "label": "Main house" } ],
+  "nodes": [ { "id": "entrance:K7Q2XM-SITE-HQ-F00-0003", "kind": "entrance", "floor_id": "K7Q2XM-SITE-LAND-G00",
+               "space_id": null, "zone_id": null, "local": { "x_m": -9.015, "y_m": -2.502 },
+               "lonlat": [46.6810961, 24.7134971], "opening_id": "K7Q2XM-SITE-HQ-F00-0003",
+               "spaces": ["K7Q2XM-SITE-LAND-G00-0007"], "footprint_id": "K7Q2XM-SITE-LAND-G00-0007",
+               "building_id": "K7Q2XM-SITE-HQ", "steps": true, "rise_m": 0.45 } ],
+  "edges": [ { "from": "door:K7Q2XM-SITE-HQ-F00-0003", "to": "entrance:K7Q2XM-SITE-HQ-F00-0003", "kind": "link",
+               "length_m": 0.0, "seconds": 0.0, "cost": 0.0, "accessible": false, "space_id": null,
+               "zone_id": null, "path": [] } ]
+}
+```
+
+It is a network as Navigation describes, with these differences. `layout` is the layout's ID;
+`floors` holds the layout alone, its `building_id` null; `buildings` is empty. Positions are in
+the site's frame (Location layouts), `lonlat` where the layout's placement puts them.
+
+**What is walked.** The layout's areas of the types `yard`, `parking`, `driveway`, `garden`,
+`courtyard`, `path`, `gate_area`, `road`, `terrace`, `ramp`, `open_area` and `unspecified` (not
+`pool`), unless hidden or ignored. The areas inside the plot (the layout's geometry) are one
+ground, and those mostly outside it (the road) another, as the zones of a divided space are one
+room: their edges are lines on the ground, walked across. The layout's `walls` and every
+footprint are not walked. A walk keeps 0.35 m from a ground's edges where it is wide enough, as
+in a room.
+
+**Nodes.**
+
+| `kind` | `id` | Where |
+|---|---|---|
+| `room` | `room:<area ID>` | where a person arrives in each area walked: its label point, clear of its edges |
+| `gate` | `door:<gate ID>` | in each gate, at the middle of its span; `spaces` are the areas it opens onto (inside first), `opening_id` the gate |
+| `approach` | `approach:<gate ID>@<area ID>` | in front of a gate in each area it opens onto: half the area's depth there, at most 2 m |
+| `kiosk` | `kiosk:<item ID>` | each wayfinding kiosk standing on the land (Items, Kiosks): where people stand before its screen |
+| `entrance` | `entrance:<opening ID>` | each building's door to the outside (an `entrance` of its own network) on its ground floor (ordinal 0, a storey) whose middle lies within 2 m of its footprint's edge: at the door's middle, on the site. `opening_id` is the door (an opening of the building, in its own package), `spaces` its footprint, `footprint_id` the footprint, `building_id` the building; `steps` and `rise_m`, below |
+| `approach` | `approach:<opening ID>@<area ID>` | in front of an entrance, on the land: from where the way to the door crosses the footprint's edge (its point nearest the door) out across the area there, half its depth, at most 2 m |
+
+**Edges.**
+
+| `kind` | Joins | `seconds` |
+|---|---|---|
+| `walk` | two nodes of one ground (as a room's walk); `space_id` the area most of its line is in | `length_m` / `speed_m_s` |
+| `door` | a gate to each of its approaches; an entrance to its approach (its line from the door, by where it crosses the footprint's edge, to the approach); `space_id` the approach's area | `length_m` / `speed_m_s` |
+| `link` | an entrance (`entrance:<opening ID>`) to its building's door (`door:<opening ID>`, a node of the building's network, in its package): the way into the building. Its ends are one point in two frames: no `path` (`[]`), 0 m | 0 |
+
+A link's `cost` is 0. Its `accessible` is false where a step into the building is known there:
+`rise_m` is how far the building's floor stands above the ground at the entrance, as the site
+plan writes their levels (the floor's level written in its footprint, FFL, less the ground's
+written nearest it outside every footprint, FGL or NGL), null when it does not write both;
+`steps` is true when that is 2 cm or more, false when it is less or a ramp (an area of type
+`ramp`) lies within 1.5 m of where the way crosses the footprint's edge, and null when not
+known. A way without stairs takes another entrance where one is step-free, or there is none.
+
+**Places.** The areas walked (kind `space`), each gate (kind `opening`, type `gate`, label its
+name, else "the vehicle gate" when it is 2.5 m wide or more, else "the pedestrian gate"), and
+each footprint with an entrance (kind `footprint`, type `building`, label its building's name).
+
+**Across packages.** The site's network is the layout's and its buildings' as one: every node,
+edge and place of each (no ID is in two: each is made from an object's ID), and their floors,
+the layout's first, then each building's in order, the buildings by their IDs. A link joins the
+land to a building where that building's package is given and its network has the door; one
+whose door is not there (its building's package not given, or of another export without that
+door) joins nothing, and the building is not entered by it. A validator checks a layout's
+package alone: a link's far end is `door:` its entrance's `opening_id`, an opening of its
+`building_id`.
+
+**The way across.** As Routing, on the site's network, with these:
+
+- A way's end may also be a point on the land: (`x_m`, `y_m`) in the site's frame, taken as the
+  layout's node nearest it of the kinds `room`, `approach`, `kiosk`, `gate` and `entrance`, by
+  straight distance (*dx*·*dx* + *dy*·*dy*, each product rounded on its own; of nodes as near, the
+  first by ID). The way's `from` (or `to`) is that node's ID.
+- Each `link` taken is a change of its own: `by` `entrance`, `floors` 0, `direction` `in` (from
+  the land into the building) or `out`, `from_node` and `to_node` its ends. Lifts and stairs are
+  changes as before.
+- `legs` are the walking between changes: a leg on the layout (its `floor_id` the layout's) is
+  in the site's frame, one on a floor in its building's frame.
+- A gate's place is the gate itself; a gate is a door for the side the destination is on.
+- Steps: a way in or out of a building is a step `enter` or `leave` in place of `take`, and the
+  walk before it goes `to` `entrance` ("Walk 28 m through the yard to the entrance").
+
+| `kind` | Values | `text` |
+|---|---|---|
+| `start` | as Routing | "Start at the pedestrian gate" (a gate), "Start at the entrance into Main house" (an entrance on the land), "Start at the kiosk in the yard", "Start in the yard" |
+| `enter` | `building_id`, `place`, `from_floor_id`, `to_floor_id` | "Go into Main house": `place` is the building's footprint (by its label), `from_floor_id` the layout, `to_floor_id` the floor of its door |
+| `leave` | `building_id`, `place`, `from_floor_id`, `to_floor_id` | "Go out of Main house": from the floor of its door to the layout |
+
+A step has its kind's keys alone, in this order: `enter` and `leave` `kind`, `building_id`,
+`place`, `from_floor_id`, `to_floor_id`, `text`. Every reader finds the same way, as Routing
+says; `spec/conformance/routes.json → site_routes` holds ways across `site-plot` and its
+buildings (Readers), a way there that is none as null.
+
+**What a reader does.** Read a layout's `navigation.json` as a building's: its `layout`, its
+floor of no building, the kinds `gate` (a door, of a place of its own), `entrance` on the land
+(with `footprint_id`, `building_id`, `steps`, `rise_m`) and `link` (no path). To find a way
+across a site, put the layout's network and its buildings' together and route on them; draw
+the legs on the layout in the site's frame (by the layout's placement) and those on a floor in
+its building's (by its placement), and say each way in and out of a building.
+
 ## Changes from 0.2
 
 - `zones.geojson` and the `zone` kind: open areas are one space divided into zones,
@@ -1124,6 +1245,37 @@ its placement on the map, or by its `site` in the site's frame. Take an ID whose
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.12
+
+- Routes across a site (Routes across a site): a layout's package holds its land's walking
+  network, `navigation.json` (the role `navigation`), linked to its buildings' networks at their
+  entrances, so that a way is found from a gate, a kiosk or a point on the land into a building,
+  and from one building to another by the land. Its `layout`, its one floor (the layout, of no
+  building), its areas walked as one ground inside the plot and one outside it, a `gate` node in
+  each gate, kiosks on the land, an `entrance` node at each building's door to the outside on its
+  ground floor at its footprint's edge (`footprint_id`, `building_id`, `steps`, `rise_m`), and a
+  `link` edge from each to its building's door node (`door:<opening ID>`, in the building's
+  package; no path, 0 m), not accessible where a step into the building is known (its floor's
+  level above the ground's, as the site plan writes them). Places of kinds `opening` (a gate) and
+  `footprint` (a building on the land). A way across a site has a change `by` `entrance`
+  (`direction` `in` or `out`, `floors` 0) at each link, and a step `enter` or `leave` in place of
+  `take`. A reader must:
+  - not refuse a layout's package for holding a walking network, nor its link edges, whose far
+    ends are in other packages;
+  - read a network's `layout`, a floor whose `building_id` is null, the node kinds `gate` and
+    `entrance` on the land, the edge kind `link` with no path, and places of kinds `opening` and
+    `footprint`;
+  - take an opening's ID as the end of a way (its node, `door:<opening ID>`), in any package;
+  - to find a way across a site, put the layout's network and its buildings' together and route
+    on them (Routes across a site): a link a change of its own, its legs on the land in the site's
+    frame.
+  Building packages are as in 0.12. A validator checks a layout's network as a building's (its
+  nodes on the layout), and that each link joins an entrance on the land to `door:` its
+  `opening_id`, an opening of its `building_id`.
+- A minor version: a reader of 0.12 refuses a 0.13 package (its validator refuses a layout's
+  package with a network); a reader of 0.13 reads 0.12 and earlier ones as before (a layout's
+  package of 0.12 has no network).
 
 ## Changes from 0.11
 
@@ -1317,16 +1469,24 @@ open deck behind its parapets (spaces of type `roof`). `routes.json` holds ways 
 too: up the stairs by the mezzanine, to a room on it, by lift past it, and up the stairs
 to the roof.
 
-`site-plot` (0.12) is a location's layout (Location layouts), all of it made up: a plot of 50 by
-36 m read from a site plan, its property limits marked along them, its boundary walls with a
-vehicle gate and a pedestrian gate on the street, a main house (an L) in its middle and two
-guest houses alike but for their names, all three placed on their footprints by the site plan
-(the house turned a right angle from how its own drawing has it, the guest houses told apart by
-their names), a store no building of the project is (its footprint of no building), parking, a
+`site-plot` (0.12, its network 0.13) is a location's layout (Location layouts), all of it made
+up: a plot of 50 by 36 m read from a site plan, its property limits marked along them, its
+boundary walls with a vehicle gate and a pedestrian gate on the street, a main house (an L) in
+its middle, its floor written +0.45 FFL beside the ground's ±0.00 FGL, and two guest houses
+alike but for their names, all three placed on their footprints by the site plan (the house
+turned a right angle from how its own drawing has it, the guest houses told apart by their
+names), a store no building of the project is (its footprint of no building), parking, a
 garden, the yard round them, and the street beyond the boundary; north 30° from the plan's up.
-On it, a camera on a pole by the gate and a card reader at the pedestrian gate (its `door_id`
-the gate). `site-plot-house`, `site-plot-guest-a` and `site-plot-guest-b` are the three
-buildings' packages of the same export run, each with its `site`.
+On it, a camera on a pole by the gate, a card reader at the pedestrian gate (its `door_id` the
+gate) and a wayfinding kiosk just inside that gate. `site-plot-house`, `site-plot-guest-a` and
+`site-plot-guest-b` are the three buildings' packages of the same export run, each with its
+`site`: the house's one door to the outside in its hall, each guest house a bedroom with its
+door to the outside. The layout's network links its three entrances to those doors; the
+house's has a step (its floor 0.45 m above the ground). `routes.json → site_routes` holds ways
+across them every reader must find the same (Routes across a site): from each gate, the kiosk
+and a point in the parking into each building, from one building to another by the yard, out
+to a gate, to the parking on the land alone, and without steps (into a guest house; into the
+house, none: null).
 
 A reader that takes packages from uploads bounds what it reads. A building's package
 is a few megabytes; the Go module reads by default at most 64 MiB a file and 256 MiB in
@@ -1340,9 +1500,9 @@ can process a package. A reader reads packages of its own major version that are
 newer than it, and ignores unknown files, properties, and `objects.csv` rows of kinds it
 does not know (as 0.6 added items), with the IDs of those rows where `changes.json` lists
 them. Before 1.0 a minor version may change what a package means (0.4's `scope`, 0.7's
-one building per package, 0.12's layouts), so a reader refuses a package of a newer minor
-version (0.13 for a reader of 0.12), saying it must be updated; a newer patch version
-(0.12.1) only adds properties and is read. From 1.0, a reader reads any package of its major
+one building per package, 0.12's layouts, 0.13's ways across a site), so a reader refuses a
+package of a newer minor version (0.14 for a reader of 0.13), saying it must be updated; a
+newer patch version (0.13.1) only adds properties and is read. From 1.0, a reader reads any package of its major
 version. A format version is ASCII `major.minor`, an optional `.patch`, and an optional
 `-` or `+` suffix (`^[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.-]+)?$`); a reader refuses
 anything else as not a format version.

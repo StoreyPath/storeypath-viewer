@@ -1,9 +1,10 @@
 """The conformance corpus: what every reader of the format (Studio's Python, the Go
 module in go/, the viewer's JavaScript) must read the same way.
 
-Packages of this format (0.12: one building per package, with its walking network, its
+Packages of this format (0.13: one building per package, with its walking network, its
 rooms' finishes, and each piece of furniture an item of its own; a location's layout in a
-package of its own), made by ``campus``: one project, the demo campus (two buildings
+package of its own, with its land's walking network linked to its buildings'), made by
+``campus``: one project, the demo campus (two buildings
 placed on the map, with lifts and stairs through their floors, one floor's corridor
 divided into two zones by a line drawn in review and named there, CORRIDOR and HALL,
 furniture and equipment, furnish below, and some rooms' floors and walls finished in
@@ -65,24 +66,30 @@ and stop at the first floor) and its open deck (a space of type roof, outdoor), 
 its walls. The floors are listed Ground, Mezzanine, First, Roof, the mezzanine with the
 ground floor's ordinal.
 
-packages/site-plot.storeypath (``layout``, format 0.12): a location's layout, all of it made up:
-a plot of 50 by 36 m read from a made-up site plan (samples.sample_site_plan: its property
-limits marked along them, boundary walls, a vehicle gate and a pedestrian gate on the street,
-a main house, two guest houses alike but for their names, a store, parking, a garden), its
-north arrow turned 30°; the three buildings drawn in drawings of their own (the house turned a
-right angle from the site plan), matched to their footprints (the guest houses by their names)
+packages/site-plot.storeypath (``layout``, format 0.12; its walking network, 0.13): a location's
+layout, all of it made up: a plot of 50 by 36 m read from a made-up site plan
+(samples.sample_site_plan: its property limits marked along them, boundary walls, a vehicle
+gate and a pedestrian gate on the street, a main house written +0.45 FFL beside the ground's
+±0.00 FGL, two guest houses alike but for their names, a store, parking, a garden), its north
+arrow turned 30°; the three buildings drawn in drawings of their own (the house turned a right
+angle from the site plan, its one door to the outside in its hall; each guest house a bedroom
+with its door to the outside), matched to their footprints (the guest houses by their names)
 and placed on them; the store's footprint of no building; on the land, a camera on a pole by
-the vehicle gate and a card reader at the pedestrian gate, serving it. The site placed on the
-map. site-plot-house, site-plot-guest-a and site-plot-guest-b are its buildings' packages, of the
-same run, each with where it stands on the site.
+the vehicle gate, a card reader at the pedestrian gate, serving it, and a wayfinding kiosk just
+inside it. The site placed on the map. site-plot-house, site-plot-guest-a and site-plot-guest-b
+are its buildings' packages, of the same run, each with where it stands on the site; the
+layout's network links its entrances to their doors.
 
-routes.json (``routes``, which ``campus`` and ``mezzanine`` run too): ways on campus-hq,
-campus-annex and mezzanine-warehouse (format 0.8, Navigation; up to the roof, 0.11) that
-every reader must find the same, each
-from a place to a place (a kiosk's item, an entrance, a room, a zone, a desk), some
-on lifts alone (accessible), with the way Studio finds: its nodes, legs, changes of
-floor, length, time and steps. Kept to the packages as they are: run ``routes``
-alone after a change to routing that leaves the packages as they are.
+routes.json (``routes``, which ``campus``, ``mezzanine`` and ``layout`` run too): ways on
+campus-hq, campus-annex and mezzanine-warehouse (format 0.8, Navigation; up to the roof, 0.11)
+that every reader must find the same, each from a place to a place (a kiosk's item, an
+entrance, a room, a zone, a desk), some on lifts alone (accessible), with the way Studio finds:
+its nodes, legs, changes of floor, length, time and steps; and ways across site-plot
+(``site_routes``, 0.13: Routes across a site), on its layout's network and its buildings'
+together: from its gates, its kiosk and a point on its land into each building, from one
+building to another by the land, out to a gate, and without steps (none into the house: a null
+way). Kept to the packages as they are: run ``routes`` alone after a change to routing that
+leaves the packages as they are.
 
 localframe.json: points in Studio's local drawing metres and where they are on
 earth, for each building's placement, as Studio's projection gives them: a reader
@@ -135,14 +142,14 @@ def main(names: list[str]) -> None:
             world()
         if "mezzanine" in names:
             mezzanine_warehouse(work)
-        if {"campus", "routes", "mezzanine"} & set(names):
-            routes()
         if "asset-ids" in names:
             asset_ids()
         if "drawings" in names:
             drawn_office(work)
         if "layout" in names:
             site_plot(work)
+        if {"campus", "routes", "mezzanine", "layout"} & set(names):
+            routes()
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -316,9 +323,60 @@ def routes() -> None:
         graph, its = graphs[package]
         out.append({"name": name, "package": package, "from": start, "to": end, "accessible": accessible,
                     "expect": route(graph, start, end, accessible=accessible, items=its)})
-    doc = {"tolerance_m": 0.01, "tolerance_s": 0.1, "routes": out}
+    across = site_routes(read)
+    doc = {"tolerance_m": 0.01, "tolerance_s": 0.1, "routes": out, "site_routes": across}
     (HERE / "routes.json").write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
-    print(f"wrote routes.json ({len(out)} ways)")
+    print(f"wrote routes.json ({len(out)} ways, {len(across)} across a site)")
+
+
+def site_routes(read) -> list[dict]:
+    """routes.json's ways across site-plot (format 0.13): from its gates, its kiosk and a
+    point on its land into each of its buildings, from one building to another by the land,
+    out to a gate, and without steps (none into the house: a step at its entrance, its
+    floor written above the ground's level), on the layout's network and its buildings'
+    together, as every reader must find them (null: no way)."""
+    from storeypath.navigation import NoRoute, site_graph, site_route
+
+    layout, buildings = "site-plot.storeypath", ["site-plot-guest-a.storeypath", "site-plot-guest-b.storeypath",
+                                                 "site-plot-house.storeypath"]
+    land_nav, land_items, land_spaces = read(layout)
+    with zipfile.ZipFile(HERE / "packages" / layout) as z:
+        gates = sorted(json.loads(z.read("openings.geojson"))["features"], key=lambda f: f["properties"]["width_m"])
+    pedestrian, vehicle = gates[0]["id"], gates[-1]["id"]
+    kiosk = next(i for i, f in sorted(land_items.items()) if f["properties"]["type"] == "KIOSK")
+    parking = next(i for i, f in sorted(land_spaces.items()) if f["properties"]["type"] == "parking")
+    navs, its, rooms = [], dict(land_items), {}
+    for name in buildings:
+        nav, items, spaces = read(name)
+        navs.append(nav)
+        its |= items
+        for i, f in spaces.items():
+            rooms[(name.removeprefix("site-plot-").removesuffix(".storeypath"), f["properties"]["name"])] = i
+    graph = site_graph(land_nav, navs)
+    living, hall = rooms[("house", "LIVING")], rooms[("house", "HALL")]
+    bedroom_a, bedroom_b = rooms[("guest-a", "BEDROOM")], rooms[("guest-b", "BEDROOM")]
+    in_parking = {"x_m": -15.0, "y_m": -12.0}  # (in the site's frame: the parking's middle, near enough)
+    cases = [
+        ("the pedestrian gate to the house's living room", pedestrian, living, False),
+        ("the vehicle gate to the bedroom of guest house A", vehicle, bedroom_a, False),
+        ("the kiosk at the pedestrian gate to the bedroom of guest house B", kiosk, bedroom_b, False),
+        ("the house's living room to the bedroom of guest house B, across the yard", living, bedroom_b, False),
+        ("guest house A's bedroom to guest house B's", bedroom_a, bedroom_b, False),
+        ("the house's living room out to the vehicle gate", living, vehicle, False),
+        ("the vehicle gate to the parking, on the land alone", vehicle, parking, False),
+        ("a point in the parking to the house's hall", in_parking, hall, False),
+        ("the pedestrian gate to the bedroom of guest house A, without steps", pedestrian, bedroom_a, True),
+        ("the pedestrian gate into the house, without steps: none (a step at its entrance)", pedestrian, living, True),
+    ]
+    out = []
+    for name, start, end, accessible in cases:
+        try:
+            expect = site_route(graph, start=start, end=end, accessible=accessible, items=its)
+        except NoRoute:
+            expect = None
+        out.append({"name": name, "layout": layout, "buildings": buildings, "from": start, "to": end,
+                    "accessible": accessible, "expect": expect})
+    return out
 
 
 def asset_ids() -> None:
@@ -552,6 +610,8 @@ def site_plot(work: Path) -> None:
     (px0, py0), (px1, py1) = small.span
     reader = ws.add_item("CARD-READER", layout, round(max(px0, px1) + 0.3, 3), round(py0 + 0.35, 3), rotation=180)
     reader.door_id = small.id
+    # (0.13) a wayfinding kiosk on the land, just inside the pedestrian gate, its screen to the gate
+    ws.add_item("KIOSK", layout, round((px0 + px1) / 2, 3), round(py0 + 3.0, 3), rotation=0, values={"model": "TS-32"})
     out = HERE / "packages"
     export_layout_package(ws, out / "site-plot.storeypath", layout)
     for code, name in (("HOUSE", "site-plot-house"), ("GUESTA", "site-plot-guest-a"), ("GUESTB", "site-plot-guest-b")):

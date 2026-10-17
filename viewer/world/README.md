@@ -28,8 +28,9 @@ frame a second or so.
 
 The module exports `StoreyPathWorld`, `loadPackage`, `StoreyPathPackage`,
 `TYPE_COLORS`, `webglSupport` and, to find the way through a building (format 0.8),
-`route`, `Graph` and `shortest` (the module both viewers share); for a location's land
-(format 0.12), `isLandId`, `LAND_CODE`, `toSite` and `fromSite`; `dist/world.d.ts`
+`route`, `Graph` and `shortest` (the module both viewers share), and `siteRoute` and
+`siteGraph` (a way across a site, format 0.13: the main README, "Across a site"); for a
+location's land (format 0.12), `isLandId`, `LAND_CODE`, `toSite` and `fromSite`; `dist/world.d.ts`
 declares them.
 
 A location's layout (format 0.12) comes in a package of its own, and opens as its land:

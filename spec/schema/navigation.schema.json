@@ -17,7 +17,8 @@
             "lift",
             "stairs",
             "escalator",
-            "ramp"
+            "ramp",
+            "link"
           ],
           "title": "Kind",
           "type": "string"
@@ -40,7 +41,7 @@
           "type": "number"
         },
         "accessible": {
-          "description": "false for stairs and escalators",
+          "description": "false for stairs and escalators, and for a link where a step is known",
           "title": "Accessible",
           "type": "boolean"
         },
@@ -69,7 +70,7 @@
           "title": "Zone Id"
         },
         "path": {
-          "description": "its line, from `from` to `to`, in the building's frame",
+          "description": "its line, from `from` to `to`, in the building's frame (a layout's: the site's); a link's is empty",
           "items": {
             "maxItems": 2,
             "minItems": 2,
@@ -107,8 +108,16 @@
           "type": "string"
         },
         "building_id": {
-          "title": "Building Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "its building's; null for a layout (0.13): the land",
+          "title": "Building Id"
         },
         "name": {
           "title": "Name",
@@ -169,7 +178,8 @@
             "lift",
             "stairs",
             "escalator",
-            "ramp"
+            "ramp",
+            "gate"
           ],
           "title": "Kind",
           "type": "string"
@@ -232,7 +242,7 @@
             }
           ],
           "default": null,
-          "description": "a door's, entrance's or approach's opening (null for the way into a lift or stairs no opening is drawn for)",
+          "description": "a door's, entrance's, gate's or approach's opening (null for the way into a lift or stairs no opening is drawn for); a layout's entrance's: its building's door",
           "title": "Opening Id"
         },
         "spaces": {
@@ -248,7 +258,7 @@
             }
           ],
           "default": null,
-          "description": "a door's: the spaces it joins (one, for an entrance)",
+          "description": "a door's: the spaces it joins (one, for an entrance); a gate's: the areas it joins, inside first; a layout's entrance's: its footprint",
           "title": "Spaces"
         },
         "item_id": {
@@ -276,6 +286,58 @@
           "default": null,
           "description": "a lift's, stairs', escalator's or ramp's stack",
           "title": "Stack"
+        },
+        "footprint_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(0.13) a layout's entrance's: the footprint its building stands on",
+          "title": "Footprint Id"
+        },
+        "building_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(0.13) a layout's entrance's: the building it leads into",
+          "title": "Building Id"
+        },
+        "steps": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(0.13) a layout's entrance's: a step into the building there (true), none (false: level, or a ramp), or not known (null)",
+          "title": "Steps"
+        },
+        "rise_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "(0.13) a layout's entrance's: how far the building's floor stands above the ground there, as the site plan writes their levels",
+          "title": "Rise M"
         }
       },
       "required": [
@@ -289,7 +351,7 @@
       "type": "object"
     },
     "NavPlace": {
-      "description": "A space or zone a way goes through or to, and what a step calls it.",
+      "description": "A space or zone a way goes through or to, and what a step calls it; on a layout\n(0.13), an area, a gate (kind opening) or a building standing on it (kind footprint).",
       "properties": {
         "id": {
           "title": "Id",
@@ -298,7 +360,9 @@
         "kind": {
           "enum": [
             "space",
-            "zone"
+            "zone",
+            "opening",
+            "footprint"
           ],
           "title": "Kind",
           "type": "string"
@@ -321,11 +385,12 @@
           "type": "string"
         },
         "type": {
+          "description": "its type; a gate's: gate; a footprint's: building",
           "title": "Type",
           "type": "string"
         },
         "label": {
-          "description": "what a step calls it: \"OFFICE 112\", \"Room 114\", \"the corridor\"",
+          "description": "what a step calls it: \"OFFICE 112\", \"Room 114\", \"the corridor\", \"the vehicle gate\"",
           "title": "Label",
           "type": "string"
         }
@@ -341,11 +406,24 @@
       "type": "object"
     }
   },
-  "description": "navigation.json (format 0.8): the walking network of the package's building.",
+  "description": "navigation.json (format 0.8): the walking network of the package's building; of a\nlayout's package (0.13), its land's, linked to its buildings' at their entrances.",
   "properties": {
     "speed_m_s": {
       "title": "Speed M S",
       "type": "number"
+    },
+    "layout": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "(0.13) a layout's package's: the layout's ID, the floor of its land",
+      "title": "Layout"
     },
     "buildings": {
       "items": {

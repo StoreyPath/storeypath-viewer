@@ -21,7 +21,10 @@
 // tells one and Layout gives it, with its areas, gates and items on the layout's ID
 // (SpacesOn, OpeningsOn, ItemsOn), its Footprints (the buildings standing on it), and
 // Frame by the layout's ID the site's frame they are in. A building's Placement.Site
-// says where its own frame lies on that site (SiteFrame.ToSite).
+// says where its own frame lies on that site (SiteFrame.ToSite). From format 0.13 the
+// layout's package has its land's walking network, linked to its buildings' at their
+// entrances: NewSite puts them together, and Site.Route (SiteRoute) finds the way across
+// the site, from a gate into a building or from one building to another.
 //
 // The module uses only Go's standard library, so it can be pinned and vendored
 // into an offline build.

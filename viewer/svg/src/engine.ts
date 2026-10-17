@@ -33,7 +33,9 @@ const ARROW_PX = 72; // without motion: a route's arrows this far apart on the s
 const CORNER_PX = 14; // a route's corners rounded this much on the screen
 const LINE_CLEAR = 9; // a label this far from a route's line (half its width with its halo)
 const VIEW_EDGE = 6; // a route's tags kept this far in from the view's edges
-const RIDES: Record<string, string> = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ramp: "Ramp" };
+const RIDES: Record<string, string> = { lift: "Lift", stairs: "Stairs", escalator: "Escalator", ramp: "Ramp", entrance: "Entrance" };
+/** The steps at a leg's end: a ride ("take"), and (0.13) a way into a building or out of one. */
+const CHANGES = new Set(["take", "enter", "leave"]);
 const AROUND: readonly (readonly [number, number])[] = [[1, 0], [-1, 0], [0.7071, -0.7071], [-0.7071, -0.7071], [0.7071, 0.7071],
   [-0.7071, 0.7071], [0, -1], [0, 1]]; // where a route's marker may be set off its point, in order
 const DRAG_PX = 4; // a press that moves less than this is a click
@@ -1451,7 +1453,7 @@ export class FloorPlanEngine extends EventTarget {
     const lengths = r.lengths[leg]!, total = lengths[lengths.length - 1] ?? 0;
     const near = 14; // metres of the way round a start, a ride or an end
     let box = step.kind === "start" ? this.legBox(leg, 0, near)
-      : step.kind === "take" ? this.legBox(leg, total - near, total)
+      : CHANGES.has(step.kind) ? this.legBox(leg, total - near, total)
       : step.kind === "arrive" ? this.legBox(leg, total - near, total)
       : this.legBox(leg, 0, total);
     if (step.kind === "arrive") {
@@ -1842,7 +1844,7 @@ function stepLegsOf(route: PlanRoute): number[] {
   const last = Math.max(0, route.legs.length - 1);
   return (route.steps ?? []).map((s) => {
     if (s.kind === "arrive") return last;
-    if (s.kind === "take") return Math.min(last, leg++);
+    if (CHANGES.has(s.kind)) return Math.min(last, leg++);
     return Math.min(last, leg);
   });
 }
@@ -1854,7 +1856,7 @@ function playStep(r: Routed, p: Playing): number | null {
   if (!steps.length) return null;
   const on = (kind: string): number => steps.findIndex((s, i) => s.kind === kind && r.stepLegs[i] === p.leg);
   if (p.phase === "before" || p.phase === "switch") {
-    const take = on("take");
+    const take = steps.findIndex((s, i) => CHANGES.has(s.kind) && r.stepLegs[i] === p.leg);
     if (take >= 0) return take;
   }
   if (p.leg === 0 && p.s < 0.5 && steps[0]?.kind === "start") return 0;
@@ -1865,9 +1867,11 @@ function playStep(r: Routed, p: Playing): number | null {
 }
 
 /** What a floor change's tag says: "Up to Floor 2" where the way leaves the floor
- * ("Lift to Floor 2" when it does not say which way); "From Ground floor" where it comes onto one. */
+ * ("Lift to Floor 2" when it does not say which way); "From Ground floor" where it comes onto one.
+ * Through an entrance (0.13): "Into Main house · Ground floor", "Out to the site". */
 function changeText(c: PlanRoute["changes"][number], side: "to" | "from", floorName: (id: string) => string): string {
   if (side === "from") return `From ${floorName(c.from_floor_id)}`;
+  if (c.direction === "in" || c.direction === "out") return `${c.direction === "in" ? "Into" : "Out to"} ${floorName(c.to_floor_id)}`;
   const way = c.direction === "up" ? "Up" : c.direction === "down" ? "Down" : RIDES[c.by] ?? c.by;
   return `${way} to ${floorName(c.to_floor_id)}`;
 }

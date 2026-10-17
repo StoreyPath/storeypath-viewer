@@ -25,6 +25,17 @@ type routesFile struct {
 		Accessible bool           `json:"accessible"`
 		Expect     map[string]any `json:"expect"`
 	} `json:"routes"`
+	// SiteRoutes (0.13): ways across a site, on a layout's package and its buildings';
+	// From and To an ID, or a point on the land ({"x_m", "y_m"}); Expect null: no way.
+	SiteRoutes []struct {
+		Name       string          `json:"name"`
+		Layout     string          `json:"layout"`
+		Buildings  []string        `json:"buildings"`
+		From       json.RawMessage `json:"from"`
+		To         json.RawMessage `json:"to"`
+		Accessible bool            `json:"accessible"`
+		Expect     map[string]any  `json:"expect"`
+	} `json:"site_routes"`
 }
 
 func conformanceRoutes(t *testing.T) routesFile {
@@ -87,6 +98,141 @@ func TestEachConformanceWayIsFoundAsEveryReaderFindsIt(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// sameWay checks a way against the one routes.json holds: its nodes, changes and steps
+// exactly, its length, time and legs to the file's tolerances.
+func sameWay(t *testing.T, rf routesFile, r *Route, want map[string]any) {
+	t.Helper()
+	got := asJSON(t, r).(map[string]any)
+	for _, key := range []string{"from", "to", "accessible", "nodes", "changes", "steps"} {
+		if !reflect.DeepEqual(got[key], want[key]) {
+			t.Errorf("%s:\n got %v\nwant %v", key, got[key], want[key])
+		}
+	}
+	if math.Abs(r.Metres-want["metres"].(float64)) > rf.ToleranceM || math.Abs(r.Seconds-want["seconds"].(float64)) > rf.ToleranceS {
+		t.Errorf("%v m, %v s; want %v m, %v s", r.Metres, r.Seconds, want["metres"], want["seconds"])
+	}
+	legs := want["legs"].([]any)
+	if len(r.Legs) != len(legs) {
+		t.Fatalf("%d legs, want %d", len(r.Legs), len(legs))
+	}
+	for i, leg := range legs {
+		w, g := leg.(map[string]any), asJSON(t, r.Legs[i]).(map[string]any)
+		if g["floor_id"] != w["floor_id"] || !reflect.DeepEqual(g["points"], w["points"]) ||
+			math.Abs(r.Legs[i].Metres-w["metres"].(float64)) > rf.ToleranceM {
+			t.Errorf("leg %d: %v, want %v", i, g, w)
+		}
+	}
+}
+
+func TestEachWayAcrossASiteIsFoundAsEveryReaderFindsIt(t *testing.T) {
+	rf := conformanceRoutes(t)
+	if len(rf.SiteRoutes) < 5 {
+		t.Fatalf("%d ways across a site in routes.json", len(rf.SiteRoutes))
+	}
+	for _, c := range rf.SiteRoutes {
+		t.Run(c.Name, func(t *testing.T) {
+			buildings := make([]*Package, len(c.Buildings))
+			for i, name := range c.Buildings {
+				buildings[i] = open(t, name)
+			}
+			site, err := NewSite(open(t, c.Layout), buildings...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			end := func(raw json.RawMessage) string { // an ID, or a point on the land: the node nearest it
+				var id string
+				if json.Unmarshal(raw, &id) == nil {
+					return id
+				}
+				var at NavLocal
+				if err := json.Unmarshal(raw, &at); err != nil {
+					t.Fatal(err)
+				}
+				id, err := site.Nearest(at.X, at.Y)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return id
+			}
+			r, err := site.Route(end(c.From), end(c.To), RouteOptions{Accessible: c.Accessible})
+			if c.Expect == nil {
+				if !errors.Is(err, ErrNoRoute) {
+					t.Fatalf("a way where there is none: %v %v", r, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			sameWay(t, rf, r, c.Expect)
+			if b, err := json.Marshal(r); err != nil || len(b) == 0 {
+				t.Errorf("as JSON: %v", err)
+			}
+		})
+	}
+}
+
+func TestASiteFromItsPackages(t *testing.T) {
+	land := open(t, "site-plot.storeypath")
+	house, guestA := open(t, "site-plot-house.storeypath"), open(t, "site-plot-guest-a.storeypath")
+	if _, err := NewSite(house, guestA); !errors.Is(err, ErrNotLayout) {
+		t.Errorf("a building's package as the layout: %v", err)
+	}
+	site, err := NewSite(land, house, guestA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := site.Navigation()
+	if n.Layout == nil || len(n.Floors) != 3 || n.Floors[0].ID != *n.Layout || n.Floors[0].Building != "" ||
+		!slices.Equal(n.Buildings, []string{guestA.Buildings[0].ID, house.Buildings[0].ID}) {
+		t.Fatalf("the site's network: layout %v, %d floors, buildings %v", n.Layout, len(n.Floors), n.Buildings)
+	}
+	// a gate's ID is its node; the land's entrances lead into the buildings, linked to their doors
+	links, entrances := 0, 0
+	for _, node := range land.Navigation().Nodes {
+		if node.Kind == "entrance" {
+			entrances++
+			if node.Footprint == nil || node.Building == nil || land.Footprint(*node.Footprint) == nil ||
+				*land.Footprint(*node.Footprint).Building != *node.Building || len(node.Spaces) != 1 || node.Spaces[0] != *node.Footprint {
+				t.Errorf("entrance %s: %+v", node.ID, node)
+			}
+		}
+	}
+	for _, e := range land.Navigation().Edges {
+		if e.Kind == "link" {
+			links++
+			if len(e.Path) != 0 || e.Length != 0 || e.Cost != 0 || !strings.HasPrefix(e.From, "door:") {
+				t.Errorf("link %s to %s: %+v", e.From, e.To, e)
+			}
+		}
+	}
+	if entrances != 3 || links != 3 {
+		t.Errorf("%d entrances, %d links", entrances, links)
+	}
+	gate := land.OpeningsOn(*n.Layout)[0]
+	if r, err := site.Route(gate.ID, house.Buildings[0].ID+"-F00-0001", RouteOptions{}); err != nil || r.Nodes[0] != "door:"+gate.ID {
+		t.Errorf("from a gate: %v", err)
+	}
+	// guest house B's package not given: its rooms are not known
+	if _, err := site.Route(gate.ID, "7MJPBT-PLOT-GUESTB-F00-0001", RouteOptions{}); !errors.Is(err, ErrNotInNetwork) {
+		t.Errorf("a building not given: %v", err)
+	}
+	// a point far off the land is still its nearest node; a building alone has no land
+	if id, err := site.Nearest(1e6, 1e6); err != nil || site.Navigation().Node(id).Floor != *n.Layout {
+		t.Errorf("the nearest node: %s %v", id, err)
+	}
+	if _, err := house.Navigation().nearest(0, 0); !errors.Is(err, ErrNotInNetwork) {
+		t.Errorf("a building alone: %v", err)
+	}
+	if r, err := site.RouteFrom(-15, -12, house.Buildings[0].ID+"-F00-0001", RouteOptions{}); err != nil ||
+		site.Navigation().Node(r.From).Floor != *n.Layout {
+		t.Errorf("from a point: %v", err)
+	}
+	if _, err := SiteRoute(land, []*Package{house}, gate.ID, house.Buildings[0].ID+"-F00-0001", RouteOptions{Accessible: true}); !errors.Is(err, ErrNoRoute) {
+		t.Errorf("into the house without steps: %v", err)
 	}
 }
 

@@ -20,16 +20,17 @@ a package of its own (format 0.12): its layout, the plot its buildings stand on 
 boundary walls and gates, its outdoor areas (the yard, parking, a garden, the road beyond
 the boundary), the footprint of each building standing on it, and what is placed on it (a
 camera on a pole, a card reader at a gate), in the site's frame each building's package
-places it on. Every object has an ID that never changes, and a package may be sealed with
+places it on, and (format 0.13) its land's walking network, linked to each building's at
+its entrances, for the way from a gate into any building. Every object has an ID that never changes, and a package may be sealed with
 a password. Packages are made with
 [StoreyPath Studio](https://github.com/StoreyPath/storeypath-studio), which pins a version
 of this repository, so a package and the code that reads it always agree.
 
 | Folder | What it is |
 |---|---|
-| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.12.0), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
+| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.13.0), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
 | [viewer/](viewer) | **The viewers**, to embed in a web app: the 3D world, a map view, the 2D plan ([viewer/svg](viewer/svg)) that needs no WebGL, the drawings themselves ([viewer/src/drawing](viewer/src/drawing)), and finding the way ([viewer/src/navigation.js](viewer/src/navigation.js)) |
-| [go/](go) | **A Go module** that reads and validates packages and finds the way in a building, standard library only |
+| [go/](go) | **A Go module** that reads and validates packages and finds the way in a building, or across a site, standard library only |
 
 ## The 3D world
 
@@ -132,6 +133,14 @@ them, faded; floors chosen with `setFloors` show instead); `flyRoute()` takes th
 along it. Both step through it
 (`showStep`). The Go module finds the same way, and
 [spec/conformance/routes.json](spec/conformance) holds ways every reader must agree on.
+
+A location's layout's package carries its land's walking network (format 0.13): its areas,
+its gates, kiosks on the land, and an entrance at each building's door to the outside,
+linked to the same door in the building's own package. `siteRoute(layout, buildings, from,
+to)` finds the way across them: from a gate, a kiosk or a point on the land into any room
+of any building, or from one building to another by the land ("Go into Main house"), its
+legs on the land in the site's frame and indoors in each building's; the Go module's
+`NewSite` and `SiteRoute` find the same.
 
 ![The same way in the 3D world: a glowing ribbon from You are here through the reception to the stairs, up to Floor 2 and along the corridor to OFFICE 213, the floors it does not use faded back](docs/images/route-3d.webp)
 

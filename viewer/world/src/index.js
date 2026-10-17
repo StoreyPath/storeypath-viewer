@@ -9,7 +9,7 @@ export { MODEL_TRIANGLES, parseModel } from "../../src/world/model.js";
 export { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } from "../../src/finishes.js";
 export { webglSupport } from "./support.js";
 // finding the way (format 0.8): the module both viewers share
-export { route, shortest, Graph } from "../../src/navigation.js";
+export { route, shortest, siteGraph, siteRoute, Graph } from "../../src/navigation.js";
 // items' IDs (format 0.8): a tag checked, or read as a person typed it; a location's land's (0.12)
 export { ITEM_ID_ALPHABET, LAND_CODE, isLandId, itemCheckSymbol, isItemId, normalizeItemId } from "../../src/ids.js";
 // packages sealed with a password (spec/SEALED.md): open(source, { password }) reads them

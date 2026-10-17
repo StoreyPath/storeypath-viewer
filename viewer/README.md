@@ -370,6 +370,39 @@ word in its own language); `null` when there is none (none without stairs, with
 `shortest` are there for more. Spaces of lifts and stairs carry their `stack`: the
 same on every floor one serves.
 
+### Across a site (format 0.13)
+
+A location's layout's package carries its land's walking network (spec/FORMAT.md, "Routes
+across a site"): its areas, a node in each gate, kiosks standing on the land, and an
+entrance at each building's door to the outside, linked by the door's ID to the same door's
+node in the building's own package. `siteRoute` puts the layout's network and its
+buildings' together and finds the way across them, as Studio and the Go module do
+(`spec/conformance/routes.json → site_routes`):
+
+```js
+import { siteRoute, siteGraph } from "@storeypath/viewer/navigation"; // or from @storeypath/viewer, -world, -svg
+
+const land = await loadPackage("/files/plot-layout.storeypath");
+const buildings = await Promise.all(["house", "annex"].map((b) => loadPackage(`/files/plot-${b}.storeypath`)));
+const way = siteRoute(land, buildings, gateId, officeId);      // from a gate (its opening's ID) to an office
+way.steps.map((s) => s.text);
+// ["Start at the pedestrian gate", "Walk 28 m through the yard to the entrance", "Go into Main house",
+//  "Walk 11 m along HALL to LIVING", "LIVING is on your left"]
+siteRoute(land, buildings, [12.5, -8], officeId);              // from a point on the land (the site's metres)
+const site = siteGraph(land, buildings);                       // once, for many ways: siteRoute(site, null, …)
+```
+
+From and to: a gate's, a kiosk's, an area's, a room's or an item's ID in any of the
+packages, or a point on the land (`[x, y]` or `{ x_m, y_m }` in the site's frame: the land's
+nearest node, whose ID is the way's `from`). Each way into or out of a building is a change
+of its own (`by` `"entrance"`, `direction` `"in"` or `"out"`) and a step `enter` or
+`leave` ("Go into Main house"); a leg on the layout (`floor_id` the layout's) is in the
+site's frame, one on a floor in its building's: draw the first on the layout's plan
+(`floorFromPackage(land, layoutId)`) and the others on each floor's. With `accessible`, no
+entrance with a step known (`steps` on its node: its floor above the ground, as the site plan
+writes them) is taken. A building whose package is not given is not reached (its rooms are
+not known).
+
 ## Items' IDs
 
 An item's ID (format 0.8) is an asset's tag, `7K2Q-XM9F-4DP`: ten random symbols of

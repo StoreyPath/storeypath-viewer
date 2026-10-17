@@ -330,8 +330,8 @@ func (p *Package) Validate() []Problem {
 		if len(p.Floors) > 0 || len(p.Zones) > 0 {
 			add(ProblemLayout, floorsFile, "", "a layout's package holds no floors and no zones")
 		}
-		if m.Files["navigation"] != "" {
-			add(ProblemLayout, FileManifest, "", "a layout's package has no walking network")
+		if m.Files["navigation"] != "" && minor(m.FormatVersion) < siteRoutesFrom {
+			add(ProblemLayout, FileManifest, "", "a layout's package of %s has no walking network (0.13)", m.FormatVersion)
 		}
 		if _, ok := m.Placements[*layoutScope]; !ok || len(m.Placements) != 1 {
 			add(ProblemLayout, FileManifest, *layoutScope, "a layout's package has one placement, its site's, by the layout's ID %s", *layoutScope)
@@ -643,19 +643,42 @@ func (p *Package) Validate() []Problem {
 
 	if n := p.navigation; n != nil {
 		file := p.file("navigation")
+		// (0.13) a layout's: on the layout, its links to its buildings' doors in their own packages
+		level, layout := "floor", ""
+		if p.IsLayout() {
+			level, layout = "layout", *m.Scope.Layout
+		}
+		if (n.Layout == nil) != (layout == "") || (n.Layout != nil && *n.Layout != layout) {
+			said := "none"
+			if n.Layout != nil {
+				said = *n.Layout
+			}
+			add(ProblemNavigation, file, said, "%s: its layout is %s, not the package's %s", file, said, layout)
+		}
 		for _, b := range n.Buildings {
 			if kindOf(b) != "building" {
 				add(ProblemNavigation, file, b, "%s: building %s is not in the package", file, b)
 			}
 		}
-		nodes := map[string]bool{}
-		for _, node := range n.Nodes {
-			if nodes[node.ID] {
+		prints := map[string]*string{}
+		for _, f := range p.Footprints {
+			prints[f.ID] = f.Building
+		}
+		nodes := map[string]*NavNode{}
+		for i := range n.Nodes {
+			node := &n.Nodes[i]
+			if nodes[node.ID] != nil {
 				add(ProblemNavigation, file, node.ID, "%s: node %s is there twice", file, node.ID)
 			}
-			nodes[node.ID] = true
-			if kindOf(node.Floor) != "floor" {
-				add(ProblemNavigation, file, node.ID, "%s: node %s is on unknown floor %s", file, node.ID, node.Floor)
+			nodes[node.ID] = node
+			if kindOf(node.Floor) != level {
+				add(ProblemNavigation, file, node.ID, "%s: node %s is on unknown %s %s", file, node.ID, level, node.Floor)
+			}
+			if node.Footprint != nil {
+				if b, ok := prints[*node.Footprint]; !ok || !samePlace(b, node.Building) {
+					add(ProblemNavigation, file, node.ID, "%s: entrance %s is into a building that does not stand on footprint %s",
+						file, node.ID, *node.Footprint)
+				}
 			}
 			for _, in := range []struct {
 				id   *string
@@ -668,9 +691,24 @@ func (p *Package) Validate() []Problem {
 		}
 		pairs := map[[2]string]bool{}
 		for _, e := range n.Edges {
-			for _, end := range []string{e.From, e.To} {
-				if !nodes[end] {
-					add(ProblemNavigation, file, end, "%s: an edge joins unknown node %s", file, end)
+			if e.Kind == linkKind { // one end on the land, the other its building's door, in its own package
+				land, far := nodes[e.To], e.From
+				if land == nil {
+					land, far = nodes[e.From], e.To
+				}
+				if layout == "" || land == nil || land.Footprint == nil || land.Opening == nil || land.Building == nil ||
+					far != "door:"+*land.Opening || nodes[far] != nil || !strings.HasPrefix(*land.Opening, *land.Building+"-") {
+					add(ProblemNavigation, file, e.From, "%s: the link from %s to %s does not join an entrance on the land to its building's door",
+						file, e.From, e.To)
+				}
+			} else {
+				for _, end := range []string{e.From, e.To} {
+					if nodes[end] == nil {
+						add(ProblemNavigation, file, end, "%s: an edge joins unknown node %s", file, end)
+					}
+				}
+				if len(e.Path) < 2 {
+					add(ProblemNavigation, file, e.From, "%s: the edge from %s to %s has no line", file, e.From, e.To)
 				}
 			}
 			pair := [2]string{e.From, e.To}
@@ -681,9 +719,6 @@ func (p *Package) Validate() []Problem {
 				add(ProblemNavigation, file, pair[0], "%s: two edges join %s and %s", file, pair[0], pair[1])
 			}
 			pairs[pair] = true
-			if len(e.Path) < 2 {
-				add(ProblemNavigation, file, e.From, "%s: the edge from %s to %s has no line", file, e.From, e.To)
-			}
 		}
 	}
 

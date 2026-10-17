@@ -9,17 +9,32 @@
 //   const way = route(pkg, kioskItemId, officeSpaceId, { accessible: true });
 //   way.steps.map((s) => s.text);   // "Walk 48 m along CORRIDOR to the lift", …
 //
+// A way across a location's site (format 0.13, "Routes across a site"): its layout's
+// package has its land's network, linked to its buildings' at their entrances; siteRoute
+// finds the way on them together, from a gate, a kiosk or a point on the land into a
+// building, or from one building to another by the land:
+//
+//   import { siteRoute } from "@storeypath/viewer/navigation";
+//   const way = siteRoute(layoutPkg, [housePkg, annexPkg], gateId, officeSpaceId);
+//   way.steps.map((s) => s.text);   // "Start at the pedestrian gate", …, "Go into Main house", …
+//
 // Plain JavaScript, no dependencies: it works on the parsed navigation.json alone (and
 // the package's items, for a way to an item), in a browser or in Node.
 
 /** The node a place is arrived at. */
 const ARRIVALS = new Set(["room", "lift", "stairs", "escalator", "ramp"]);
-const DOORS = new Set(["door", "entrance"]);
+const DOORS = new Set(["door", "entrance", "gate"]);
 const RIDES = new Set(["lift", "stairs", "escalator", "ramp"]);
 /** "along" a corridor or ramp; "through" anything else. */
 const THROUGH = new Set(["corridor", "ramp"]);
 /** The way a person walks before a door: over this much of the way (metres). */
 const WALK_BACK_M = 2.0;
+/** (0.13) An edge from a building's entrance on the land to its door in the building's package. */
+const LINK = "link";
+/** A change through a link: into a building, or out of one. */
+const ENTRANCE = "entrance";
+/** The land's nodes a point on it may start at. */
+const LAND_NODES = new Set(["room", "approach", "kiosk", "gate", "entrance"]);
 
 const round2 = (v) => Math.floor(v * 100 + 0.5) / 100;
 const wholeMetres = (v) => Math.floor(v + 0.5);
@@ -28,11 +43,14 @@ const same = (p, q) => p[0] === q[0] && p[1] === q[1];
 const lastOf = (list) => list[list.length - 1];
 
 /** A package's walking network (navigation.json), ready to route on: its nodes,
- * places and floors by ID, and each node's edges. */
+ * places and floors by ID, and each node's edges. A site's too (siteGraph: a layout's and
+ * its buildings' together). */
 export class Graph {
   /** @param {object} nav navigation.json, as parsed */
   constructor(nav) {
     this.nav = nav;
+    /** (A layout's, 0.13) its ID: the floor of the land. */
+    this.layout = nav.layout ?? null;
     this.nodes = new Map((nav.nodes ?? []).map((n) => [n.id, n]));
     this.places = new Map((nav.places ?? []).map((p) => [p.id, p]));
     this.floors = new Map((nav.floors ?? []).map((f) => [f.id, f]));
@@ -41,16 +59,16 @@ export class Graph {
     /** Node ID → [the node at the other end, the edge][]. */
     this.adjacent = new Map([...this.nodes.keys()].map((id) => [id, []]));
     for (const e of nav.edges ?? []) {
-      if (!this.nodes.has(e.from) || !this.nodes.has(e.to)) continue;
+      if (!this.nodes.has(e.from) || !this.nodes.has(e.to)) continue; // (a link: both packages', or neither)
       this.adjacent.get(e.from).push([e.to, e]);
       this.adjacent.get(e.to).push([e.from, e]);
     }
   }
 
   /** The nodes a place is: a node's ID; a space's or a zone's (where it is arrived at:
-   * its zones', for a space divided into zones); an item's (a kiosk's own node, else
-   * the zone or space it stands in, from `items`: its feature or properties by ID).
-   * Throws for an ID the network does not know. */
+   * its zones', for a space divided into zones); an opening's (its door's or gate's
+   * node); an item's (a kiosk's own node, else the zone or space it stands in, from
+   * `items`: its feature or properties by ID). Throws for an ID the network does not know. */
   ends(ref, items = null) {
     if (this.nodes.has(ref)) return [ref];
     const found = [];
@@ -58,6 +76,7 @@ export class Graph {
       if (ARRIVALS.has(n.kind) && (n.space_id === ref || n.zone_id === ref)) found.push(n.id);
     }
     if (found.length) return found.sort(compare);
+    if (this.nodes.has(`door:${ref}`)) return [`door:${ref}`];
     if (this.nodes.has(`kiosk:${ref}`)) return [`kiosk:${ref}`];
     const it = items?.get(ref);
     if (it) {
@@ -67,11 +86,27 @@ export class Graph {
     throw new Error(`no node, place or item ${ref} in the network`);
   }
 
-  /** The place (zone, else space) a node is in; a door's first space. */
+  /** The place (zone, else space) a node is in; a door's first space; a gate itself. */
   placeOf(id) {
     const n = this.nodes.get(id);
+    if (n.kind === "gate") return n.opening_id ?? null;
     if (DOORS.has(n.kind)) return n.spaces?.[0] ?? null;
     return n.zone_id || n.space_id || null;
+  }
+
+  /** The land's node nearest a point of the site (metres of the site's frame, format
+   * 0.13): of its rooms, approaches, kiosks, gates and entrances, by straight distance; of
+   * those as near, the first by ID. Throws when the network has no land. */
+  nearest(x, y) {
+    let best = null, bestD = 0;
+    for (const n of this.nodes.values()) {
+      if (this.layout === null || n.floor_id !== this.layout || !LAND_NODES.has(n.kind)) continue;
+      const dx = n.local.x_m - x, dy = n.local.y_m - y;
+      const d = dx * dx + dy * dy;
+      if (best === null || d < bestD || (d === bestD && n.id < best)) [best, bestD] = [n.id, d];
+    }
+    if (best === null) throw new Error("no land in the network: a point on it is not known");
+    return best;
   }
 
   /** What a step calls a place ("OFFICE 112", "the corridor"). */
@@ -221,6 +256,10 @@ export function route(pkg, from, to, { accessible = false, items = null } = {}) 
   const changes = rides.map((ride) => {
     const a = path[ride[0]], b = path[lastOf(ride) + 1];
     const fa = graph.nodes.get(a).floor_id, fb = graph.nodes.get(b).floor_id;
+    if (edges[ride[0]].kind === LINK) { // (0.13) between the land and a building: in from its entrance, or out
+      return { by: ENTRANCE, from_floor_id: fa, to_floor_id: fb, from_node: a, to_node: b, floors: 0,
+        direction: graph.nodes.get(a).footprint_id ? "in" : "out" };
+    }
     const apart = (graph.order.get(fb) ?? 0) - (graph.order.get(fa) ?? 0);
     return { by: edges[ride[0]].kind, from_floor_id: fa, to_floor_id: fb, from_node: a, to_node: b,
       floors: Math.abs(apart), direction: apart > 0 ? "up" : "down" };
@@ -235,7 +274,7 @@ export function route(pkg, from, to, { accessible = false, items = null } = {}) 
 }
 
 const START = { kiosk: "Start at the kiosk in ", entrance: "Start at the entrance into ", room: "Start in ",
-  approach: "Start in ", door: "Start at the door of " };
+  approach: "Start in ", door: "Start at the door of ", gate: "Start at " };
 
 /** What to tell a person, step by step: each a kind, its values and its text in English
  * (a system words them in its own language from the kind and values). */
@@ -272,6 +311,15 @@ function steps(graph, path, edges, runs, starts, changes) {
     }
     if (!last) {
       const c = changes[n];
+      if (c.by === ENTRANCE) { // (0.13) into a building from the land, or out of it
+        const into = c.direction === "in";
+        const land = graph.nodes.get(into ? c.from_node : c.to_node);
+        const building = land.spaces?.[0] ?? null;
+        const label = (building !== null && graph.places.get(building)?.label) || "the building";
+        out.push({ kind: into ? "enter" : "leave", building_id: land.building_id ?? null, place: building,
+          from_floor_id: c.from_floor_id, to_floor_id: c.to_floor_id, text: into ? `Go into ${label}` : `Go out of ${label}` });
+        return;
+      }
       const name = graph.floors.get(c.to_floor_id)?.name || c.to_floor_id;
       out.push({ kind: "take", by: c.by, from_floor_id: c.from_floor_id, to_floor_id: c.to_floor_id, floors: c.floors,
         direction: c.direction, text: `Take the ${c.by} ${c.direction} to ${name}` });
@@ -319,4 +367,70 @@ function sideOf(graph, path, edges, run, at, goal) {
     return cross > 0 ? "left" : cross < 0 ? "right" : "ahead";
   }
   return "ahead";
+}
+
+// ---- a way across a site (format 0.13) ------------------------------------------------
+
+/** navigation.json of a package (as loadPackage or readPackage give it), or itself. */
+function navOf(pkg) {
+  const nav = pkg && "navigation" in pkg && !("nodes" in pkg) ? pkg.navigation : pkg;
+  if (!nav || !Array.isArray(nav.nodes)) throw new Error("This package has no walking network (navigation.json, format 0.8).");
+  return nav;
+}
+
+/**
+ * A site's walking network, ready to route on: its layout's network and its buildings' as
+ * one (format 0.13). A link from an entrance on the land to its door in a building joins
+ * them where that building's network is given; a building not given is not reached.
+ *
+ * @param layout the layout's package (its `navigation`), or its navigation.json
+ * @param buildings its buildings' packages, or their navigation.json
+ */
+export function siteGraph(layout, buildings = []) {
+  const land = navOf(layout);
+  const navs = [...buildings].map(navOf).sort((a, b) => compare(a.buildings?.[0] ?? "", b.buildings?.[0] ?? ""));
+  const merged = { speed_m_s: land.speed_m_s ?? 1.3, layout: land.layout ?? null,
+    buildings: navs.flatMap((n) => n.buildings ?? []).sort(compare), floors: [], places: [], nodes: [], edges: [] };
+  for (const nav of [land, ...navs]) { // (the land's floor first, then each building's floors in order)
+    for (const key of ["floors", "places", "nodes", "edges"]) for (const x of nav[key] ?? []) merged[key].push(x);
+  }
+  return new Graph(merged);
+}
+
+/** A point on the land as given: [x, y] or { x_m, y_m }; null for an ID. */
+function landPoint(ref) {
+  if (Array.isArray(ref) && ref.length === 2 && ref.every(Number.isFinite)) return ref;
+  if (ref && typeof ref === "object" && Number.isFinite(ref.x_m) && Number.isFinite(ref.y_m)) return [ref.x_m, ref.y_m];
+  return null;
+}
+
+/**
+ * The way across a location's site (format 0.13): from a gate, a kiosk, an area or a point
+ * on its land (a point, [x, y] or { x_m, y_m } in the site's frame: the land's node nearest
+ * it, Graph#nearest; the way's `from` is that node), or a room or item in one of its
+ * buildings, to any of those, on the layout's network and its buildings' together. As
+ * route() gives a way in a building, with each way into or out of a building a change `by`
+ * "entrance" (`direction` "in" or "out") and a step "enter" or "leave": its legs on the
+ * land in the site's frame, in a building in the building's. Null when there is none;
+ * throws for what the networks do not know.
+ *
+ * @param layout the layout's package, its navigation.json, or a Graph made by siteGraph
+ * @param buildings its buildings' packages (or their navigation.json; none for a Graph)
+ * @param from
+ * @param to
+ * @param {{ accessible?: boolean, items?: Iterable<object> | Map<string, object> }} [options]
+ *   items: to find an item's place in (default: every package's)
+ */
+export function siteRoute(layout, buildings, from, to, { accessible = false, items = null } = {}) {
+  const graph = layout instanceof Graph ? layout : siteGraph(layout, buildings ?? []);
+  let list = items;
+  if (!list) {
+    list = [];
+    for (const p of [layout, ...(buildings ?? [])]) for (const it of Array.isArray(p?.items) ? p.items : []) list.push(it);
+  }
+  const at = (ref) => {
+    const p = landPoint(ref);
+    return p ? graph.nearest(p[0], p[1]) : ref;
+  };
+  return route(graph, at(from), at(to), { accessible, items: list });
 }

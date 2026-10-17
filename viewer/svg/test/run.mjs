@@ -12,7 +12,7 @@ import { byLevel, floorFromPackage, floorType } from "../dist/package.js";
 import { TYPE_COLORS } from "../dist/colors.js";
 import { inside } from "../dist/geometry.js";
 import { FORMAT_VERSION, readPackage as readInBrowsers } from "../dist/read.js";
-import { Graph, route } from "../dist/navigation.js";
+import { Graph, route, siteGraph, siteRoute } from "../dist/navigation.js";
 import { ITEM_ID_ALPHABET, isItemId, isLandId, itemCheckSymbol, normalizeItemId } from "../dist/ids.js";
 import { SealedError } from "../dist/sealed.js";
 import { linesOn, readDrawingView, textsOf } from "../../src/drawing/view.js";
@@ -198,12 +198,12 @@ test("a package of a newer minor version, or of no version, is refused; older on
       return e.message;
     }
   };
-  for (const v of ["0.12.0", "0.12.3", "0.12", "0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10", "0.9.0", "0.9.12", "0.9",
-    "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.12.1-rc.1", "0.9.0+build.5"]) {
+  for (const v of ["0.13.0", "0.13.2", "0.13", "0.12.0", "0.12.3", "0.12", "0.11.0", "0.11.4", "0.11", "0.10.0", "0.10.1", "0.10.7", "0.10",
+    "0.9.0", "0.9.12", "0.9", "0.8.0", "0.7.0", "0.6.0", "0.3.1", "0.13.1-rc.1", "0.9.0+build.5"]) {
     equal(await said(v), "read", v);
   }
-  for (const v of ["0.13.0", "0.13", "0.99.0", "0.13.0-rc1", "1.0.0", "2.7.0"]) {
-    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.12: update the viewer.`, v);
+  for (const v of ["0.14.0", "0.14", "0.99.0", "0.14.0-rc1", "1.0.0", "2.7.0"]) {
+    equal(await said(v), `This package is format ${v}, newer than this viewer's 0.13: update the viewer.`, v);
   }
   for (const v of ["", ".7", "0x0.7", "0.7.", "v0.7.0", "0.8a.0", "0.7.0.1", " 0.7.0", "0.7.0\n", "0.7.0-", "-1.7",
     "٠.٧", "０.７", 0.7, null, undefined]) {
@@ -474,15 +474,17 @@ test("no way is null; an ID the network does not have, or a package without one,
 // ---- a location's layout (format 0.12) ------------------------------------------------
 // site-plot: a made-up plot's layout, in a package of its own (a garden, parking, the yard and
 // the street beyond its boundary; walls with a vehicle gate and a pedestrian gate; four
-// footprints, three of them buildings; a camera on a pole and a card reader at a gate)
+// footprints, three of them buildings; a camera on a pole, a card reader at a gate and a
+// kiosk inside it), with its land's walking network (0.13)
 
 const sitePlot = readPackage(join(conformance, "packages/site-plot.storeypath"));
 const LAYOUT = sitePlot.manifest.scope.layout;
 
-test("a layout's package (0.12) is read: its layout and footprints, no building, floor or network", async () => {
+test("a layout's package (0.12) is read: its layout and footprints, no building or floor; its land's network (0.13)", async () => {
   const read = await readInBrowsers(readFileSync(join(conformance, "packages/site-plot.storeypath")));
   equal(read, sitePlot, "read in browsers as the test's own reader reads it");
-  equal([read.layouts.map((l) => l.id), read.footprints.length, read.floors.length, read.navigation], [[LAYOUT], 4, 0, null], "what it holds");
+  equal([read.layouts.map((l) => l.id), read.footprints.length, read.floors.length, read.navigation.layout], [[LAYOUT], 4, 0, LAYOUT],
+    "what it holds");
   truly(isLandId(LAYOUT) && !isLandId(hq.manifest.scope.buildings[0]), "a land's ID");
   equal([hq.layouts, hq.footprints], [[], []], "a building's package holds no layout");
 });
@@ -517,7 +519,7 @@ test("a layout is a plan by its ID (0.12): its areas by type, its walls, its gat
     [Infinity, Infinity, -Infinity, -Infinity]);
   near([x1 - x0, y1 - y0], [50, 36], 0.02, "a plot of 50 by 36 m, square to the site plan");
   // its items where `local` puts them in the site's frame: the camera with its view, the card reader at its gate
-  equal(plan.items.map((i) => i.type).sort(), ["CARD-READER", "CCTV-POLE"], "its items");
+  equal(plan.items.map((i) => i.type).sort(), ["CARD-READER", "CCTV-POLE", "KIOSK"], "its items");
   for (const it of plan.items) {
     const p = sitePlot.items.find((i) => i.id === it.id).properties;
     near(it.at, [p.local.x_m, p.local.y_m], 1e-9, `${it.id} at its local point`);
@@ -542,6 +544,65 @@ test("a building's frame on its location's site (0.12, its placement's site): th
     near(fromSite(site, toSite(site, p)), p, 1e-9, `${p}: there and back`);
     near(land.toLocal(building.toLonLat(p)), toSite(site, p), 0.002, `${p}: the same place on the map`);
   }
+});
+
+// ---- ways across a site (format 0.13) ------------------------------------------------
+// site-plot's network and its three buildings': routes.json's site_routes, found as Studio finds them
+
+for (const c of routes.site_routes) {
+  test(`the way ${c.name}: found across the site as Studio finds it`, () => {
+    const got = siteRoute(packageOf(c.layout), c.buildings.map(packageOf), c.from, c.to, { accessible: c.accessible });
+    if (c.expect === null) return equal(got, null, "no way");
+    truly(got, "no way found");
+    sameAs(got.nodes, c.expect.nodes, 0, "nodes");
+    sameAs(got.changes, c.expect.changes, 0, "changes");
+    sameAs(got.steps, c.expect.steps, 0, "steps");
+    sameAs(got.legs, c.expect.legs, 0, "legs");
+    sameAs(got, c.expect, 0, "the whole way");
+    equal(JSON.stringify(got), JSON.stringify(c.expect), "the same JSON, key for key");
+  });
+}
+
+test("a layout's network: its gates, its entrances linked to their buildings' doors, a step known at one", () => {
+  const nav = sitePlot.navigation, kinds = (k) => nav.nodes.filter((n) => n.kind === k);
+  equal([nav.layout, nav.floors.map((f) => [f.id, f.building_id]), nav.buildings], [LAYOUT, [[LAYOUT, null]], []], "the land's");
+  equal(kinds("gate").map((n) => sitePlot.openings.find((o) => o.id === n.opening_id).properties.type), ["gate", "gate"], "a node in each gate");
+  const entrances = kinds("entrance");
+  equal(entrances.map((n) => n.building_id).sort(), sitePlot.footprints.map((f) => f.properties.building_id).filter(Boolean).sort(),
+    "an entrance into each building");
+  for (const e of entrances) {
+    const link = nav.edges.find((x) => x.kind === "link" && x.to === e.id);
+    equal([link.from, link.path, link.length_m], [`door:${e.opening_id}`, [], 0], `${e.id}: linked to its door, no line`);
+    equal(link.accessible, e.steps !== true, `${e.id}: not without stairs where a step is known`);
+    equal(e.spaces, [e.footprint_id], `${e.id}: into its footprint`);
+  }
+  const house = entrances.find((e) => e.rise_m !== null);
+  equal([house.steps, house.rise_m], [true, 0.45], "the house's floor 0.45 m above the ground: a step");
+  equal(nav.places.filter((p) => p.kind === "opening").map((p) => p.label).sort(), ["the pedestrian gate", "the vehicle gate"], "gates by width");
+});
+
+test("a site's networks as one: a point on the land is its nearest node; a building not given is not there", () => {
+  const land = packageOf("site-plot.storeypath"), names = ["site-plot-house.storeypath", "site-plot-guest-a.storeypath"];
+  const graph = siteGraph(land, names.map(packageOf));
+  const parking = routes.site_routes.find((c) => typeof c.from === "object");
+  equal(graph.nearest(parking.from.x_m, parking.from.y_m), parking.expect.from, "the parking's point");
+  equal(siteRoute(graph, null, [parking.from.x_m, parking.from.y_m], parking.to).from, parking.expect.from, "as [x, y] too");
+  const said = (fn) => {
+    try {
+      fn();
+    } catch (e) {
+      return e.message;
+    }
+    return "";
+  };
+  const b = routes.site_routes.find((c) => c.name.startsWith("the kiosk"));
+  truly(/no node, place or item/.test(said(() => siteRoute(land, names.map(packageOf), b.from, b.to))),
+    "guest house B's package not given: its rooms are not known");
+  truly(siteRoute(land, [...names, "site-plot-guest-b.storeypath"].map(packageOf), b.from, b.to), "given, a way");
+  const unlinked = { ...land.navigation, edges: land.navigation.edges.filter((e) => e.kind !== "link" || !e.from.includes("GUESTB")) };
+  equal(siteRoute(unlinked, [...names, "site-plot-guest-b.storeypath"].map(packageOf), b.from, b.to, { items: land.items }), null,
+    "no link to its door: no way into it");
+  truly(/no land/.test(said(() => siteGraph(hq).nearest(0, 0))), "a building alone has no land");
 });
 
 // ---- in Chrome ----------------------------------------------------------------

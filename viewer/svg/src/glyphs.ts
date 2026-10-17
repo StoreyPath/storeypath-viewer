@@ -1,5 +1,5 @@
 // The way's small pictures, drawn by line (24 × 24, to be stroked 2 wide with round
-// ends, as Lucide's icons are): how a way changes floor, and which way. The plan draws
+// ends, as Lucide's icons are): how a way changes floor (or goes into a building), and which way. The plan draws
 // them in its floor-change badges; a page may draw the same in its list of steps.
 
 export const ROUTE_GLYPHS: Readonly<Record<string, string>> = {
@@ -11,6 +11,8 @@ export const ROUTE_GLYPHS: Readonly<Record<string, string>> = {
   escalator: "M3 19h4l9-11h5M8.5 14.5h3M12 10.5h3",
   /** A slope. */
   ramp: "M3 19h18V9L3 19z",
+  /** A door in its frame: a way into a building from the land, or out (0.13). */
+  entrance: "M3 21h18M6 21V3h12v18M14 12h.01",
   up: "M12 19V5M6 11l6-6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
 };

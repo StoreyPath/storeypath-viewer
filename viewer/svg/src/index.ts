@@ -15,7 +15,7 @@ export { poleOf } from "./geometry.js";
 export type { Camera, FloorPlan, PlanDrawing, PlanFootprint, PlanItem, PlanOpening, PlanRoute, PlanRouteStep, PlanSpace, Polygon, Ring, SpaceStyle,
   XY } from "./types.js";
 // finding the way (format 0.8): the module both viewers share
-export { route, shortest, Graph } from "./navigation.js";
-export type { Navigation, NavEdge, NavFloor, NavNode, NavPlace, Route, RouteChange, RouteLeg, RouteStep } from "./navigation.js";
+export { route, shortest, siteGraph, siteRoute, Graph } from "./navigation.js";
+export type { Navigation, NavEdge, NavFloor, NavNode, NavPlace, Route, RouteChange, RouteLeg, RouteStep, LandPoint, SitePart } from "./navigation.js";
 // items' IDs (format 0.8): a tag checked, or read as a person typed it (shared too); a location's land's (0.12)
 export { ITEM_ID_ALPHABET, LAND_CODE, isLandId, itemCheckSymbol, isItemId, normalizeItemId } from "./ids.js";
