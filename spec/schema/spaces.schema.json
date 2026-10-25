@@ -196,7 +196,7 @@
         },
         "outdoor": {
           "default": false,
-          "description": "open to the sky: a terrace, balcony or roof with no windows of its own (a glazed veranda is not)",
+          "description": "open to the sky: a terrace, balcony or roof with no windows of its own (a glazed veranda is not), or a courtyard or light well set aside as no room (ignored), a hole in its floor's outline",
           "title": "Outdoor",
           "type": "boolean"
         },
