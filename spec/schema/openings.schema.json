@@ -52,7 +52,7 @@
           "type": "array"
         },
         "exterior": {
-          "description": "true when it leads outside the floor",
+          "description": "true when it leads outside the floor (onto a courtyard or light well too)",
           "title": "Exterior",
           "type": "boolean"
         },

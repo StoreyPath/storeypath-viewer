@@ -143,11 +143,15 @@ door and window gaps: a Polygon or MultiPolygon, for drawing or modelling the fl
 rise to the ceiling), `wall_thickness_m`, `parapets` (the low walls around terraces,
 balconies and roofs, `parapet_height_m` high: a Polygon or MultiPolygon, or null) and
 `parapet_height_m`. Geometry: floor outline (or null): a mezzanine's covers its own
-rooms, not the floor under it.
+rooms, not the floor under it. It is open where the floor's courtyards and light wells
+are (open to the sky inside the building, the ground floor's too): a hole each, the
+outline's Polygon interiors; such a space is a `space` set aside (`ignored`) and
+`outdoor`. A floor's area, its slab, a building's footprint leave the holes out.
 
 **space** — `type`, `name`, `number`, `drawing_label`, `floor_id`, `area_m2`,
 `display_point` (a good spot for its label), `zones`, `outdoor` (open to the sky: a terrace, balcony or roof with no
-windows of its own; a glazed veranda is not), `capacity`, `capacity_from`, `grade`
+windows of its own, a glazed veranda not; or a courtyard or light well, set aside as no room (`ignored`), a hole in
+its floor's outline), `capacity`, `capacity_from`, `grade`
 (Capacity), `stack` (Stacks), `floor_finish`, `wall_finish` and `wall_finishes` (Finishes), `hidden`, `ignored`.
 Geometry: Polygon or MultiPolygon. A space is what walls, doors and windows enclose:
 walls stand on its edges.
@@ -186,7 +190,8 @@ designation of the office) by the space's ID, which no later package changes. A
 change of capacity or grade is a change of the space in `changes.json`.
 
 **opening** — `type`, `floor_id`, `connects` (IDs of the one or two spaces it joins),
-`exterior` (true when it leads outside), `width_m` and `span` (jamb to jamb, when
+`exterior` (true when it leads outside: it joins one space to nothing, or to a courtyard
+or light well, `outdoor` and `ignored`), `width_m` and `span` (jamb to jamb, when
 known), `swings` (a door's leaves as the plan draws them, each `[hinge, free edge
 when open]`, when known: which side it hinges on and which way it opens; two for a
 double door), `sill_m` and `height_m` (how high above the floor it starts, and how
@@ -641,7 +646,7 @@ the next while that is:
 | `kind` | `id` | Where |
 |---|---|---|
 | `door` | `door:<opening ID>` | each door and opening (`type` `door` or `opening`, never a window) between two spaces a person walks in, at the middle of its span; `spaces` lists them. A lift or stairs with no way in drawn (one drawn in review) joins a space it shares an edge with: `door:<space ID>+<space ID>` (the two in order), `opening_id` null |
-| `entrance` | `door:<opening ID>` | a door or opening to the outside (`exterior`), on any floor: where a campus's ways would join the building's |
+| `entrance` | `door:<opening ID>` | a door or opening to the outside (`exterior`: onto a courtyard or light well too), on any floor: where a campus's ways would join the building's |
 | `approach` | `approach:<opening ID>@<space ID>` | in front of a door in each space it opens into: half the space's depth there, at most 2 m (so the approaches along a corridor are on its middle line) |
 | `room` | `room:<space or zone ID>` | where a person arrives in each space (in each zone of a space divided into zones): its label point, clear of the walls |
 | `lift`, `stairs`, `escalator`, `ramp` | `lift:<object code>@<floor ID>`, … | each lift, stairs, escalator and ramp space, on its floor, in place of a `room` node; `stack` is its stack |
@@ -657,8 +662,10 @@ hidden or ignored in review: `corridor`, `lobby`, `open_area`, `elevator`, `stai
 (spaces to pass through), and `office`, `room`, `meeting_room`, `restroom`,
 `kitchen`, `storage`, `bedroom`, `bathroom`, `dressing_room`, `laundry`,
 `prayer_room`, `unspecified` (spaces a person goes to). Not `utility` (plant and
-technical rooms), `electrical_room`, `idf_room`, `shaft` or `open_to_below`. A door into what is not walked is not
-a node. The zones of a divided space are one room to walk across, as no wall parts
+technical rooms), `electrical_room`, `idf_room`, `shaft` or `open_to_below`, nor a
+courtyard or light well (ignored: the network goes round it, and a door onto it is an
+`entrance`). A door into what is not walked is not a node. The zones of a divided
+space are one room to walk across, as no wall parts
 them (a zone not walked, a void, is left out of it).
 
 **Edges.** Every edge joins two nodes, both ways; at most one joins any two. `path` is
@@ -913,7 +920,7 @@ The node names it; its `extras` say what it is: `material`, `view`, and `type` a
 
 | Name | `material` | `view` | What |
 |---|---|---|---|
-| `slab` | `slab` | | the floor slab, under the floor's outline |
+| `slab` | `slab` | | the floor slab, under the floor's outline (open at its holes: courtyards and light wells) |
 | `floor:<type>` | `floor` | | the floor finish of the spaces and zones of that `type` |
 | `volume:<type>` | `volume` | `xray` | each space of that `type` as a volume, up to its ceiling (to its parapets, when open to the sky) |
 | `ceiling` | `ceiling` | `walk` | the ceiling, over every space but those open to the sky |
