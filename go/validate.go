@@ -90,7 +90,7 @@ var (
 	roomTypes = []string{"office", "room", "meeting_room", "corridor", "lobby", "elevator", "stairs", "escalator",
 		"ramp", "restroom", "kitchen", "storage", "utility", "shaft", "open_area", "unspecified", "bedroom", "living_room",
 		"dining_room", "bathroom", "dressing_room", "laundry", "prayer_room", "parking", "balcony", "terrace", "open_to_below",
-		"roof"} // (roof: 0.11)
+		"roof", "electrical_room", "idf_room"} // (roof: 0.11; electrical_room, idf_room: 0.13.1)
 	landTypes  = []string{"driveway", "garden", "courtyard", "yard", "path", "gate_area", "road", "pool"}
 	spaceTypes = append(slices.Clone(roomTypes), landTypes...)
 )
@@ -104,6 +104,54 @@ var (
 	categories = append(slices.Clone(ItemCategories), "appliance")
 	colourRE   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
+
+// maxPlanPoints: the most points a type's plan holds (format 0.13.2), lines and outline.
+const maxPlanPoints = 50000
+
+// planProblem: what is wrong with a type's plan (format 0.13.2), or "": every point a
+// number within its box to 1 mm, each line two points or more, each ring three or more,
+// at most maxPlanPoints in all.
+func planProblem(ty ItemType) string {
+	n := 0
+	in := func(q [2]float64) bool {
+		return !math.IsNaN(q[0]) && !math.IsNaN(q[1]) && !math.IsInf(q[0], 0) && !math.IsInf(q[1], 0) &&
+			math.Abs(q[0]) <= ty.Width/2+0.001 && math.Abs(q[1]) <= ty.Depth/2+0.001
+	}
+	for i, l := range ty.Plan.Lines {
+		if len(l) < 2 {
+			return fmt.Sprintf("line %d has %d point(s), not two or more", i, len(l))
+		}
+		for _, q := range l {
+			if !in(q) {
+				return fmt.Sprintf("line %d has a point %v outside its box %g x %g m", i, q, ty.Width, ty.Depth)
+			}
+		}
+		n += len(l)
+	}
+	for i, poly := range ty.Plan.Outline {
+		if len(poly) == 0 {
+			return fmt.Sprintf("outline polygon %d has no ring", i)
+		}
+		for _, ring := range poly {
+			if len(ring) < 3 {
+				return fmt.Sprintf("outline polygon %d has a ring of %d point(s), not three or more", i, len(ring))
+			}
+			for _, q := range ring {
+				if !in(q) {
+					return fmt.Sprintf("outline polygon %d has a point %v outside its box %g x %g m", i, q, ty.Width, ty.Depth)
+				}
+			}
+			n += len(ring)
+		}
+	}
+	if len(ty.Plan.Lines) == 0 {
+		return "has no lines"
+	}
+	if n > maxPlanPoints {
+		return fmt.Sprintf("has %d points, more than %d", n, maxPlanPoints)
+	}
+	return ""
+}
 
 // maxWorkplaces: the most people who work at one item (a bench of desks).
 const maxWorkplaces = 100
@@ -638,6 +686,11 @@ func (p *Package) Validate() []Problem {
 				add(ProblemValue, file, ty.Code, "%s: type %s: grade %q is not one of %s", file, ty.Code, *ty.Grade, strings.Join(grades, ", "))
 			}
 			viewed(file, ty.Code, file+": type "+ty.Code, ty.ViewDeg, ty.RangeM)
+			if ty.Plan != nil {
+				if why := planProblem(ty); why != "" {
+					add(ProblemValue, file, ty.Code, "%s: type %s: its plan %s", file, ty.Code, why)
+				}
+			}
 		}
 	}
 

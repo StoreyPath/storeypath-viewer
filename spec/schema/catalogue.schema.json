@@ -51,6 +51,67 @@
       "title": "ItemField",
       "type": "object"
     },
+    "ItemPlan": {
+      "description": "How a type's items look from above, line for line as a drawing has them (format\n0.13.2; FORMAT.md, Plan drawings): metres in the type's own frame, its middle at (0, 0),\nx across it, its front towards -y. ``lines``: polylines (a closed one repeats its first\npoint); ``outline``: its footprint for 3D, polygons of rings (the first the boundary,\nthe rest holes; the first point not repeated). Drawn in place of its shape.",
+      "properties": {
+        "lines": {
+          "items": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Lines",
+          "type": "array"
+        },
+        "outline": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "items": {
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outline"
+        }
+      },
+      "required": [
+        "lines"
+      ],
+      "title": "ItemPlan",
+      "type": "object"
+    },
     "ItemType": {
       "properties": {
         "code": {
@@ -167,6 +228,17 @@
           ],
           "default": null,
           "title": "Model"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "workplaces": {
           "default": 0,

@@ -18,7 +18,7 @@ import (
 // does not know are ignored.
 const (
 	FormatName    = "storeypath-package"
-	FormatVersion = "0.13.0"
+	FormatVersion = "0.13.2"
 )
 
 // oneBuildingFrom: from format 0.7 a package holds exactly one building.

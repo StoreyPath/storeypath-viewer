@@ -1069,7 +1069,8 @@ export class StoreyPathWorld extends EventTarget {
       width_m: g.width ?? t?.width, depth_m: g.depth ?? t?.depth, height_m: g.height ?? t?.height,
       elevation_m: g.elevation !== undefined ? g.elevation : t?.elevation ?? null };
     return planItem(g.id, p, { origin: this.#origin, placement: this.#placement(), wallHeight: f.plan.wallHeight,
-      type: { color: g.color ?? t?.color, grade: g.grade ?? t?.grade, shape: g.shape !== undefined ? g.shape : t?.shape },
+      type: { color: g.color ?? t?.color, grade: g.grade ?? t?.grade, shape: g.shape !== undefined ? g.shape : t?.shape,
+        plan: t?.plan, width: t?.width, depth: t?.depth }, // (0.13.2) its type's drawing, at the type's size
       model: this.#models.get(g.type) ?? null });
   }
 

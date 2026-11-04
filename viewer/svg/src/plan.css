@@ -148,6 +148,8 @@
 .sp-item-overhead .sp-item-body { fill-opacity: 0.3; stroke-dasharray: 3 3; }
 .sp-item-front { stroke: var(--sp-item-front); stroke-width: 2.5; }
 .sp-item-mark { fill: none; stroke: var(--sp-item-mark); stroke-width: 1; }
+/* a type's drawing seen from above (format 0.13.2): line for line, finer than a symbol's marks */
+.sp-item-plan { stroke-width: 0.75; stroke-linejoin: round; stroke-linecap: round; }
 /* the way a camera looks (a screen, a kiosk faces): part of the item, so a click inside it chooses
    the item rather than the space under it */
 .sp-item-view { stroke-dasharray: 3 3; pointer-events: visible; }

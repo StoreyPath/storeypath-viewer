@@ -605,6 +605,19 @@ test("a site's networks as one: a point on the land is its nearest node; a build
   truly(/no land/.test(said(() => siteGraph(hq).nearest(0, 0))), "a building alone has no land");
 });
 
+test("a type's plan (0.13.2) reaches its items; a malformed one does not (drawn by its shape)", () => {
+  const types = hq.catalogue.types.map((t) => ({ ...t }));
+  const desk = types.find((t) => t.code === "DESK-DIRECTOR");
+  const w = desk.width / 2, d = desk.depth / 2;
+  desk.plan = { lines: [[[-w, -d], [w, -d], [w, d], [-w, d], [-w, -d]]], outline: [[[[-w, -d], [w, -d], [w, d], [-w, d]]]] };
+  const sofa = types.find((t) => t.code === "SOFA");
+  sofa.plan = { lines: [[[0, 0]]] };
+  const plan = floorFromPackage({ ...hq, catalogue: { ...hq.catalogue, types } }, `${HQ}-F00`);
+  const it = plan.items.find((i) => i.type === "DESK-DIRECTOR");
+  equal([it.plan?.lines.length, it.plan?.outline?.length, it.plan?.width, it.plan?.depth], [1, 1, desk.width, desk.depth], "its plan, at its type's size");
+  equal(plan.items.find((i) => i.type === "SOFA").plan, null, "a line of one point: none");
+});
+
 // ---- in Chrome ----------------------------------------------------------------
 
 const browser = [];
@@ -670,6 +683,29 @@ inChrome("a desk and a table are drawn alone (format 0.10: their chairs are item
   // [kind, backs (a chair's, an armchair's arms), marks (a cupboard's doors), views (what a camera looks at), its body]
   equal(got, { K0: ["sp-item-chair", 1, 0, 0, "rect"], K1: ["sp-item-sidechair", 1, 0, 0, "rect"], K2: ["sp-item-armchair", 3, 0, 0, "rect"],
     K3: ["sp-item-storage", 0, 2, 0, "rect"], K4: ["sp-item-camera", 0, 0, 1, "rect"], K5: ["sp-item-camera", 0, 0, 1, "circle"] }, "by shape");
+});
+
+inChrome("a type's plan (0.13.2) is drawn line for line in place of its shape's symbol, its outline its body, made the item's size and turned with it", async (page) => {
+  const plan = floorFromPackage(hq, `${HQ}-F00`);
+  const first = plan.items.find((i) => i.mount === "floor");
+  // an L, 2 x 1 m: its arm towards the plan's +y (its back) on its right
+  const L = { lines: [[[-1, -0.5], [1, -0.5], [1, 0.5], [0.5, 0.5], [0.5, 0], [-1, 0], [-1, -0.5]], [[0, -0.5], [0, 0]]],
+    outline: [[[[-1, -0.5], [1, -0.5], [1, 0.5], [0.5, 0.5], [0.5, 0], [-1, 0]]]], width: 2, depth: 1 };
+  plan.items = [{ ...first, id: "P", type: "L", shape: "desk", width: 2, depth: 1, front: [0, -1], at: [0, 0], plan: L },
+    { ...first, id: "Q", type: "L", shape: "desk", width: 4, depth: 1, front: [-1, 0], at: [10, 0], plan: L }];
+  await page.run((p) => window.fresh({}, p), plan);
+  const got = await page.run(() => Object.fromEntries([...document.querySelectorAll(".sp-items [data-sp-item]")].map((g) => {
+    const m = g.getCTM(), world = g.ownerSVGElement.querySelector(".sp-world").getCTM().inverse();
+    const at = (x, y) => { const p = new DOMPoint(x, y).matrixTransform(m).matrixTransform(world); return [Math.round(p.x * 100) / 100, Math.round(p.y * 100) / 100]; };
+    const body = g.querySelector(".sp-item-body"), lines = g.querySelector(".sp-item-plan");
+    return [g.dataset.spItem, { body: body.tagName, lines: (lines.getAttribute("d").match(/M/g) || []).length, fronts: g.querySelectorAll(".sp-item-front").length,
+      marks: g.querySelectorAll(".sp-item-back, .sp-item-chair").length, corner: at(...body.getAttribute("d").match(/M([-\d.]+),([-\d.]+)/).slice(1).map(Number)) }];
+  })));
+  equal([got.P.body, got.P.lines, got.P.fronts, got.P.marks], ["path", 2, 0, 0], "its outline its body, its two lines, no symbol over it");
+  // its first point, (-1, -0.5), on the plan: not turned, where it is; made 4 m wide, (-2, -0.5), and turned to face -x
+  // (a quarter turn clockwise from -y, Studio's rotation 270°), at (10, 0): (-0.5, 2) from there
+  equal(got.P.corner, [-1, -0.5], "not turned: as drawn");
+  equal(got.Q.corner, [9.5, 2], "made 4 m wide and turned to face -x");
 });
 
 inChrome("a camera's mark is as wide as it sees; what it covers, out to its range, shows chosen, or every camera's (coverage: 0.10)", async (page) => {

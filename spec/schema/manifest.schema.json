@@ -236,7 +236,7 @@
       "type": "string"
     },
     "format_version": {
-      "default": "0.13.0",
+      "default": "0.13.2",
       "title": "Format Version",
       "type": "string"
     },

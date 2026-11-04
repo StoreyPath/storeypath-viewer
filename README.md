@@ -28,7 +28,7 @@ of this repository, so a package and the code that reads it always agree.
 
 | Folder | What it is |
 |---|---|
-| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.13.0), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
+| [spec/](spec) | **The format**: [FORMAT.md](spec/FORMAT.md) (format 0.13.2), [DRAWING-VIEW.md](spec/DRAWING-VIEW.md) (a drawing as drawn), JSON Schemas, the list of finishes, and conformance packages with the ways every reader must find the same |
 | [viewer/](viewer) | **The viewers**, to embed in a web app: the 3D world, a map view, the 2D plan ([viewer/svg](viewer/svg)) that needs no WebGL, the drawings themselves ([viewer/src/drawing](viewer/src/drawing)), and finding the way ([viewer/src/navigation.js](viewer/src/navigation.js)) |
 | [go/](go) | **A Go module** that reads and validates packages and finds the way in a building, or across a site, standard library only |
 

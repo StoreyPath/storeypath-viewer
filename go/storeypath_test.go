@@ -1436,6 +1436,22 @@ func TestValuesAreThoseTheFormatAllows(t *testing.T) {
 		{"a type's grade", firstType(func(ty map[string]any) { ty["grade"] = "ceo" }), false},
 		{"a type's workplaces", firstType(func(ty map[string]any) { ty["workplaces"] = -1 }), false},
 		{"a type's workplaces, too many", firstType(func(ty map[string]any) { ty["workplaces"] = 101 }), false},
+		// (0.13.2) a type's plan: its lines within its box
+		{"a type's plan", firstType(func(ty map[string]any) {
+			w, d := ty["width"].(float64)/2, ty["depth"].(float64)/2
+			ty["plan"] = map[string]any{"lines": []any{[]any{[]any{-w, -d}, []any{w, -d}, []any{w, d}, []any{-w, d}, []any{-w, -d}}},
+				"outline": []any{[]any{[]any{[]any{-w, -d}, []any{w, -d}, []any{w, d}, []any{-w, d}}}}}
+		}), true},
+		{"a type's plan, a point past its box", firstType(func(ty map[string]any) {
+			ty["plan"] = map[string]any{"lines": []any{[]any{[]any{0.0, 0.0}, []any{ty["width"].(float64), 0.0}}}}
+		}), false},
+		{"a type's plan, a line of one point", firstType(func(ty map[string]any) {
+			ty["plan"] = map[string]any{"lines": []any{[]any{[]any{0.0, 0.0}}}}
+		}), false},
+		{"a type's plan, a ring of two points", firstType(func(ty map[string]any) {
+			ty["plan"] = map[string]any{"lines": []any{[]any{[]any{0.0, 0.0}, []any{0.01, 0.0}}}, "outline": []any{[]any{[]any{[]any{0.0, 0.0}, []any{0.01, 0.0}}}}}
+		}), false},
+		{"a type's plan with no lines", firstType(func(ty map[string]any) { ty["plan"] = map[string]any{"lines": []any{}} }), false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			problems := rewriteFrom(t, "campus-hq.storeypath", c.edit).Validate()
@@ -1451,6 +1467,18 @@ func TestValuesAreThoseTheFormatAllows(t *testing.T) {
 	untyped := rewriteFrom(t, "simple-office.storeypath", editJSON(FileManifest, func(doc map[string]any) { delete(doc, "types") }))
 	if problems := untyped.Validate(); len(problems) != 0 {
 		t.Errorf("no types listed: %v", problems)
+	}
+	// (0.13.1) an electrical room and an IDF room are this format's types
+	for _, typ := range []string{"electrical_room", "idf_room"} {
+		edit := func(n string, d []byte) []byte {
+			if n == FileManifest {
+				return editJSON(n, func(doc map[string]any) { delete(doc, "types") })(n, d)
+			}
+			return first(FileSpaces, func(p map[string]any) { p["type"] = typ })(n, d)
+		}
+		if problems := rewriteFrom(t, "simple-office.storeypath", edit).Validate(); len(problems) != 0 {
+			t.Errorf("a space of type %s: %v", typ, problems)
+		}
 	}
 }
 
@@ -1511,7 +1539,7 @@ func TestAPackageNewerThanTheReaderIsRefused(t *testing.T) {
 	// Before 1.0 a minor version may change what a package means: a newer one is
 	// refused with a message to update the reader; older ones and newer patches are read.
 	for v, ok := range map[string]bool{FormatVersion: true, "0.7.0": true, "0.6.0": true, "0.4.1": true, "0.8.9": true,
-		"0.9.7": true, "0.10.4": true, "0.10.1": true, "0.11.3": true, "0.12.4": true, "0.13.2": true, "0.14.0": false,
+		"0.9.7": true, "0.10.4": true, "0.10.1": true, "0.11.3": true, "0.12.4": true, "0.13.7": true, "0.14.0": false,
 		"1.0.0": false} {
 		if err := CheckVersion(v); (err == nil) != ok {
 			t.Errorf("%s: %v", v, err)

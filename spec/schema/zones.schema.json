@@ -88,6 +88,8 @@
         "kitchen",
         "storage",
         "utility",
+        "electrical_room",
+        "idf_room",
         "shaft",
         "open_area",
         "unspecified",

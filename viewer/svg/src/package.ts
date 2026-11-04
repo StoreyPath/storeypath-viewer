@@ -7,7 +7,7 @@
 
 import { LocalFrame, type Placement } from "./frame.js";
 import type { Navigation } from "./navigation.js";
-import type { FloorPlan, PlanFootprint, PlanItem, PlanOpening, PlanSpace, Polygon, XY } from "./types.js";
+import type { FloorPlan, ItemPlan, PlanFootprint, PlanItem, PlanOpening, PlanSpace, Polygon, XY } from "./types.js";
 
 type LonLat = [number, number];
 
@@ -75,7 +75,8 @@ export interface PackageLike {
   openings: Feature<OpeningProps>[];
   /** Furniture and equipment (format 0.6; placed in their building, 0.7), and the catalogue of their types. */
   items?: Feature<ItemProps>[];
-  catalogue?: { types: { code: string; color?: string; grade?: string | null; shape?: string | null }[] } | null;
+  catalogue?: { types: { code: string; color?: string; grade?: string | null; shape?: string | null; width?: number; depth?: number;
+    plan?: { lines?: unknown; outline?: unknown } | null }[] } | null;
   /** The building's walking network (navigation.json, format 0.8), or null: route() finds the way on it. */
   navigation?: Navigation | null;
   /** A layout's package (format 0.12): its layout (layout.geojson), and the buildings standing on it
@@ -92,6 +93,21 @@ export interface FromPackageOptions {
 }
 
 const ITEM_COLOR = "#8a8a8a"; // an item whose type the package does not describe (or not as #rrggbb)
+/** A type's plan (format 0.13.2) as the plan draws it, or null when it has none or it is
+ * malformed (then the type is drawn by its shape): every point two finite numbers, each line
+ * two points or more, each ring three or more, the type's size given. */
+function planOf(t: { width?: number; depth?: number; plan?: { lines?: unknown; outline?: unknown } | null }): ItemPlan | null {
+  const p = t.plan;
+  if (!p || !Array.isArray(p.lines) || !p.lines.length || !(Number(t.width) > 0) || !(Number(t.depth) > 0)) return null;
+  const point = (q: unknown): q is XY => Array.isArray(q) && q.length === 2 && Number.isFinite(q[0]) && Number.isFinite(q[1]);
+  const run = (l: unknown, least: number): l is XY[] => Array.isArray(l) && l.length >= least && l.every(point);
+  if (!p.lines.every((l) => run(l, 2))) return null;
+  const outline = p.outline === undefined || p.outline === null ? undefined : p.outline;
+  if (outline !== undefined && !(Array.isArray(outline) && outline.every((poly) => Array.isArray(poly) && poly.length > 0
+    && poly.every((ring: unknown) => run(ring, 3))))) return null;
+  return { lines: p.lines as XY[][], outline: outline as XY[][][] | undefined, width: Number(t.width), depth: Number(t.depth) };
+}
+
 /** The colours a package may give (catalogue.json): #rrggbb, nothing else reaches the page. */
 const COLOR = /^#[0-9a-f]{6}$/i;
 /** The grades a desk may be for (catalogue.json, format 0.7): no other reaches the page. */
@@ -196,6 +212,12 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     .map((t) => [t.code, t.grade]));
   // how each type is drawn (format 0.9.1), as its catalogue says
   const shapes = new Map((pkg.catalogue?.types ?? []).filter((t) => typeof t.shape === "string").map((t) => [t.code, t.shape]));
+  // how each type looks from above (format 0.13.2), as its catalogue draws it
+  const plans = new Map<string, ItemPlan>();
+  for (const t of pkg.catalogue?.types ?? []) {
+    const plan = planOf(t);
+    if (plan) plans.set(t.code, plan);
+  }
   const items: PlanItem[] = [];
   for (const f of pkg.items ?? []) {
     const p = f.properties;
@@ -212,7 +234,7 @@ export function floorFromPackage(pkg: PackageLike, floorId: string, options: Fro
     }
     items.push({ id: f.id, type: p.type, category: p.category ?? "furniture", name: p.name ?? null, mount: p.mount ?? "floor",
       at, front, width: p.width_m || 1, depth: p.depth_m || 0.6, color: colors.get(p.type) ?? ITEM_COLOR,
-      grade: grades.get(p.type) ?? null, shape: shapes.get(p.type) ?? null, door: p.door_id ?? null,
+      grade: grades.get(p.type) ?? null, shape: shapes.get(p.type) ?? null, door: p.door_id ?? null, plan: plans.get(p.type) ?? null,
       view: positive(p.view_deg) && p.view_deg <= 360 ? { deg: p.view_deg, range: positive(p.range_m) ? p.range_m : null } : null });
   }
   return {

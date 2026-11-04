@@ -1,4 +1,4 @@
-# StoreyPath package format — version 0.13.0
+# StoreyPath package format — version 0.13.2
 
 A StoreyPath package (`*.storeypath`) describes one building of a project: the
 building, its location, its floors, the spaces on each floor (offices, corridors,
@@ -205,7 +205,10 @@ Space types: `office`, `room`, `meeting_room`, `corridor`, `lobby`, `elevator`,
 `open_area`, `unspecified`, `bedroom`, `living_room`, `dining_room`, `bathroom`
 (private; public toilets are `restroom`), `dressing_room`, `laundry`, `prayer_room`,
 `parking`, `balcony`, `terrace`, `open_to_below` (a void over the floor below), `roof`
-(0.11: the open roof of a building, its deck behind the parapets, on a roof level);
+(0.11: the open roof of a building, its deck behind the parapets, on a roof level),
+`electrical_room` (0.13.1: a room of switchboards and distribution boards) and `idf_room`
+(0.13.1: a floor's telecom room, its racks and patch panels; an intermediate distribution
+frame), which were `utility` before;
 outdoors, a location's land's areas (0.12, Location layouts): `yard` (the plot's open
 ground round its buildings), `driveway`, `garden`, `courtyard` (open ground closed round
 by buildings or walls), `path`, `gate_area` (the ground at a gate), `road` (beyond the
@@ -345,7 +348,8 @@ kept for good and never given to another type (a type no longer used is `retired
 English and Arabic names, a `category` (Categories, below), a size, how
 it is mounted (`floor`, `wall`, `ceiling`), a colour (`#rrggbb`), `workplaces` (how many people work
 at one: a desk, 1; 0 for most else), `grade` (who a desk is for, 0.7), `shape` (how it is
-drawn, 0.9.1: Shapes, below), `model` (its 3D model, 0.9.2: Models, below), and its `fields`. Each field
+drawn, 0.9.1: Shapes, below), `model` (its 3D model, 0.9.2: Models, below), `plan` (its drawing
+seen from above, 0.13.2: Plan drawings, below), and its `fields`. Each field
 says who enters it: `owner: "storeypath"` (what is physical: a colour, a size, a
 model) or `"system"` (the system that manages the asset: an access point's network).
 A reader keeps the `system` fields itself, by the item's ID; the package never
@@ -405,6 +409,26 @@ box stretched or shrunk each way to the item's `width_m` (x), `height_m` (y) and
 model is added, so it is drawn as it was made. The model says only how a type looks in 3D:
 the plan still draws its shape. A reader that cannot read a model (missing, malformed, too
 large) draws the type by its shape, as one of 0.9.1 does.
+
+**Plan drawings (0.13.2).** A type may carry its `plan`: how its items look from above, line
+for line as a drawing has them (a designer's or a supplier's CAD block: that desk set, that
+chair), drawn in place of its shape's symbol. In the type's own frame: metres, its middle
+(the middle of its box) at (0, 0), x across it and y front to back, its front towards −y,
+as an item that is not turned lies on the plan.
+- `plan.lines`: polylines, each a list of `[x, y]` points (at least two; a closed one repeats
+  its first); arcs and circles as the drawing has them, in short straight pieces.
+- `plan.outline` (optional): its footprint, for a 3D reader: a list of polygons, each a list
+  of rings (the first its boundary, any others holes in it: the middle of a ring table), each
+  a list of `[x, y]` points (at least three; the first not repeated).
+
+Every point lies within the type's box (±`width`/2, ±`depth`/2) to 1 mm, and a type's plan
+has at most 50,000 points. An item of the type is drawn as its lines made the item's size
+(each way, as a model is), turned and placed as the item is. In 3D a type with an outline and
+no model is its outline raised: a `desk` or a `table` its top, 4 cm thick at its height, on a
+leg at each corner of its outline (a round one on a pedestal at its middle); anything else its
+outline from its bottom to its top. A plan says only how a type looks: its size, shape and
+code stay what they are, and a reader that does not know `plan` (or finds it malformed)
+draws the type by its shape.
 
 **Kiosks.** An item whose type is `KIOSK`, or `KIOSK-` and more (`KIOSK-WALL`), is
 where a wayfinding kiosk stands: a screen where people type their employee number
@@ -633,7 +657,7 @@ hidden or ignored in review: `corridor`, `lobby`, `open_area`, `elevator`, `stai
 (spaces to pass through), and `office`, `room`, `meeting_room`, `restroom`,
 `kitchen`, `storage`, `bedroom`, `bathroom`, `dressing_room`, `laundry`,
 `prayer_room`, `unspecified` (spaces a person goes to). Not `utility` (plant and
-electrical rooms), `shaft` or `open_to_below`. A door into what is not walked is not
+technical rooms), `electrical_room`, `idf_room`, `shaft` or `open_to_below`. A door into what is not walked is not
 a node. The zones of a divided space are one room to walk across, as no wall parts
 them (a zone not walked, a void, is left out of it).
 
@@ -834,7 +858,7 @@ building's outside: `WALL-PAINT-WHITE`):
 | `parking` | `FLOOR-EPOXY-GREY` | `WALL-PAINT-WHITE` |
 | `prayer_room` | `FLOOR-CARPET-GREEN` | `WALL-PAINT-WHITE` |
 | `restroom`, `bathroom`, `laundry` | `FLOOR-PORCELAIN-WHITE` | `WALL-TILE-WHITE` |
-| `storage`, `utility`, `shaft`, `unspecified`, `open_to_below`, `roof` | `FLOOR-CONCRETE` | `WALL-PAINT-WHITE` |
+| `storage`, `utility`, `electrical_room`, `idf_room`, `shaft`, `unspecified`, `open_to_below`, `roof` | `FLOOR-CONCRETE` | `WALL-PAINT-WHITE` |
 
 A location's land's areas (0.12: `yard`, `driveway`, `garden`, `courtyard`, `path`, `gate_area`, `road`,
 `pool`) have no finishes and no defaults of their own in 0.12: a reader draws them by their type (a
@@ -1245,6 +1269,23 @@ its building's (by its placement), and say each way in and out of a building.
   3D), when the exporter could build them. Nothing else changes: a reader of 0.4
   read a 0.5 package as it is, ignoring the folder (readers of 0.7 and later refuse a
   newer minor version instead: Versioning).
+
+## Changes from 0.13.1
+
+- `catalogue.json`: a type's `plan` (Plan drawings): its drawing seen from above, `lines`
+  line for line and an `outline` to raise in 3D, in the type's own frame.
+- A patch: a reader of 0.13 reads a 0.13.2 package (Versioning), drawing each type by its
+  shape as before.
+
+## Changes from 0.13.0
+
+- Space types `electrical_room` (a room of switchboards and distribution boards) and
+  `idf_room` (a floor's telecom room: an intermediate distribution frame, its racks and patch
+  panels), which were `utility`: not walked, as `utility`, and finished as it by default
+  (`FLOOR-CONCRETE`, `WALL-PAINT-WHITE`).
+- A patch: a reader of 0.13 reads a 0.13.1 package (Versioning): its `manifest.json → types`
+  lists the types it may use, these among them, and a reader finishes a type it does not know
+  as `unspecified` (Finishes).
 
 ## Changes from 0.12
 

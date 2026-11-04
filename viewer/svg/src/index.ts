@@ -12,7 +12,7 @@ export { LocalFrame, fromSite, toSite } from "./frame.js";
 export type { Placement, Site } from "./frame.js";
 export { TYPE_COLORS } from "./colors.js";
 export { poleOf } from "./geometry.js";
-export type { Camera, FloorPlan, PlanDrawing, PlanFootprint, PlanItem, PlanOpening, PlanRoute, PlanRouteStep, PlanSpace, Polygon, Ring, SpaceStyle,
+export type { Camera, FloorPlan, ItemPlan, PlanDrawing, PlanFootprint, PlanItem, PlanOpening, PlanRoute, PlanRouteStep, PlanSpace, Polygon, Ring, SpaceStyle,
   XY } from "./types.js";
 // finding the way (format 0.8): the module both viewers share
 export { route, shortest, siteGraph, siteRoute, Graph } from "./navigation.js";

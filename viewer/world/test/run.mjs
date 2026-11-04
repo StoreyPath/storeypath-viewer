@@ -30,7 +30,7 @@ register(`data:text/javascript,${encodeURIComponent(`
   }`)}`);
 const { FORMAT_VERSION, byLevel, floorType, fromSite, loadPackage, toSite } = await import("../../src/package.js");
 const { BUILDER, buildFloor, buildItems, buildPieces, ceilingPanels, cutPieces, groupByFinish, inside, itemExtent, kindOf, occluders, openSlab, originOf,
-  outlineRect, planFloor, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
+  outlineRect, planFloor, planOf, roomFinder, setItems, stairFlights, toLocal } = await import("../../src/world/build.js");
 const { FINISHES, EXTERIOR, defaultFinish, finishOf, floorFinish, wallFinish } = await import("../../src/finishes.js");
 const { finishes, seedOf } = await import("../../src/world/finishes.js");
 const { TYPE_COLORS } = await import("../../src/theme.js");
@@ -403,6 +403,29 @@ const withinBox = ({ it, at }, slack = 1e-3) => {
   const [a0, b0, a1, b1, top] = itemExtent(it);
   return at.every(([u, v, y]) => u >= a0 - slack && u <= a1 + slack && v >= b0 - slack && v <= b1 + slack && y >= -slack && y <= top + slack);
 };
+
+test("a type's plan (0.13.2): a ring table's top is its outline, its middle open, on legs round it; an L desk's top only where the L is; a chair its outline raised", () => {
+  const circle = (r, n = 48) => Array.from({ length: n }, (_, i) => [r * Math.cos((2 * Math.PI * i) / n), r * Math.sin((2 * Math.PI * i) / n)]);
+  const type = (w, d, outline) => ({ width: w, depth: d, plan: { lines: [[[-w / 2, 0], [w / 2, 0]]], outline } });
+  // a ring: 2 m across, open 1.2 m in its middle
+  const ring = builtAlone("RING", "table", [2, 2, 0.75], { plan: planOf(type(2, 2, [[circle(1), circle(0.6)]])) });
+  truly(ring.it.plan && withinBox(ring), "a ring table within its box");
+  const tops = ring.at.filter(([, , y]) => y > 0.7);
+  truly(tops.length && tops.every(([u, v]) => Math.hypot(u, v) >= 0.6 - 1e-3 && Math.hypot(u, v) <= 1 + 1e-3), "its top only on the ring");
+  const legs = ring.at.filter(([, , y]) => y < 0.6);
+  truly(legs.length && legs.every(([u, v]) => Math.hypot(u, v) > 0.6 && Math.hypot(u, v) < 1), "on legs under the ring, not in its middle");
+  // an L: 2 x 2 m, the quarter at +x, -y not there (the plan's -y is ahead)
+  const L = [[-1, -1], [0, -1], [0, 0], [1, 0], [1, 1], [-1, 1]];
+  const desk = builtAlone("L", "desk", [2, 2, 0.75], { plan: planOf(type(2, 2, [[L]])) });
+  const deskTops = desk.at.filter(([, , y]) => y > 0.7);
+  truly(deskTops.length && !deskTops.some(([u, v]) => u > 0.01 && v > 0.01), "no top where the L is not (ahead, to its right)");
+  equal(desk.at.filter(([, , y]) => y === 0).length, 6 * 4, "a leg at each of its six corners (four corners of each on the floor)");
+  // a chair: its outline, from the floor to its top
+  const chair = builtAlone("C", "chair", [0.6, 0.6, 0.9], { plan: planOf(type(0.6, 0.6, [[[[-0.3, -0.3], [0.3, -0.3], [0.3, 0.3], [-0.3, 0.3]]]])) });
+  truly(withinBox(chair) && chair.at.some(([, , y]) => Math.abs(y - 0.9) < 1e-6) && chair.at.some(([, , y]) => y === 0), "a chair its outline raised");
+  // malformed (a ring of two points): none, drawn by its shape
+  equal(planOf(type(1, 1, [[[[0, 0], [1, 0]]]])), null, "a malformed plan");
+});
 
 test("a desk and a table are built alone (format 0.10: their chairs are items of their own), within their footprint; an executive's desk otherwise", async () => {
   const desks = [["DESK-JUNIOR", "junior", 1.2, 0.6], ["DESK-SENIOR", "senior", 1.4, 0.7], ["DESK-MANAGER", "manager", 1.8, 0.9],

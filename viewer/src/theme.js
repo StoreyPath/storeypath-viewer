@@ -14,6 +14,8 @@ export const TYPE_COLORS = {
   kitchen: "#a5d6a7",
   storage: "#bcaaa4",
   utility: "#a3a3ab",
+  electrical_room: "#c9b26e", // (format 0.13.1) switchboards and distribution boards
+  idf_room: "#8fa6bd", // (format 0.13.1) a floor's telecom room: racks and patch panels
   shaft: "#86868e",
   open_area: "#a8d4f7",
   bedroom: "#8fb3e8",
@@ -45,6 +47,9 @@ export const TYPE_COLORS = {
 export const FLAT_TYPES = ["corridor", "lobby", "open_area", "parking", "balcony", "terrace", "open_to_below", "roof",
   "yard", "path", "courtyard", "gate_area", "driveway", "road", "garden", "pool"];
 
+// Types whose name is not their code with spaces.
+const LABELS = { unspecified: "needs review", idf_room: "IDF room" };
+
 export function typeLabel(type) {
-  return type === "unspecified" ? "needs review" : type.replaceAll("_", " ");
+  return LABELS[type] ?? type.replaceAll("_", " ");
 }

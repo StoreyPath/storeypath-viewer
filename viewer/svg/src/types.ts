@@ -104,6 +104,21 @@ export interface PlanItem {
   view?: { deg: number; range: number | null } | null;
   /** The door it serves (format 0.10: a card reader, a door controller): the door's ID. */
   door?: string | null;
+  /** Its type's drawing seen from above (format 0.13.2), drawn in place of its shape;
+   * null: drawn by its shape. */
+  plan?: ItemPlan | null;
+}
+
+/** A type's drawing seen from above (format 0.13.2, catalogue.json `plan`): in the type's
+ * own frame, metres, its middle at (0, 0), its front towards -y, at the type's size
+ * (`width` x `depth`); an item of another size is drawn stretched to it. */
+export interface ItemPlan {
+  /** Polylines (a closed one repeats its first point). */
+  lines: XY[][];
+  /** Its footprint: polygons of rings (the first its boundary, the rest holes). */
+  outline?: XY[][][];
+  width: number;
+  depth: number;
 }
 
 export interface FloorPlan {

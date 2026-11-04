@@ -346,6 +346,9 @@ type ItemType struct {
 	// models/<CODE>.glb, binary glTF in the type's own frame (FORMAT.md, Models); nil:
 	// none, drawn by its shape.
 	Model *string `json:"model"`
+	// Plan is how its items look from above, line for line (format 0.13.2; FORMAT.md, Plan
+	// drawings), in its own frame; nil: drawn by its shape.
+	Plan *ItemPlan `json:"plan,omitempty"`
 	// ViewDeg and RangeM are a camera type's view (format 0.10), for its items not given
 	// their own: degrees across (360: all round), metres far; nil: none.
 	ViewDeg *float64 `json:"view_deg"`
@@ -354,6 +357,15 @@ type ItemType struct {
 	ServesDoor bool        `json:"serves_door"`
 	Fields     []ItemField `json:"fields"`
 	Retired    bool        `json:"retired"`
+}
+
+// ItemPlan is a type's drawing seen from above (format 0.13.2): metres in the type's own
+// frame, its middle at (0, 0), its front towards -y. Lines are polylines (a closed one
+// repeats its first point); Outline its footprint for 3D, polygons of rings (the first
+// the boundary, the rest holes; the first point not repeated).
+type ItemPlan struct {
+	Lines   [][][2]float64   `json:"lines"`
+	Outline [][][][2]float64 `json:"outline,omitempty"`
 }
 
 // ItemShapes are the shapes an item type may be drawn as (catalogue.json, format 0.9.1;

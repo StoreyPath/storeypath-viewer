@@ -752,9 +752,21 @@ export class FloorPlanEngine extends EventTarget {
     } else {
       g.setAttribute("transform", `matrix(${fine(u[0])} ${fine(u[1])} ${fine(f[0])} ${fine(f[1])} ${round(it.at[0])} ${round(it.at[1])})`);
       const dome = kind === "camera" && it.mount === "ceiling"; // (a dome: round, turned to where it looks)
-      if (dome) body("circle", { r: round(Math.max(Math.min(w, d) / 2, 0.15)) });
+      const plan = it.plan;
+      if (plan) { // (format 0.13.2) its drawing, line for line: its outline filled, its lines over it
+        // (this frame's +y is its front, the plan's -y; the plan made the item's size)
+        const sx = w / plan.width, sy = d / plan.depth;
+        const at = (q: XY): string => `${fine(q[0] * sx)},${fine(-q[1] * sy)}`;
+        if (plan.outline?.length) {
+          mark("path", { d: plan.outline.map((poly) => poly.map((ring) => `M${ring.map(at).join("L")}Z`).join("")).join(""),
+            "fill-rule": "evenodd" }, "sp-item-body").style.fill = it.color ?? "";
+        } else body("rect", { x: round(-w / 2), y: round(-d / 2), width: round(w), height: round(d) });
+        mark("path", { d: plan.lines.map((l) => `M${l.map(at).join("L")}`).join("") }, "sp-item-mark sp-item-plan");
+      } else if (dome) body("circle", { r: round(Math.max(Math.min(w, d) / 2, 0.15)) });
       else body("rect", { x: round(-w / 2), y: round(-d / 2), width: round(w), height: round(d) });
-      if (kind === "chair" || kind === "sidechair" || kind === "armchair") { // its back, away from its front; an armchair's arms
+      if (plan) {
+        // drawn as it is: no symbol of a shape over it
+      } else if (kind === "chair" || kind === "sidechair" || kind === "armchair") { // its back, away from its front; an armchair's arms
         const back = Math.min(kind === "chair" ? 0.14 : 0.1, d / 4), m = Math.min(0.04, w / 10);
         mark("rect", { x: round(-w / 2 + m), y: round(-d / 2), width: round(w - 2 * m), height: round(back), rx: 0.04 }, "sp-item-chair sp-item-back");
         if (kind === "armchair") {
@@ -795,7 +807,7 @@ export class FloorPlanEngine extends EventTarget {
         const m = Math.min(0.08, w / 8, d / 8);
         mark("rect", { x: round(-w / 2 + m), y: round(-d / 2 + m), width: round(w - 2 * m), height: round((d - 2 * m) * 0.6) });
       }
-      if (!dome) mark("line", { x1: round(-w / 2), y1: round(d / 2), x2: round(w / 2), y2: round(d / 2) }, "sp-item-front");
+      if (!dome && !plan) mark("line", { x1: round(-w / 2), y1: round(d / 2), x2: round(w / 2), y2: round(d / 2) }, "sp-item-front");
       ring = ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).map(([a, b]): XY => [
         it.at[0] + (a * w * u[0] + b * d * f[0]) / 2, it.at[1] + (a * w * u[1] + b * d * f[1]) / 2]);
     }

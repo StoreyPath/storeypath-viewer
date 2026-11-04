@@ -1382,13 +1382,26 @@ export function planItem(id, p, { origin, placement, wallHeight, type, model = n
   const heading = own ? (placement.bearing || 0) + 180 - (own.rotation_deg || 0) : p.heading ?? 0;
   const h = (heading * Math.PI) / 180;
   const { color, grade, shape } = type ?? {};
+  const plan = planOf(type);
   const it = { id, type: p.type, mount: p.mount ?? "floor", x, n, fx: Math.sin(h), fn: Math.cos(h),
     width: p.width_m || 1, depth: p.depth_m || 0.6, height: p.height_m || 0.75,
     color: typeof color === "string" && COLOR.test(color) ? color : ITEM_COLOR,
     grade: GRADES.includes(grade) ? grade : null,
-    shape: typeof shape === "string" ? shape : null, model: model?.position ? model : null };
+    shape: typeof shape === "string" ? shape : null, model: model?.position ? model : null, plan };
   it.y = it.mount === "ceiling" ? wallHeight - it.height - 0.01 : p.elevation_m ?? (it.mount === "wall" ? WALL_ITEM : 0);
   return it;
+}
+
+/** A type's plan (format 0.13.2) as the world draws it, or null (none, or malformed: drawn
+ * by its shape): its outline's polygons and its size, every point two finite numbers, each
+ * ring three or more. */
+export function planOf(type) {
+  const p = type?.plan, w = Number(type?.width), d = Number(type?.depth);
+  if (!p || !Array.isArray(p.outline) || !p.outline.length || !(w > 0) || !(d > 0)) return null;
+  const point = (q) => Array.isArray(q) && q.length === 2 && Number.isFinite(q[0]) && Number.isFinite(q[1]);
+  const ok = p.outline.every((poly) => Array.isArray(poly) && poly.length > 0
+    && poly.every((ring) => Array.isArray(ring) && ring.length >= 3 && ring.every(point)));
+  return ok ? { outline: p.outline, width: w, depth: d } : null;
 }
 
 /** A floor's plan given its items (planItem's; null ones left out): ``items``, and the
@@ -1504,6 +1517,43 @@ class Shapes {
     for (let i = 0; i < sides; i++) {
       const a = (i / sides) * Math.PI * 2, b = ((i + 1) / sides) * Math.PI * 2;
       for (const y of [y0, y1]) this.#line([x + r * Math.cos(a), y, z + r * Math.sin(a)], [x + r * Math.cos(b), y, z + r * Math.sin(b)]);
+    }
+  }
+
+  /** A polygon raised from y0 to y1 (format 0.13.2, a type's plan's outline): ``rings``
+   * in the frame's (across, ahead), the first its boundary and the rest holes; its top and
+   * bottom as three.js triangulates them, its sides, and lines along its top and bottom. */
+  prism(rings, [y0, y1], rgb, edged = true) {
+    const v2 = (ring) => ring.map(([x, z]) => new THREE.Vector2(x, z));
+    const outer = v2(rings[0]), holes = rings.slice(1).map(v2);
+    const flat = [outer, ...holes].flat();
+    const tri = (a, b, c, want) => { // a triangle facing ``want`` (a direction), wound so
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const [p, q] = n[0] * want[0] + n[1] * want[1] + n[2] * want[2] >= 0 ? [b, c] : [c, b];
+      const at = this.position.length / 3;
+      for (const w of [a, p, q]) this.#vertex(w[0], w[1], w[2], rgb);
+      this.index.push(at, at + 1, at + 2);
+    };
+    for (const [i, j, k] of THREE.ShapeUtils.triangulateShape(outer, holes)) {
+      const [a, b, c] = [flat[i], flat[j], flat[k]];
+      tri([a.x, y1, a.y], [b.x, y1, b.y], [c.x, y1, c.y], [0, 1, 0]);
+      if (y0 > 0.001) tri([a.x, y0, a.y], [b.x, y0, b.y], [c.x, y0, c.y], [0, -1, 0]);
+    }
+    for (const [r, ring] of rings.entries()) { // its sides, facing out of it (into a hole's middle)
+      let area = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const [x0, z0] = ring[i], [x1, z1] = ring[(i + 1) % ring.length];
+        area += x0 * z1 - x1 * z0;
+      }
+      const out = (area > 0) === (r === 0) ? 1 : -1; // (an outer ring turning one way faces out to its right)
+      for (let i = 0; i < ring.length; i++) {
+        const [x0, z0] = ring[i], [x1, z1] = ring[(i + 1) % ring.length];
+        const want = [(z1 - z0) * out, 0, -(x1 - x0) * out];
+        tri([x0, y0, z0], [x1, y0, z1], [x1, y1, z1], want);
+        tri([x0, y0, z0], [x1, y1, z1], [x0, y1, z0], want);
+        if (edged) for (const y of [y0, y1]) this.#line([x0, y, z0], [x1, y, z1]);
+      }
     }
   }
 
@@ -1911,6 +1961,77 @@ export function kindOf(it) {
   return Object.hasOwn(BY_CODE, part) ? BY_CODE[part] : "plain";
 }
 
+/** An item by its type's plan (format 0.13.2): its outline in its own frame, made the item's
+ * size, across and ahead (the plan's front, -y, ahead). A desk or a table: its top, 4 cm
+ * thick at its height, on a leg at each corner of its outline, or, round, on a pedestal at its
+ * middle (a ring on legs round it); anything else its outline from its bottom to its top. */
+function drawPlan(s, it, c) {
+  const p = it.plan, sx = it.width / p.width, sz = it.depth / p.depth;
+  const polys = p.outline.map((poly) => poly.map((ring) => ring.map(([x, y]) => [x * sx, -y * sz])));
+  const kind = kindOf(it), h = it.height;
+  if (kind !== "DESK" && kind !== "TABLE") {
+    s.in(FIN.plain, () => { for (const poly of polys) s.prism(poly, [0, h], rgb(c)); });
+    return;
+  }
+  const top = Math.min(0.04, h / 2), frame = rgb(POWDER);
+  s.in(FIN.wood, () => { for (const poly of polys) s.prism(poly, [h - top, h], rgb(c)); });
+  s.in(FIN.dark, () => {
+    for (const poly of polys) {
+      const legs = planLegs(poly);
+      for (const [x, z] of legs.points) s.box([x - 0.025, x + 0.025], [0, h - top], [z - 0.025, z + 0.025], frame);
+      if (legs.pedestal) {
+        const [x, z] = legs.pedestal;
+        s.cyl(x, z, 0.06, [0.02, h - top], frame, 16);
+        s.cyl(x, z, Math.min(0.3, legs.reach * 0.6), [0, 0.02], frame, 24);
+      }
+    }
+  });
+}
+
+/** Where a top of an outline's boundary stands (planItem's plan, drawPlan): a leg 8 cm in from
+ * each corner (where its boundary turns 30° or more), or, with none (round), a pedestal at its
+ * middle when that is under it, else six legs round it 8 cm in. */
+function planLegs(rings) {
+  const ring = rings[0], n = ring.length, points = [];
+  let area = 0, cx = 0, cz = 0;
+  for (let i = 0; i < n; i++) {
+    const [x0, z0] = ring[i], [x1, z1] = ring[(i + 1) % n], a = x0 * z1 - x1 * z0;
+    area += a; cx += (x0 + x1) * a; cz += (z0 + z1) * a;
+  }
+  cx /= 3 * area; cz /= 3 * area;
+  const inward = (i) => { // the way into the outline from its point i (the bisector of its edges, turned in)
+    const [xp, zp] = ring[(i - 1 + n) % n], [x, z] = ring[i], [xn, zn] = ring[(i + 1) % n];
+    const a = Math.hypot(x - xp, z - zp) || 1, b = Math.hypot(xn - x, zn - z) || 1;
+    const t = [(x - xp) / a + (xn - x) / b, (z - zp) / a + (zn - z) / b], m = Math.hypot(t[0], t[1]) || 1;
+    const nrm = [-t[1] / m, t[0] / m]; // left of the way it runs: in, when it runs counter-clockwise
+    return area > 0 ? nrm : [-nrm[0], -nrm[1]];
+  };
+  for (let i = 0; i < n; i++) {
+    const [xp, zp] = ring[(i - 1 + n) % n], [x, z] = ring[i], [xn, zn] = ring[(i + 1) % n];
+    const turn = Math.abs(Math.atan2((x - xp) * (zn - z) - (z - zp) * (xn - x), (x - xp) * (xn - x) + (z - zp) * (zn - z)));
+    if (turn >= Math.PI / 6) {
+      const [ix, iz] = inward(i), k = 0.08 / Math.max(Math.cos(turn / 2), 0.3);
+      points.push([x + ix * k, z + iz * k]);
+    }
+  }
+  if (points.length) return { points };
+  const inside = (px, pz) => rings.reduce((hit, r) => {
+    let c = false;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, zi] = r[i], [xj, zj] = r[j];
+      if ((zi > pz) !== (zj > pz) && px < ((xj - xi) * (pz - zi)) / (zj - zi) + xi) c = !c;
+    }
+    return hit !== c;
+  }, false);
+  const reach = Math.min(...ring.map(([x, z]) => Math.hypot(x - cx, z - cz)));
+  if (inside(cx, cz)) return { points: [], pedestal: [cx, cz], reach };
+  for (let k = 0; k < 6; k++) {
+    const i = Math.floor((k * n) / 6), [ix, iz] = inward(i);
+    points.push([ring[i][0] + ix * 0.08, ring[i][1] + iz * 0.08]);
+  }
+  return { points };
+}
+
 /** Anything else: a box; on the ceiling, a disc when it is round enough. */
 function drawPlain(s, it, c) {
   if (it.mount === "ceiling" && Math.abs(it.width - it.depth) < 0.1 * Math.max(it.width, it.depth)) return DRAW.ACCESS(s, it, c);
@@ -1921,14 +2042,17 @@ function drawPlain(s, it, c) {
  * "detailed" (as DRAW draws it, or as its type's model is: modelTemplate) or "light" (a box). */
 function template(cache, it, form) {
   const model = form === "light" ? null : it.model;
+  const drawn = form !== "light" && !model && it.plan?.outline?.length ? "plan" : null; // (0.13.2) its type's drawing
   const kind = form === "light" ? "light" : model ? `model ${model.id}` : kindOf(it);
-  const key = [kind, it.width, it.depth, it.height, it.color, it.grade, kind === "plain" || kind === "CAMERA" ? it.mount : ""].join("|");
+  const key = [drawn ? `plan ${it.type}` : kind, it.width, it.depth, it.height, it.color, it.grade,
+    kind === "plain" || kind === "CAMERA" ? it.mount : ""].join("|");
   let t = cache.get(key);
   if (!t) {
     if (model) t = modelTemplate(model, it);
     else {
       const s = new Shapes();
       if (kind === "light") drawPlain(s, { ...it, mount: "floor" }, it.color);
+      else if (drawn) drawPlan(s, it, it.color);
       else (DRAW[kind] ?? drawPlain)(s, it, it.color);
       t = s.done();
     }
